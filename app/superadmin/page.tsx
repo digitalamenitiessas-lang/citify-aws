@@ -7,10 +7,11 @@ import { Users, Building2, Tag, Shield, TrendingUp, ChevronRight, Home } from 'l
 
 type TabType = 'overview' | 'buildings' | 'users' | 'businesses' | 'promotions'
 
-const ROLE_BADGE = {
+const ROLE_BADGE: Record<string, { label: string, style: React.CSSProperties }> = {
   super_admin: { label: 'Admin', style: { background: 'rgba(122,122,122,0.2)', color: '#c4c4c4', border: '1px solid rgba(0,0,0,0.08)' } },
-  business_admin: { label: 'Admin Comercio', style: { background: 'rgba(156,156,156,0.15)', color: '#969696', border: '1px solid rgba(0,0,0,0.06)' } },
-  consumer: { label: 'Vecino', style: { background: 'rgba(0,0,0,0.03)', color: '#8c8c8c', border: '1px solid rgba(122,122,122,0.25)' } },
+  negocio_admin: { label: 'Admin Negocio', style: { background: 'rgba(156,156,156,0.15)', color: '#969696', border: '1px solid rgba(0,0,0,0.06)' } },
+  consorcio_admin: { label: 'Admin Consorcio', style: { background: 'rgba(184, 92, 56, 0.15)', color: '#B85C38', border: '1px solid rgba(184, 92, 56, 0.2)' } },
+  vecino: { label: 'Vecino', style: { background: 'rgba(0,0,0,0.03)', color: '#8c8c8c', border: '1px solid rgba(122,122,122,0.25)' } },
 }
 
 export default function AdminPanel() {
@@ -19,9 +20,9 @@ export default function AdminPanel() {
   const totalUsage = mockPromotions.reduce((s, p) => s + p.usageCount, 0)
 
   const overviewStats = [
-    { label: 'Total de Usuarios', value: mockUsers.length, icon: Users, sub: `${mockUsers.filter(u => u.role === 'consumer').length} vecinos` },
+    { label: 'Total de Usuarios', value: mockUsers.length, icon: Users, sub: `${mockUsers.filter(u => u.role === 'vecino').length} vecinos` },
     { label: 'Total Consorcios', value: mockBuildings.length, icon: Home, sub: `Edificios adheridos` },
-    { label: 'Comercios', value: mockBusinesses.length, icon: Building2, sub: `${mockUsers.filter(u => u.role === 'business_admin').length} admins` },
+    { label: 'Comercios', value: mockBusinesses.length, icon: Building2, sub: `${mockUsers.filter(u => u.role === 'negocio_admin').length} admins` },
     { label: 'Promociones', value: mockPromotions.length, icon: Tag, sub: 'Promociones activas' },
   ]
 
@@ -171,8 +172,8 @@ export default function AdminPanel() {
                       </td>
                       <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
                       <td className="px-5 py-3.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium" style={ROLE_BADGE[u.role].style}>
-                          {ROLE_BADGE[u.role].label}
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium" style={ROLE_BADGE[u.role]?.style}>
+                          {ROLE_BADGE[u.role]?.label}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-muted-foreground">{new Date(u.createdAt).toLocaleDateString('es-AR', { month: 'short', day: 'numeric', year: 'numeric' })}</td>

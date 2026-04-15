@@ -147,7 +147,7 @@ export default function BusinessDashboard() {
   const [editingPromo, setEditingPromo] = useState<Promotion | null>(null)
 
   // Autenticación Mock
-  const user = mockUsers.find(u => u.role === 'business_admin')!
+  const user = mockUsers.find(u => u.role === 'negocio_admin')!
   const business = mockBusinesses.find(b => b.id === user.businessId)
 
   useEffect(() => {
@@ -158,7 +158,7 @@ export default function BusinessDashboard() {
   const totalUsage = promotions.reduce((s, p) => s + p.usageCount, 0)
 
   // Total de vecinos (usuarios consumidores) en la plataforma
-  const totalConsumers = mockUsers.filter(u => u.role === 'consumer').length || 1
+  const totalConsumers = mockUsers.filter(u => u.role === 'vecino').length || 1
 
   const handleSave = (data: Omit<Promotion, 'id' | 'businessId' | 'businessName' | 'usageCount' | 'createdAt'>) => {
     if (editingPromo) {
@@ -195,7 +195,7 @@ export default function BusinessDashboard() {
       <div className="pt-20 pb-6 px-6 border-b border-border/50 bg-grid">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground mb-0.5 font-medium tracking-wider uppercase">Panel del Comercio</p>
+            <p className="text-xs text-muted-foreground mb-0.5 font-medium tracking-wider uppercase">Panel del Negocio</p>
             <h1 className="font-serif text-2xl font-bold text-foreground">{business?.name ?? user.name}</h1>
             <p className="text-muted-foreground text-sm mt-0.5">{business?.category ?? 'Comercio'} · Administrá tus promociones</p>
           </div>
