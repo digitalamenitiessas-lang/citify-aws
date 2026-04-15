@@ -3,7 +3,7 @@
 import { Promotion } from '@/lib/mock-data'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, Tag, TrendingUp } from 'lucide-react'
+import { Calendar, Tag, TrendingUp, CheckCircle, Ticket } from 'lucide-react'
 import { useState } from 'react'
 
 interface PromotionCardProps {
@@ -13,9 +13,15 @@ interface PromotionCardProps {
   onEdit?: (p: Promotion) => void
   onDelete?: (id: string) => void
   onUse?: (p: Promotion) => void
+  showSaveAction?: boolean
+  isSaved?: boolean
+  onSaveToggle?: (p: Promotion) => void
+  showUseAction?: boolean
+  isUsed?: boolean
+  onMarkUsed?: (p: Promotion) => void
 }
 
-export function PromotionCard({ promotion, showUseCoupon, showAnalytics, onEdit, onDelete, onUse }: PromotionCardProps) {
+export function PromotionCard({ promotion, showUseCoupon, showAnalytics, onEdit, onDelete, onUse, showSaveAction, isSaved, onSaveToggle, showUseAction, isUsed, onMarkUsed }: PromotionCardProps) {
   const [usageCount, setUsageCount] = useState(promotion.usageCount)
   const [used, setUsed] = useState(false)
 
@@ -80,7 +86,65 @@ export function PromotionCard({ promotion, showUseCoupon, showAnalytics, onEdit,
       </div>
 
       {/* Actions */}
-      {showUseCoupon && (
+      {showSaveAction && (
+        <div className="flex gap-2">
+          {isSaved ? (
+            <Button
+              size="sm"
+              className="flex-1 btn-premium gap-2 cursor-pointer"
+              onClick={() => onSaveToggle?.(promotion)}
+            >
+              <CheckCircle className="w-4 h-4" /> Guardado
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 text-muted-foreground hover:text-foreground gap-2 cursor-pointer"
+              onClick={() => onSaveToggle?.(promotion)}
+              disabled={isExpired}
+            >
+              <Ticket className="w-4 h-4" /> Guardar Cupón
+            </Button>
+          )}
+        </div>
+      )}
+
+      {showUseAction && (
+        <div className="flex gap-2">
+          {!isUsed ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                onClick={() => onUse?.(promotion)}
+              >
+                Ver QR
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 btn-premium cursor-pointer"
+                disabled={isExpired}
+                onClick={() => onMarkUsed?.(promotion)}
+              >
+                Marcar Usado
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              className="flex-1 opacity-50 cursor-not-allowed"
+            >
+              Ya utilizado
+            </Button>
+          )}
+        </div>
+      )}
+
+      {showUseCoupon && !showSaveAction && !showUseAction && (
         <div className="flex gap-2">
           <Button
             size="sm"

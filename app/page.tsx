@@ -86,7 +86,12 @@ export default function HomePage() {
             </Link>
             <Link href="/admin">
               <Button size="lg" variant="outline" className="gap-2 px-8 border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary">
-                Panel Comercio
+                Panel Negocio
+              </Button>
+            </Link>
+            <Link href="/consorcio">
+              <Button size="lg" variant="outline" className="gap-2 px-8 border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary">
+                Panel Consorcio
               </Button>
             </Link>
             <Link href="/superadmin">
@@ -199,7 +204,7 @@ export default function HomePage() {
               <Link href="/admin">
                 <Button size="lg" variant="outline" className="gap-2 px-8 border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary">
                   <Building2 className="w-4 h-4" />
-                  Panel Comercio
+                  Panel Negocio
                 </Button>
               </Link>
             </div>

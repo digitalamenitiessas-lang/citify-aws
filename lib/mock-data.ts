@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'business_admin' | 'consumer'
+export type UserRole = 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'vecino'
 
 export interface Building {
   id: string
@@ -17,6 +17,9 @@ export interface User {
   buildingId?: string
   createdAt: string
   avatar?: string
+  floor?: string
+  unit?: string
+  phone?: string
 }
 
 export interface Business {
@@ -86,10 +89,19 @@ export const mockUsers: User[] = [
     avatar: 'AR',
   },
   {
+    id: 'u_cons_1',
+    name: 'Administración Torre del Parque',
+    email: 'admin@torredelparque.com',
+    role: 'consorcio_admin',
+    buildingId: 'build_1',
+    createdAt: '2024-01-15',
+    avatar: 'TP',
+  },
+  {
     id: 'u2',
     name: 'Marcus Chen',
     email: 'business@citify.com',
-    role: 'business_admin',
+    role: 'negocio_admin',
     businessId: 'b1',
     createdAt: '2024-02-15',
     avatar: 'MC',
@@ -98,7 +110,7 @@ export const mockUsers: User[] = [
     id: 'u3',
     name: 'Sofia Reyes',
     email: 'store2@citify.com',
-    role: 'business_admin',
+    role: 'negocio_admin',
     businessId: 'b2',
     createdAt: '2024-03-01',
     avatar: 'SR',
@@ -107,28 +119,37 @@ export const mockUsers: User[] = [
     id: 'u4',
     name: 'Jordan Lee',
     email: 'user@citify.com',
-    role: 'consumer',
+    role: 'vecino',
     buildingId: 'build_1',
     createdAt: '2024-03-10',
     avatar: 'JL',
+    floor: '4',
+    unit: 'B',
+    phone: '+54 11 4567-8901'
   },
   {
     id: 'u5',
     name: 'Priya Sharma',
     email: 'priya@citify.com',
-    role: 'consumer',
+    role: 'vecino',
     buildingId: 'build_1',
     createdAt: '2024-04-05',
     avatar: 'PS',
+    floor: '7',
+    unit: 'A',
+    phone: '+54 11 2345-6789'
   },
   {
     id: 'u6',
     name: 'Omar Hassan',
     email: 'omar@citify.com',
-    role: 'consumer',
+    role: 'vecino',
     buildingId: 'build_2',
     createdAt: '2024-04-12',
     avatar: 'OH',
+    floor: '2',
+    unit: 'C',
+    phone: '+54 11 3456-7890'
   },
 ]
 
@@ -176,7 +197,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Disfrutá un 20% de descuento en nuestro brunch clásico de fin de semana. Válido solo en el local. Incluye café y jugo ilimitados.',
     discount: '20%',
     category: 'Gastronomía',
-    expirationDate: '2025-12-31',
+    expirationDate: '2027-12-31',
     usageCount: 47,
     createdAt: '2024-04-01',
   },
@@ -188,7 +209,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Especial de after office: exclusivo para vecinos del edificio. Disponible de lunes a jueves, de 17 a 20 hs.',
     discount: '50%',
     category: 'Gastronomía',
-    expirationDate: '2025-11-30',
+    expirationDate: '2027-11-30',
     usageCount: 83,
     buildingId: 'build_1',
     createdAt: '2024-04-05',
@@ -201,7 +222,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Renová tu armario con nuestras nuevas llegadas de primavera con un 30% de descuento. Incluye todos los vestidos, blazers y accesorios nuevos.',
     discount: '30%',
     category: 'Compras',
-    expirationDate: '2025-10-15',
+    expirationDate: '2027-10-15',
     usageCount: 29,
     createdAt: '2024-04-10',
   },
@@ -214,7 +235,7 @@ export const mockPromotions: Promotion[] = [
     discount: 'Gratis',
     category: 'Compras',
     buildingId: 'build_1',
-    expirationDate: '2025-12-25',
+    expirationDate: '2027-12-25',
     usageCount: 112,
     createdAt: '2024-04-12',
   },
@@ -226,7 +247,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Regalate un masaje rejuvenecedor de cuerpo entero de 60 minutos con un 15% de descuento. Incluye aromaterapia y piedras calientes.',
     discount: '15%',
     category: 'Salud y Belleza',
-    expirationDate: '2025-09-30',
+    expirationDate: '2027-09-30',
     usageCount: 61,
     createdAt: '2024-04-08',
   },
@@ -238,7 +259,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Dete un gusto con nuestro facial clásico combinado con una manicura de lujo. Ahorrá un 25% reservando ambos tratamientos juntos.',
     discount: '25%',
     category: 'Salud y Belleza',
-    expirationDate: '2025-11-15',
+    expirationDate: '2027-11-15',
     usageCount: 34,
     createdAt: '2024-04-15',
   },
@@ -250,7 +271,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Comprá cualquier protector de pantalla y te lo instalamos gratis. Compatible con las principales marcas.',
     discount: 'Gratis',
     category: 'Tecnología',
-    expirationDate: '2025-08-31',
+    expirationDate: '2027-08-31',
     usageCount: 198,
     createdAt: '2024-04-02',
   },
@@ -262,7 +283,7 @@ export const mockPromotions: Promotion[] = [
     description: 'Ahorrá un 10% en todos los accesorios de tecnología, incluyendo fundas, cargadores, auriculares y relojes inteligentes.',
     discount: '10%',
     category: 'Tecnología',
-    expirationDate: '2025-12-31',
+    expirationDate: '2027-12-31',
     usageCount: 76,
     createdAt: '2024-04-18',
   },
