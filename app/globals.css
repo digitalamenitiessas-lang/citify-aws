@@ -1,0 +1,168 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* CITIFY — Warm Terracotta Editorial Palette */
+  --background: #F7F0E4;
+  --foreground: #241409;
+  --card: #FBF6EE;
+  --card-foreground: #241409;
+  --popover: #FBF6EE;
+  --popover-foreground: #241409;
+  --primary: #B85C38;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EDE0CC;
+  --secondary-foreground: #5C3A1E;
+  --muted: #EDE0CC;
+  --muted-foreground: #8B6B52;
+  --accent: #D4A882;
+  --accent-foreground: #241409;
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: #ffffff;
+  --border: #DDD0BB;
+  --input: #EDE0CC;
+  --ring: #B85C38;
+  --chart-1: #B85C38;
+  --chart-2: #C4733D;
+  --chart-3: #8B6B52;
+  --chart-4: #D4A882;
+  --chart-5: #5C3A1E;
+  --radius: 0.75rem;
+  --sidebar: #FBF6EE;
+  --sidebar-foreground: #241409;
+  --sidebar-primary: #B85C38;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #EDE0CC;
+  --sidebar-accent-foreground: #241409;
+  --sidebar-border: #DDD0BB;
+  --sidebar-ring: #B85C38;
+
+  /* Custom CITIFY warm tokens */
+  --citify-cream-1: #FBF6EE;
+  --citify-cream-2: #F2E8D4;
+  --citify-cream-3: #EDE0CC;
+  --citify-tan-1: #DDD0BB;
+  --citify-tan-2: #C9B99A;
+  --citify-brown-light: #8B6B52;
+  --citify-brown: #5C3A1E;
+  --citify-terracotta: #B85C38;
+  --citify-terracotta-dark: #8F4020;
+  --citify-surface: rgba(180, 120, 70, 0.06);
+  --citify-glass: rgba(180, 120, 70, 0.04);
+  --citify-highlight: rgba(180, 120, 70, 0.1);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-playfair);
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter), sans-serif;
+  }
+
+  /* Headings always use Playfair Display */
+  h1, h2, h3 {
+    font-family: var(--font-playfair), serif;
+  }
+}
+
+/* Glassmorphism — warm toned */
+.glass-card {
+  background: var(--citify-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(180, 120, 70, 0.14);
+  background-color: var(--citify-cream-1);
+}
+
+.glass-card-hover {
+  transition: all 0.3s ease;
+}
+
+.glass-card-hover:hover {
+  background-color: var(--citify-cream-2);
+  border-color: rgba(184, 92, 56, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(92, 58, 30, 0.1);
+}
+
+/* Warm subtle grid background */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(92, 58, 30, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(92, 58, 30, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Premium button — Terracotta */
+.btn-premium {
+  background: linear-gradient(135deg, #B85C38, #8F4020);
+  color: #ffffff;
+  border: 1px solid rgba(143, 64, 32, 0.3);
+  transition: all 0.3s ease;
+}
+
+.btn-premium:hover {
+  background: linear-gradient(135deg, #C4673F, #B85C38);
+  box-shadow: 0 4px 20px rgba(184, 92, 56, 0.3);
+}
+
+/* Scrollbar — warm toned */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--citify-tan-1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--citify-tan-2);
+}
