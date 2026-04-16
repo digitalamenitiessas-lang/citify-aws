@@ -109,10 +109,41 @@ export interface ConsorcioDashboardData {
   averageOccupancyRate: number
 }
 
+export interface ConsorcioAdminInfo {
+  profileId: string
+  fullName: string
+  email: string
+  phone: string | null
+  isPrimary: boolean
+}
+
+export interface SuperAdminBuildingDetail extends Building {
+  admins: ConsorcioAdminInfo[]
+  neighbors: Profile[]
+  registeredNeighbors: number
+  occupancyRate: number
+}
+
+export interface PromotionRedemptionByBuilding {
+  buildingId: string
+  buildingName: string
+  count: number
+}
+
+export interface SuperAdminPromotionDetail extends Promotion {
+  redemptionsByBuilding: PromotionRedemptionByBuilding[]
+}
+
+export interface SuperAdminBusinessDetail extends Business {
+  promotions: SuperAdminPromotionDetail[]
+  totalRedemptions: number
+  topBuilding: string | null
+}
+
 export interface SuperAdminDashboardData {
-  buildings: Building[]
+  buildings: SuperAdminBuildingDetail[]
   users: Profile[]
-  businesses: Business[]
+  businesses: SuperAdminBusinessDetail[]
   promotions: Promotion[]
 }
 

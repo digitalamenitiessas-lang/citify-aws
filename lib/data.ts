@@ -4,6 +4,7 @@ import type {
   BuildingAdminAssignment,
   Business,
   BusinessDashboardData,
+  ConsorcioAdminInfo,
   ConsorcioManagedBuilding,
   ConsorcioDashboardData,
   ConsumerDashboardData,
@@ -11,8 +12,12 @@ import type {
   MarketplaceItem,
   Profile,
   Promotion,
+  PromotionRedemptionByBuilding,
   PromotionsPageData,
+  SuperAdminBuildingDetail,
+  SuperAdminBusinessDetail,
   SuperAdminDashboardData,
+  SuperAdminPromotionDetail,
 } from '@/lib/types'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 
@@ -265,21 +270,119 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     return { buildings: [], users: [], businesses: [], promotions: [] }
   }
 
-  const [buildings, users, businesses, promotions] = await Promise.all([
-    supabase.from('buildings').select('*').order('created_at'),
-    supabase.from('profiles').select('*').order('created_at'),
-    supabase.from('businesses').select('*').order('created_at'),
+  const [buildingsRes, usersRes, businessesRes, promotionsRes, assignmentsRes, redemptionsRes] = await Promise.all([
+    supabase.from('buildings').select('*').order('name'),
+    supabase.from('profiles').select('*').order('full_name'),
+    supabase.from('businesses').select('*').order('name'),
     supabase
       .from('promotions')
       .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
       .order('created_at', { ascending: false }),
+    // admin assignments with profile info
+    supabase
+      .from('building_admin_assignments')
+      .select(`*, profiles ( id, full_name, email, phone )`),
+    // redemptions with the redeemer's building_id
+    supabase
+      .from('promotion_redemptions')
+      .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`),
   ])
 
+  const allBuildings = (buildingsRes.data ?? []).map(mapBuilding)
+  const allUsers = (usersRes.data ?? []).map(mapProfile)
+  const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase, row))
+
+  // Build map: buildingId -> consorcio admins
+  const adminsByBuilding = new Map<string, ConsorcioAdminInfo[]>()
+  for (const row of assignmentsRes.data ?? []) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    if (!profile) continue
+    const info: ConsorcioAdminInfo = {
+      profileId: profile.id,
+      fullName: profile.full_name ?? 'Sin nombre',
+      email: profile.email ?? '',
+      phone: profile.phone ?? null,
+      isPrimary: Boolean(row.is_primary),
+    }
+    const existing = adminsByBuilding.get(row.building_id) ?? []
+    existing.push(info)
+    adminsByBuilding.set(row.building_id, existing)
+  }
+
+  // Build map: buildingId -> neighbors (vecinos)
+  const neighborsByBuilding = new Map<string, Profile[]>()
+  for (const user of allUsers) {
+    if (user.role !== 'vecino' || !user.buildingId) continue
+    const existing = neighborsByBuilding.get(user.buildingId) ?? []
+    existing.push(user)
+    neighborsByBuilding.set(user.buildingId, existing)
+  }
+
+  // Build map: promotionId -> redemptions by building
+  const redemptionMap = new Map<string, Map<string, { name: string; count: number }>>()
+  for (const row of redemptionsRes.data ?? []) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    const building = profile?.buildings
+      ? Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings
+      : null
+    if (!building?.id) continue
+    if (!redemptionMap.has(row.promotion_id)) redemptionMap.set(row.promotion_id, new Map())
+    const byBuilding = redemptionMap.get(row.promotion_id)!
+    const current = byBuilding.get(building.id) ?? { name: building.name, count: 0 }
+    current.count += 1
+    byBuilding.set(building.id, current)
+  }
+
+  // Enrich promotions
+  const allPromotions: SuperAdminPromotionDetail[] = allPromotionsRaw.map((promotion) => {
+    const byBuilding = redemptionMap.get(promotion.id)
+    const redemptionsByBuilding: PromotionRedemptionByBuilding[] = byBuilding
+      ? Array.from(byBuilding.entries())
+          .map(([buildingId, { name, count }]) => ({ buildingId, buildingName: name, count }))
+          .sort((a, b) => b.count - a.count)
+      : []
+    return { ...promotion, redemptionsByBuilding }
+  })
+
+  // Enrich buildings
+  const buildings: SuperAdminBuildingDetail[] = allBuildings.map((building) => {
+    const neighbors = neighborsByBuilding.get(building.id) ?? []
+    const admins = adminsByBuilding.get(building.id) ?? []
+    const occupancyRate = Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100)
+    return { ...building, admins, neighbors, registeredNeighbors: neighbors.length, occupancyRate }
+  })
+
+  // Enrich businesses
+  const businessPromoMap = new Map<string, SuperAdminPromotionDetail[]>()
+  for (const promotion of allPromotions) {
+    const existing = businessPromoMap.get(promotion.businessId) ?? []
+    existing.push(promotion)
+    businessPromoMap.set(promotion.businessId, existing)
+  }
+
+  const businesses: SuperAdminBusinessDetail[] = (businessesRes.data ?? []).map((row: any) => {
+    const business = mapBusiness(supabase, row)
+    const promotions = businessPromoMap.get(business.id) ?? []
+    const totalRedemptions = promotions.reduce((sum, p) => sum + p.usageCount, 0)
+
+    // find building where this business's coupons are most used
+    const buildingCounts = new Map<string, { name: string; count: number }>()
+    for (const promotion of promotions) {
+      for (const { buildingId, buildingName, count } of promotion.redemptionsByBuilding) {
+        const existing = buildingCounts.get(buildingId) ?? { name: buildingName, count: 0 }
+        existing.count += count
+        buildingCounts.set(buildingId, existing)
+      }
+    }
+    const topEntry = Array.from(buildingCounts.values()).sort((a, b) => b.count - a.count)[0]
+    return { ...business, promotions, totalRedemptions, topBuilding: topEntry?.name ?? null }
+  })
+
   return {
-    buildings: (buildings.data ?? []).map(mapBuilding),
-    users: (users.data ?? []).map(mapProfile),
-    businesses: (businesses.data ?? []).map((row: any) => mapBusiness(supabase, row)),
-    promotions: (promotions.data ?? []).map((row: any) => mapPromotion(supabase, row)),
+    buildings,
+    users: allUsers,
+    businesses,
+    promotions: allPromotions,
   }
 }
 
