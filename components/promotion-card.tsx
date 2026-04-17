@@ -107,11 +107,11 @@ export function PromotionCard({
         <div className="flex gap-2">
           {isSaved ? (
             <Button size="sm" className="flex-1 btn-premium gap-2 cursor-pointer" onClick={() => onSaveToggle?.(promotion)}>
-              <CheckCircle className="w-4 h-4" /> Guardado
+              <CheckCircle className="w-4 h-4" /> En mi billetera
             </Button>
           ) : (
             <Button size="sm" variant="outline" className="flex-1 text-muted-foreground hover:text-foreground gap-2 cursor-pointer" onClick={() => onSaveToggle?.(promotion)} disabled={isExpired}>
-              <Ticket className="w-4 h-4" /> Guardar Cupon
+              <Ticket className="w-4 h-4" /> Quiero este cupón
             </Button>
           )}
         </div>
