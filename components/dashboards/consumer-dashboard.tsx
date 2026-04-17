@@ -506,42 +506,44 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     <div className="min-h-screen pb-24" style={{ background: 'var(--background)' }}>
 
       {/* ── HERO HEADER ──────────────────────────────────────────────────── */}
-      <div
-        className="relative overflow-hidden px-5 pt-3 pb-5"
-        style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}
-      >
-        {/* decorative blobs */}
-        <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
-        <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
+      {mainView === 'home' && (
+        <div
+          className="relative overflow-hidden px-5 pt-3 pb-5"
+          style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}
+        >
+          {/* decorative blobs */}
+          <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
+          <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
 
-        <div className="relative z-10">
-          <p className="text-white/70 text-sm font-medium mb-0.5">Bienvenido/a de vuelta</p>
-          <h1 className="text-white text-2xl font-bold mb-0.5">
-            Hola, {firstName} 👋
-          </h1>
-          <p className="text-white/80 text-sm mb-1">
-            <span className="font-semibold text-white">{allPromos.length} promociones</span> disponibles para vos
-          </p>
-          {buildingPromos.length > 0 && (
-            <p className="text-white/70 text-xs">
-              {buildingPromos.length} exclusivas de {buildingName}
+          <div className="relative z-10">
+            <p className="text-white/70 text-sm font-medium mb-0.5">Bienvenido/a de vuelta</p>
+            <h1 className="text-white text-2xl font-bold mb-0.5">
+              Hola, {firstName} 👋
+            </h1>
+            <p className="text-white/80 text-sm mb-1">
+              <span className="font-semibold text-white">{allPromos.length} promociones</span> disponibles para vos
             </p>
-          )}
+            {buildingPromos.length > 0 && (
+              <p className="text-white/70 text-xs">
+                {buildingPromos.length} exclusivas de {buildingName}
+              </p>
+            )}
 
-          {/* Search bar */}
-          <div className="mt-5 relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onFocus={() => setMainView('all-promos')}
-              placeholder="Buscar promociones..."
-              className="w-full pl-10 pr-4 py-3 rounded-xl text-sm outline-none"
-              style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--foreground)' }}
-            />
+            {/* Search bar */}
+            <div className="mt-5 relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={() => setMainView('all-promos')}
+                placeholder="Buscar promociones..."
+                className="w-full pl-10 pr-4 py-3 rounded-xl text-sm outline-none"
+                style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--foreground)' }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       <div className="px-4 pt-5 max-w-5xl mx-auto">
@@ -637,33 +639,45 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <ArrowLeft className="w-4 h-4" /> Volver
               </button>
               <h2 className="font-bold text-foreground text-lg">Mi billetera</h2>
-              {savedCoupons.length > 0 && (
-                <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#B85C38,#8F4020)' }}>
-                  {savedCoupons.length}
-                </span>
-              )}
             </div>
 
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={() => setCouponFilter('disponibles')}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${
-                  couponFilter === 'disponibles' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
-                }`}
-                style={couponFilter === 'disponibles' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
-              >
-                Disponibles
-              </button>
-              <button
-                onClick={() => setCouponFilter('usados')}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${
-                  couponFilter === 'usados' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
-                }`}
-                style={couponFilter === 'usados' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
-              >
-                Usados
-              </button>
-            </div>
+            {(() => {
+              const disponiblesCount = allPromos.filter(p => savedCoupons.includes(p.id) && !usedCoupons.includes(p.id)).length;
+              const usadosCount = allPromos.filter(p => savedCoupons.includes(p.id) && usedCoupons.includes(p.id)).length;
+              
+              return (
+                <div className="flex gap-2 mb-6">
+                  <button
+                    onClick={() => setCouponFilter('disponibles')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      couponFilter === 'disponibles' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
+                    }`}
+                    style={couponFilter === 'disponibles' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                  >
+                    Disponibles
+                    {disponiblesCount > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${couponFilter === 'disponibles' ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground border border-border/50'}`}>
+                        {disponiblesCount}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setCouponFilter('usados')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      couponFilter === 'usados' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
+                    }`}
+                    style={couponFilter === 'usados' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                  >
+                    Usados
+                    {usadosCount > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${couponFilter === 'usados' ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground border border-border/50'}`}>
+                        {usadosCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
 
             {allPromos.filter(p => savedCoupons.includes(p.id) && (couponFilter === 'disponibles' ? !usedCoupons.includes(p.id) : usedCoupons.includes(p.id))).length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -825,11 +839,11 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           {nav.map(item => {
             const isActive = mainView === item.key
             return (
-              <button key={item.key} onClick={() => setMainView(item.key as MainView)} className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all">
+              <button key={item.key} onClick={() => setMainView(item.key as MainView)} className="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all">
                 <item.icon className="w-5 h-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
                 <span className="text-[10px] font-medium" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}>{item.label}</span>
                 {item.key === 'my-coupons' && savedCoupons.length > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+                  <span className="absolute top-0 right-0 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center translate-x-1/4 -translate-y-1/4" style={{ background: 'var(--primary)' }}>
                     {savedCoupons.length}
                   </span>
                 )}
