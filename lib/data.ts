@@ -4,9 +4,20 @@ import type {
   BuildingAdminAssignment,
   Business,
   BusinessDashboardData,
+  ComplaintCaseDetailConsorcioView,
+  ComplaintCaseDetailNeighborView,
+  ComplaintCaseEvent,
+  ComplaintCaseListItem,
+  ComplaintCaseMentionableUser,
+  ComplaintCaseMessageView,
+  ComplaintCaseMessageMention,
+  ComplaintCaseSummaryByBuilding,
+  ComplaintCaseSummaryByReason,
+  ComplaintReason,
+  ComplaintCaseReasonSelection,
   ConsorcioAdminInfo,
-  ConsorcioManagedBuilding,
   ConsorcioDashboardData,
+  ConsorcioManagedBuilding,
   ConsumerDashboardData,
   HomeData,
   MarketplaceItem,
@@ -119,6 +130,205 @@ function mapMarketplaceItem(client: any, row: any): MarketplaceItem {
   }
 }
 
+function mapComplaintReason(row: any): ComplaintReason {
+  return {
+    id: row.id,
+    slug: row.slug,
+    label: row.label,
+    description: row.description ?? null,
+    isOther: Boolean(row.is_other),
+    createdAt: row.created_at,
+  }
+}
+
+function normalizeReasonRows(rows: any[] | null | undefined): ComplaintCaseReasonSelection[] {
+  return (rows ?? [])
+    .map((row: any) => (row?.complaint_reason_catalog ? row.complaint_reason_catalog : row))
+    .filter(Boolean)
+    .map((row: any) => ({
+      id: row.id,
+      slug: row.slug,
+      label: row.label,
+      isOther: Boolean(row.is_other),
+    }))
+}
+
+function profileUnitLabel(row: any): string | null {
+  return [row?.floor, row?.unit].filter(Boolean).join(' - ') || null
+}
+
+function buildMentionLabel(row: any): string {
+  const fullName = row?.full_name ?? 'Usuario'
+  if (row?.role === 'consorcio_admin') {
+    return `Consorcio · ${fullName}`
+  }
+  const unitLabel = profileUnitLabel(row)
+  return unitLabel ? `${fullName} (${unitLabel})` : fullName
+}
+
+function mapMentionableUser(row: any, buildingId: string): ComplaintCaseMentionableUser {
+  return {
+    profileId: row.id,
+    fullName: row.full_name ?? 'Usuario',
+    role: row.role,
+    unitLabel: profileUnitLabel(row),
+    buildingId,
+    label: buildMentionLabel(row),
+  }
+}
+
+function mapComplaintMessageMention(row: any): ComplaintCaseMessageMention {
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    mentionedProfileId: row.mentioned_profile_id,
+    label: row.label ?? buildMentionLabel(profile),
+  }
+}
+
+function mapComplaintMessage(row: any): ComplaintCaseMessageView {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    message: row.message,
+    messageType: row.message_type,
+    authorLabel: row.author_label ?? 'Sistema',
+    authorRole: row.author_role ?? 'sistema',
+    mentions: (row.complaint_case_message_mentions ?? row.mentions ?? []).map(mapComplaintMessageMention),
+    createdAt: row.created_at,
+  }
+}
+
+function mapComplaintEvent(row: any): ComplaintCaseEvent {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    eventType: row.event_type,
+    actorLabel: row.actor_label ?? 'Sistema',
+    actorRole: row.actor_role ?? 'sistema',
+    summary: row.summary,
+    metadata: row.metadata ?? null,
+    createdAt: row.created_at,
+  }
+}
+
+function buildComplaintCaseListItem(detail: ComplaintCaseDetailNeighborView | ComplaintCaseDetailConsorcioView): ComplaintCaseListItem {
+  const lastEvent = [...detail.events].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  return {
+    id: detail.id,
+    caseCode: detail.caseCode,
+    buildingId: detail.buildingId,
+    buildingName: detail.buildingName,
+    title: detail.title,
+    status: detail.status,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt,
+    lastEventAt: lastEvent?.createdAt ?? detail.updatedAt,
+    lastEventSummary: lastEvent?.summary ?? null,
+    reasons: detail.reasons,
+    otherReasonText: detail.otherReasonText,
+    messageCount: detail.messages.length,
+    eventCount: detail.events.length,
+    canReply: detail.canReply,
+    canChangeStatus: detail.canChangeStatus,
+  }
+}
+
+function buildComplaintSummaryByBuilding(buildingId: string, buildingName: string, details: ComplaintCaseDetailConsorcioView[]): ComplaintCaseSummaryByBuilding {
+  return {
+    buildingId,
+    buildingName,
+    total: details.length,
+    nuevo: details.filter((item) => item.status === 'nuevo').length,
+    enRevision: details.filter((item) => item.status === 'en_revision').length,
+    enDesarrollo: details.filter((item) => item.status === 'en_desarrollo').length,
+    enEspera: details.filter((item) => item.status === 'en_espera').length,
+    resuelto: details.filter((item) => item.status === 'resuelto').length,
+    cerrado: details.filter((item) => item.status === 'cerrado').length,
+  }
+}
+
+function buildComplaintReasonSummary(details: Array<ComplaintCaseDetailNeighborView | ComplaintCaseDetailConsorcioView>): ComplaintCaseSummaryByReason[] {
+  const counts = new Map<string, ComplaintCaseSummaryByReason>()
+  for (const detail of details) {
+    for (const reason of detail.reasons) {
+      const current = counts.get(reason.id) ?? { reasonId: reason.id, reasonLabel: reason.label, count: 0 }
+      current.count += 1
+      counts.set(reason.id, current)
+    }
+  }
+
+  return Array.from(counts.values()).sort((a, b) => b.count - a.count || a.reasonLabel.localeCompare(b.reasonLabel))
+}
+
+function mapNeighborComplaintCaseDetail(row: any, mentionableUsers: ComplaintCaseMentionableUser[]): ComplaintCaseDetailNeighborView {
+  return {
+    id: row.id,
+    caseCode: row.case_code,
+    buildingId: row.building_id,
+    buildingName: row.building_name ?? 'Edificio',
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    resolvedAt: row.resolved_at ?? null,
+    closedAt: row.closed_at ?? null,
+    otherReasonText: row.other_reason_text ?? null,
+    reasons: normalizeReasonRows(row.reasons),
+    messages: (row.messages ?? []).map(mapComplaintMessage),
+    events: (row.events ?? []).map(mapComplaintEvent),
+    mentionableUsers,
+    canReply: Boolean(row.can_reply),
+    canChangeStatus: Boolean(row.can_change_status),
+    defaultSection: 'summary',
+  }
+}
+
+function mapConsorcioComplaintCaseDetail(row: any, mentionableUsers: ComplaintCaseMentionableUser[]): ComplaintCaseDetailConsorcioView {
+  const building = Array.isArray(row.buildings) ? row.buildings[0] : row.buildings
+  const author = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  const messages = (row.complaint_case_messages ?? []).map((message: any) => {
+    const messageAuthor = Array.isArray(message.profiles) ? message.profiles[0] : message.profiles
+    const role = messageAuthor?.role === 'consorcio_admin' ? 'consorcio' : messageAuthor?.role === 'super_admin' ? 'super_admin' : 'vecino'
+    return mapComplaintMessage({
+      ...message,
+      author_label: role === 'vecino' ? messageAuthor?.full_name ?? 'Vecino' : role === 'consorcio' ? 'Consorcio' : 'Super admin',
+      author_role: role,
+    })
+  })
+
+  return {
+    id: row.id,
+    caseCode: row.case_code,
+    buildingId: row.building_id,
+    buildingName: building?.name ?? 'Edificio',
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    resolvedAt: row.resolved_at ?? null,
+    closedAt: row.closed_at ?? null,
+    otherReasonText: row.other_reason_text ?? null,
+    reasons: normalizeReasonRows(row.complaint_case_reasons),
+    messages,
+    events: (row.complaint_case_events ?? []).map(mapComplaintEvent),
+    mentionableUsers,
+    canReply: row.status !== 'cerrado',
+    canChangeStatus: true,
+    defaultSection: 'summary',
+    author: {
+      profileId: author?.id ?? row.author_profile_id,
+      fullName: author?.full_name ?? 'Vecino',
+      email: author?.email ?? '',
+      avatarText: author?.avatar_text ?? 'VN',
+      unitLabel: profileUnitLabel(author),
+    },
+  }
+}
+
 export async function getHomeData(): Promise<HomeData> {
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
@@ -188,6 +398,9 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
       totalUnits: 0,
       totalNeighbors: 0,
       averageOccupancyRate: 0,
+      totalComplaintCases: 0,
+      complaintSummaries: [],
+      complaintReasonSummaries: [],
     }
   }
 
@@ -210,22 +423,88 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
       totalUnits: 0,
       totalNeighbors: 0,
       averageOccupancyRate: 0,
+      totalComplaintCases: 0,
+      complaintSummaries: [],
+      complaintReasonSummaries: [],
     }
   }
 
-  const [{ data: buildingsData }, { data: neighborsData }] = await Promise.all([
+  const [{ data: buildingsData }, { data: neighborsData }, { data: adminAssignmentsData }, { data: complaintCaseRows }] = await Promise.all([
     supabase.from('buildings').select('*').in('id', buildingIds).order('name'),
     supabase.from('profiles').select('*').eq('role', 'vecino').in('building_id', buildingIds).order('full_name'),
+    supabase
+      .from('building_admin_assignments')
+      .select(`building_id, profiles!building_admin_assignments_profile_id_fkey ( id, full_name, role, floor, unit )`)
+      .in('building_id', buildingIds),
+    supabase
+      .from('complaint_cases')
+      .select(`
+        *,
+        buildings ( id, name ),
+        profiles!complaint_cases_author_profile_id_fkey ( id, full_name, email, avatar_text, floor, unit ),
+        complaint_case_reasons ( complaint_reason_catalog ( id, slug, label, is_other ) ),
+        complaint_case_messages (
+          id,
+          case_id,
+          message,
+          message_type,
+          created_at,
+          profiles!complaint_case_messages_author_profile_id_fkey ( id, full_name, avatar_text, role, floor, unit ),
+          complaint_case_message_mentions (
+            id,
+            message_id,
+            mentioned_profile_id,
+            profiles!complaint_case_message_mentions_mentioned_profile_id_fkey ( id, full_name, role, floor, unit )
+          )
+        ),
+        complaint_case_events ( id, case_id, event_type, actor_label, actor_role, summary, metadata, created_at )
+      `)
+      .in('building_id', buildingIds)
+      .order('created_at', { ascending: false }),
   ])
 
   const neighborsByBuilding = new Map<string, Profile[]>()
   for (const row of neighborsData ?? []) {
     const mapped = mapProfile(row)
-    const key = mapped.buildingId
-    if (!key) continue
-    const current = neighborsByBuilding.get(key) ?? []
+    if (!mapped.buildingId) continue
+    const current = neighborsByBuilding.get(mapped.buildingId) ?? []
     current.push(mapped)
-    neighborsByBuilding.set(key, current)
+    neighborsByBuilding.set(mapped.buildingId, current)
+  }
+
+  const adminProfilesByBuilding = new Map<string, ComplaintCaseMentionableUser[]>()
+  for (const row of adminAssignmentsData ?? []) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    if (!profile?.id || !row.building_id) continue
+    const current = adminProfilesByBuilding.get(row.building_id) ?? []
+    if (!current.some((item) => item.profileId === profile.id)) {
+      current.push(mapMentionableUser(profile, row.building_id))
+    }
+    adminProfilesByBuilding.set(row.building_id, current)
+  }
+
+  const caseDetailsByBuilding = new Map<string, ComplaintCaseDetailConsorcioView[]>()
+  for (const row of complaintCaseRows ?? []) {
+    const buildingId = row.building_id
+    const mentionableUsers = [
+      ...(neighborsByBuilding.get(buildingId) ?? []).map((neighbor) =>
+        mapMentionableUser(
+          {
+            id: neighbor.id,
+            full_name: neighbor.fullName,
+            role: neighbor.role,
+            floor: neighbor.floor,
+            unit: neighbor.unit,
+          },
+          buildingId,
+        ),
+      ),
+      ...(adminProfilesByBuilding.get(buildingId) ?? []),
+    ].sort((a, b) => a.label.localeCompare(b.label))
+    const detail = mapConsorcioComplaintCaseDetail(row, mentionableUsers)
+    const current = caseDetailsByBuilding.get(detail.buildingId) ?? []
+    current.push(detail)
+    caseDetailsByBuilding.set(detail.buildingId, current)
   }
 
   const buildingsById = new Map((buildingsData ?? []).map((row: any) => [row.id, mapBuilding(row)]))
@@ -236,12 +515,29 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
         return null
       }
       const neighbors = neighborsByBuilding.get(building.id) ?? []
-      const occupancyRate = Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100)
+      const complaintCaseDetails = (caseDetailsByBuilding.get(building.id) ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem)
+      const complaintMentionableUsers = [
+        ...neighbors.map((neighbor) =>
+          mapMentionableUser(
+            { id: neighbor.id, full_name: neighbor.fullName, role: neighbor.role, floor: neighbor.floor, unit: neighbor.unit },
+            building.id,
+          ),
+        ),
+        ...(adminProfilesByBuilding.get(building.id) ?? []),
+      ]
+        .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
+        .sort((a, b) => a.label.localeCompare(b.label))
       return {
         building,
         neighbors,
         registeredNeighbors: neighbors.length,
-        occupancyRate,
+        occupancyRate: Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100),
+        complaintMentionableUsers,
+        complaintCases,
+        complaintCaseDetails,
+        complaintSummary: buildComplaintSummaryByBuilding(building.id, building.name, complaintCaseDetails),
+        reasonSummary: buildComplaintReasonSummary(complaintCaseDetails),
       }
     })
     .filter((item): item is ConsorcioManagedBuilding => Boolean(item))
@@ -251,16 +547,20 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
   const averageOccupancyRate = managedBuildings.length
     ? Math.round(managedBuildings.reduce((sum, item) => sum + item.occupancyRate, 0) / managedBuildings.length)
     : 0
-  const primaryBuildingId = assignments.find((assignment) => assignment.isPrimary)?.buildingId ?? managedBuildings[0]?.building.id ?? null
+  const complaintSummaries = managedBuildings.map((item) => item.complaintSummary)
+  const complaintReasonSummaries = buildComplaintReasonSummary(managedBuildings.flatMap((item) => item.complaintCaseDetails))
 
   return {
     managedBuildings,
     assignments,
-    primaryBuildingId,
+    primaryBuildingId: assignments.find((assignment) => assignment.isPrimary)?.buildingId ?? managedBuildings[0]?.building.id ?? null,
     totalBuildings: managedBuildings.length,
     totalUnits,
     totalNeighbors,
     averageOccupancyRate,
+    totalComplaintCases: managedBuildings.reduce((sum, item) => sum + item.complaintCases.length, 0),
+    complaintSummaries,
+    complaintReasonSummaries,
   }
 }
 
@@ -278,11 +578,9 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
       .from('promotions')
       .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
       .order('created_at', { ascending: false }),
-    // admin assignments with profile info
     supabase
       .from('building_admin_assignments')
       .select(`*, profiles ( id, full_name, email, phone )`),
-    // redemptions with the redeemer's building_id
     supabase
       .from('promotion_redemptions')
       .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`),
@@ -292,7 +590,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
   const allUsers = (usersRes.data ?? []).map(mapProfile)
   const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase, row))
 
-  // Build map: buildingId -> consorcio admins
   const adminsByBuilding = new Map<string, ConsorcioAdminInfo[]>()
   for (const row of assignmentsRes.data ?? []) {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
@@ -309,7 +606,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     adminsByBuilding.set(row.building_id, existing)
   }
 
-  // Build map: buildingId -> neighbors (vecinos)
   const neighborsByBuilding = new Map<string, Profile[]>()
   for (const user of allUsers) {
     if (user.role !== 'vecino' || !user.buildingId) continue
@@ -318,13 +614,10 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     neighborsByBuilding.set(user.buildingId, existing)
   }
 
-  // Build map: promotionId -> redemptions by building
   const redemptionMap = new Map<string, Map<string, { name: string; count: number }>>()
   for (const row of redemptionsRes.data ?? []) {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-    const building = profile?.buildings
-      ? Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings
-      : null
+    const building = profile?.buildings ? (Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings) : null
     if (!building?.id) continue
     if (!redemptionMap.has(row.promotion_id)) redemptionMap.set(row.promotion_id, new Map())
     const byBuilding = redemptionMap.get(row.promotion_id)!
@@ -333,7 +626,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     byBuilding.set(building.id, current)
   }
 
-  // Enrich promotions
   const allPromotions: SuperAdminPromotionDetail[] = allPromotionsRaw.map((promotion) => {
     const byBuilding = redemptionMap.get(promotion.id)
     const redemptionsByBuilding: PromotionRedemptionByBuilding[] = byBuilding
@@ -344,7 +636,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     return { ...promotion, redemptionsByBuilding }
   })
 
-  // Enrich buildings
   const buildings: SuperAdminBuildingDetail[] = allBuildings.map((building) => {
     const neighbors = neighborsByBuilding.get(building.id) ?? []
     const admins = adminsByBuilding.get(building.id) ?? []
@@ -352,7 +643,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     return { ...building, admins, neighbors, registeredNeighbors: neighbors.length, occupancyRate }
   })
 
-  // Enrich businesses
   const businessPromoMap = new Map<string, SuperAdminPromotionDetail[]>()
   for (const promotion of allPromotions) {
     const existing = businessPromoMap.get(promotion.businessId) ?? []
@@ -364,8 +654,6 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     const business = mapBusiness(supabase, row)
     const promotions = businessPromoMap.get(business.id) ?? []
     const totalRedemptions = promotions.reduce((sum, p) => sum + p.usageCount, 0)
-
-    // find building where this business's coupons are most used
     const buildingCounts = new Map<string, { name: string; count: number }>()
     for (const promotion of promotions) {
       for (const { buildingId, buildingName, count } of promotion.redemptionsByBuilding) {
@@ -389,13 +677,23 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
 export async function getConsumerDashboardData(profileId: string): Promise<ConsumerDashboardData> {
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
-    return { building: null, promotions: [], marketplaceItems: [], savedPromotionIds: [], usedPromotionIds: [] }
+    return {
+      building: null,
+      promotions: [],
+      marketplaceItems: [],
+      savedPromotionIds: [],
+      usedPromotionIds: [],
+      complaintReasons: [],
+      complaintMentionableUsers: [],
+      complaintCases: [],
+      complaintCaseDetails: [],
+    }
   }
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
   const buildingId = profile?.building_id
 
-  const [{ data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }] =
+  const [{ data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }, { data: reasonRows }, { data: complaintRows }, { data: neighborRows }, { data: buildingAdminRows }] =
     await Promise.all([
       buildingId ? supabase.from('buildings').select('*').eq('id', buildingId).maybeSingle() : Promise.resolve({ data: null }),
       supabase
@@ -413,8 +711,31 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
         : Promise.resolve({ data: [] }),
       supabase.from('saved_promotions').select('promotion_id').eq('profile_id', profileId),
       supabase.from('promotion_redemptions').select('promotion_id').eq('profile_id', profileId),
+      supabase.from('complaint_reason_catalog').select('*').order('label'),
+      buildingId ? supabase.rpc('get_neighbor_complaint_cases', { target_building_id: buildingId }) : Promise.resolve({ data: [] }),
+      buildingId ? supabase.from('profiles').select('id, full_name, role, floor, unit').eq('role', 'vecino').eq('building_id', buildingId).order('full_name') : Promise.resolve({ data: [] }),
+      buildingId
+        ? supabase
+            .from('building_admin_assignments')
+            .select(`building_id, profiles!building_admin_assignments_profile_id_fkey ( id, full_name, role, floor, unit )`)
+            .eq('building_id', buildingId)
+        : Promise.resolve({ data: [] }),
     ])
 
+  const mentionableUsers = [
+    ...((neighborRows ?? []) as any[]).map((row: any) => mapMentionableUser(row, buildingId ?? '')),
+    ...((buildingAdminRows ?? []) as any[])
+      .map((row: any) => {
+        const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+        return profile ? mapMentionableUser(profile, row.building_id) : null
+      })
+      .filter(Boolean),
+  ]
+    .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
+    .sort((a, b) => a.label.localeCompare(b.label))
+
+  const complaintCaseDetails = (complaintRows ?? []).map((row: any) => mapNeighborComplaintCaseDetail(row, mentionableUsers))
+  const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem).sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt))
   const promotions = (promotionsData ?? [])
     .map((row: any) => mapPromotion(supabase, row))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
@@ -425,6 +746,10 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
     marketplaceItems: (marketplaceData ?? []).map((row: any) => mapMarketplaceItem(supabase, row)),
     savedPromotionIds: (savedRows ?? []).map((row: any) => row.promotion_id),
     usedPromotionIds: (usedRows ?? []).map((row: any) => row.promotion_id),
+    complaintReasons: (reasonRows ?? []).map((row: any) => mapComplaintReason(row)),
+    complaintMentionableUsers: mentionableUsers,
+    complaintCases,
+    complaintCaseDetails,
   }
 }
 

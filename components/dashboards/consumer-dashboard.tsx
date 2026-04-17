@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Building2,
   ChevronRight,
+  CircleAlert,
   Flame,
   Gift,
   Home,
@@ -24,9 +25,10 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
-import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion } from '@/lib/types'
+import type { ComplaintStatus, ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, NeighborComplaintView, Promotion } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -309,6 +311,55 @@ function SectionTitle({ icon: Icon, title, onSeeAll }: { icon: typeof Tag; title
   )
 }
 
+function complaintStatusCopy(status: ComplaintStatus) {
+  switch (status) {
+    case 'en_desarrollo':
+      return { label: 'En desarrollo', className: 'border-amber-300/60 bg-amber-50 text-amber-900' }
+    case 'resuelto':
+      return { label: 'Resuelto', className: 'border-emerald-300/60 bg-emerald-50 text-emerald-900' }
+    default:
+      return { label: 'Sin completar', className: 'border-slate-300/60 bg-slate-100 text-slate-800' }
+  }
+}
+
+function ComplaintStatusPill({ status }: { status: ComplaintStatus }) {
+  const copy = complaintStatusCopy(status)
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${copy.className}`}>{copy.label}</span>
+}
+
+function NeighborComplaintCard({ complaint }: { complaint: NeighborComplaintView }) {
+  return (
+    <div className="glass-card rounded-2xl p-4 border border-border/50">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-foreground text-sm">{complaint.title}</h3>
+            {complaint.isAnonymous ? (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Anonima
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {complaint.authorLabel}
+            {complaint.authorUnit ? ` · ${complaint.authorUnit}` : ''}
+          </p>
+        </div>
+        <ComplaintStatusPill status={complaint.status} />
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground leading-6">{complaint.description}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Creada el {new Date(complaint.createdAt).toLocaleDateString('es-AR')}</span>
+        <span>
+          {complaint.resolvedAt
+            ? `Resuelta el ${new Date(complaint.resolvedAt).toLocaleDateString('es-AR')}`
+            : `Actualizada el ${new Date(complaint.updatedAt).toLocaleDateString('es-AR')}`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ─── FULL PROMOTIONS VIEW ─────────────────────────────────────────────────────
 
 function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onUse, onBack, title }: {
@@ -402,7 +453,7 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onUse, onB
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 
-type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores'
+type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints'
 
 export function ConsumerDashboard({ initialData, profileId, profileName, avatarText }: {
   initialData: ConsumerDashboardData
@@ -415,8 +466,13 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [savedCoupons, setSavedCoupons] = useState<string[]>(initialData.savedPromotionIds)
   const [usedCoupons, setUsedCoupons] = useState<string[]>(initialData.usedPromotionIds)
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
+  const [complaints, setComplaints] = useState<NeighborComplaintView[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
+  const [complaintTitle, setComplaintTitle] = useState('')
+  const [complaintDescription, setComplaintDescription] = useState('')
+  const [complaintAnonymous, setComplaintAnonymous] = useState(false)
+  const [isCreatingComplaint, setIsCreatingComplaint] = useState(false)
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
@@ -428,6 +484,12 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const featuredPromos = useMemo(() => allPromos.slice(0, 8), [allPromos])
 
   const filteredMarketplace = useMemo(() => marketplaceItems.filter(i => i.buildingId === buildingId), [marketplaceItems, buildingId])
+  const complaintStats = useMemo(() => ({
+    total: complaints.length,
+    pending: complaints.filter((complaint) => complaint.status === 'sin_completar').length,
+    inProgress: complaints.filter((complaint) => complaint.status === 'en_desarrollo').length,
+    resolved: complaints.filter((complaint) => complaint.status === 'resuelto').length,
+  }), [complaints])
 
   const uniqueBusinesses = useMemo(() => {
     const map = new Map<string, Promotion>()
@@ -485,6 +547,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     { key: 'all-promos', label: 'Beneficios', icon: Tag },
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
     { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
+    { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
     { key: 'stores', label: 'Locales', icon: MapPin },
   ] as const
 
@@ -736,6 +799,17 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
               </div>
             )}
           </div>
+        )}
+
+        {/* COMPLAINTS */}
+        {mainView === 'complaints' && (
+          <NeighborCasesPanel
+            building={initialData.building}
+            initialReasons={initialData.complaintReasons}
+            initialMentionableUsers={initialData.complaintMentionableUsers}
+            initialCases={initialData.complaintCases}
+            initialCaseDetails={initialData.complaintCaseDetails}
+          />
         )}
 
         {/* STORES */}
