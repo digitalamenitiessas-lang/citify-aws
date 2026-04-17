@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Building2,
   ChevronRight,
+  CircleAlert,
   Flame,
   Gift,
   Home,
@@ -24,6 +25,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion } from '@/lib/types'
@@ -403,7 +405,7 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 
-type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores'
+type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints'
 
 export function ConsumerDashboard({ initialData, profileId, profileName, avatarText }: {
   initialData: ConsumerDashboardData
@@ -499,6 +501,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     { key: 'all-promos', label: 'Beneficios', icon: Tag },
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
     { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
+    { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
     { key: 'stores', label: 'Locales', icon: MapPin },
   ] as const
 
@@ -801,6 +804,17 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
               </div>
             )}
           </div>
+        )}
+
+        {/* COMPLAINTS */}
+        {mainView === 'complaints' && (
+          <NeighborCasesPanel
+            building={initialData.building}
+            initialReasons={initialData.complaintReasons}
+            initialMentionableUsers={initialData.complaintMentionableUsers}
+            initialCases={initialData.complaintCases}
+            initialCaseDetails={initialData.complaintCaseDetails}
+          />
         )}
 
         {/* STORES */}

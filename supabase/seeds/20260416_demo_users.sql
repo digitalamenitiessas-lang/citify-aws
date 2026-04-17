@@ -1,6 +1,9 @@
 -- Demo seed for local/staging testing in Supabase
--- Run this after the main migration:
+-- Run this after:
 --   supabase/migrations/20260415_initial.sql
+--   supabase/migrations/20260416_consorcio_multi_building.sql
+--   supabase/migrations/20260417_complaint_cases.sql
+--   supabase/migrations/20260418_complaint_case_mentions.sql
 --
 -- Test password for every seeded user:
 --   Test1234!
@@ -18,7 +21,23 @@ declare
   consorcio_admin_id uuid;
   vecino_1_id uuid;
   vecino_2_id uuid;
+  ascensor_reason_id uuid;
+  iluminacion_reason_id uuid;
+  espacios_reason_id uuid;
+  otros_reason_id uuid;
+  case_1_id uuid;
+  case_2_id uuid;
+  case_3_id uuid;
 begin
+  if not exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'complaint_reason_catalog'
+  ) then
+    raise exception 'Debes ejecutar 20260417_complaint_cases.sql antes de 20260416_demo_users.sql.';
+  end if;
+
   insert into public.buildings (name, address, total_units)
   values
     ('Torre del Parque', 'Av. Libertador 1234, CABA', 120),
@@ -143,6 +162,10 @@ begin
 
   select id into bistro_id from public.businesses where name = 'Urban Bistro' limit 1;
   select id into tech_id from public.businesses where name = 'Tech Haven' limit 1;
+  select id into ascensor_reason_id from public.complaint_reason_catalog where slug = 'ascensor' limit 1;
+  select id into iluminacion_reason_id from public.complaint_reason_catalog where slug = 'iluminacion' limit 1;
+  select id into espacios_reason_id from public.complaint_reason_catalog where slug = 'espacios_comunes' limit 1;
+  select id into otros_reason_id from public.complaint_reason_catalog where slug = 'otros' limit 1;
 
   update public.businesses
   set owner_profile_id = negocio_admin_id
@@ -261,8 +284,90 @@ begin
       45000,
       'Como Nuevo',
       true
-    )
+  )
   on conflict do nothing;
+
+  insert into public.complaint_cases (
+    building_id,
+    author_profile_id,
+    title,
+    description,
+    status,
+    other_reason_text,
+    resolved_at
+  )
+  select *
+  from (
+    values
+      (
+        torre_id,
+        vecino_1_id,
+        'Ascensor principal con ruidos',
+        'Hace dos dias que el ascensor de la torre hace un ruido fuerte al frenar entre pisos.',
+        'nuevo'::public.complaint_case_status,
+        null::text,
+        null::timestamptz
+      ),
+      (
+        torre_id,
+        vecino_1_id,
+        'Luces del hall intermitentes',
+        'Las luces del hall de entrada se apagan a veces durante la noche.',
+        'en_desarrollo'::public.complaint_case_status,
+        'Sucede mas seguido cerca del ascensor del fondo.',
+        null::timestamptz
+      ),
+      (
+        central_id,
+        vecino_2_id,
+        'Puerta del SUM no cierra bien',
+        'La puerta del salon de usos multiples queda trabada cuando hay humedad.',
+        'resuelto'::public.complaint_case_status,
+        null::text,
+        now() - interval '2 days'
+      )
+  ) as seed(building_id, author_profile_id, title, description, status, other_reason_text, resolved_at)
+  where not exists (
+    select 1
+    from public.complaint_cases existing
+    where existing.building_id = seed.building_id
+      and existing.author_profile_id = seed.author_profile_id
+      and existing.title = seed.title
+  );
+
+  select id into case_1_id from public.complaint_cases where title = 'Ascensor principal con ruidos' limit 1;
+  select id into case_2_id from public.complaint_cases where title = 'Luces del hall intermitentes' limit 1;
+  select id into case_3_id from public.complaint_cases where title = 'Puerta del SUM no cierra bien' limit 1;
+
+  insert into public.complaint_case_reasons (case_id, reason_id)
+  values
+    (case_1_id, ascensor_reason_id),
+    (case_2_id, iluminacion_reason_id),
+    (case_2_id, otros_reason_id),
+    (case_3_id, espacios_reason_id)
+  on conflict do nothing;
+
+  insert into public.complaint_case_messages (case_id, author_profile_id, message, message_type)
+  values
+    (case_1_id, vecino_1_id, 'Lo reporte porque ya se detuvo dos veces esta semana.', 'comment'),
+    (case_2_id, consorcio_admin_id, 'Ya avisamos al electricista y quedo en agenda para esta tarde. @Vecina Demo Uno (4 - B), si vuelve a pasar avisanos por aca.', 'status_note'),
+    (case_3_id, consorcio_admin_id, 'Se ajusto el marco y quedo funcionando correctamente.', 'status_note')
+  on conflict do nothing;
+
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'complaint_case_message_mentions'
+  ) then
+    insert into public.complaint_case_message_mentions (message_id, mentioned_profile_id)
+    select messages.id, vecino_1_id
+    from public.complaint_case_messages messages
+    where messages.case_id = case_2_id
+      and messages.author_profile_id = consorcio_admin_id
+      and messages.message like '%@Vecina Demo Uno%'
+    on conflict do nothing;
+  end if;
 end
 $$;
 
