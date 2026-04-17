@@ -28,7 +28,7 @@ import { Label } from '@/components/ui/label'
 import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
-import type { ComplaintStatus, ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, NeighborComplaintView, Promotion } from '@/lib/types'
+import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -138,11 +138,11 @@ function DiscountBadge({ discount }: { discount: string }) {
 
 // ─── FEATURED BUSINESS CARD (large card for horizontal scroll) ────────────────
 
-function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onUse }: {
+function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
   onSaveToggle: (p: Promotion) => void
-  onUse: (p: Promotion) => void
+  onWantCoupon: (p: Promotion) => void
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
@@ -189,14 +189,15 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onUse }: {
           ) : (
             <>
               <button
-                onClick={() => onUse(promotion)}
+                onClick={() => onWantCoupon(promotion)}
                 className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-white btn-premium"
               >
-                Usar cupón
+                {isSaved ? 'Lo quiero' : 'Lo quiero'}
               </button>
               <button
                 onClick={() => onSaveToggle(promotion)}
                 className="px-2 py-1.5 rounded-lg text-xs font-medium border border-border/60 text-muted-foreground hover:text-foreground transition-colors"
+                style={isSaved ? { background: 'rgba(184,92,56,0.1)', color: 'var(--primary)', borderColor: 'rgba(184,92,56,0.3)' } : {}}
               >
                 {isSaved ? '✓' : '+'}
               </button>
@@ -210,11 +211,11 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onUse }: {
 
 // ─── HOT COUPON CARD (compact for "más canjeados") ───────────────────────────
 
-function HotCouponCard({ promotion, isSaved, onSaveToggle, onUse }: {
+function HotCouponCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
   onSaveToggle: (p: Promotion) => void
-  onUse: (p: Promotion) => void
+  onWantCoupon: (p: Promotion) => void
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
@@ -239,8 +240,8 @@ function HotCouponCard({ promotion, isSaved, onSaveToggle, onUse }: {
           {isExpired ? (
             <span className="block text-center py-1.5 rounded-lg text-xs font-medium text-muted-foreground bg-muted">Vencido</span>
           ) : (
-            <button onClick={() => onUse(promotion)} className="w-full py-1.5 rounded-lg text-xs font-semibold text-white btn-premium">
-              Usar cupón
+            <button onClick={() => onWantCoupon(promotion)} className="w-full py-1.5 rounded-lg text-xs font-semibold text-white btn-premium">
+              Lo quiero
             </button>
           )}
         </div>
@@ -251,11 +252,11 @@ function HotCouponCard({ promotion, isSaved, onSaveToggle, onUse }: {
 
 // ─── BUILDING EXCLUSIVE CARD ─────────────────────────────────────────────────
 
-function ExclusiveCard({ promotion, isSaved, onSaveToggle, onUse }: {
+function ExclusiveCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
   onSaveToggle: (p: Promotion) => void
-  onUse: (p: Promotion) => void
+  onWantCoupon: (p: Promotion) => void
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
@@ -283,8 +284,8 @@ function ExclusiveCard({ promotion, isSaved, onSaveToggle, onUse }: {
           {isExpired ? (
             <span className="flex-1 text-center py-1.5 rounded-lg text-xs font-medium text-muted-foreground bg-muted">Vencido</span>
           ) : (
-            <button onClick={() => onUse(promotion)} className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-white btn-premium">
-              Usar cupón
+            <button onClick={() => onWantCoupon(promotion)} className="flex-1 py-1.5 rounded-xl text-xs font-bold text-white btn-premium">
+              Lo quiero
             </button>
           )}
         </div>
@@ -311,62 +312,13 @@ function SectionTitle({ icon: Icon, title, onSeeAll }: { icon: typeof Tag; title
   )
 }
 
-function complaintStatusCopy(status: ComplaintStatus) {
-  switch (status) {
-    case 'en_desarrollo':
-      return { label: 'En desarrollo', className: 'border-amber-300/60 bg-amber-50 text-amber-900' }
-    case 'resuelto':
-      return { label: 'Resuelto', className: 'border-emerald-300/60 bg-emerald-50 text-emerald-900' }
-    default:
-      return { label: 'Sin completar', className: 'border-slate-300/60 bg-slate-100 text-slate-800' }
-  }
-}
-
-function ComplaintStatusPill({ status }: { status: ComplaintStatus }) {
-  const copy = complaintStatusCopy(status)
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${copy.className}`}>{copy.label}</span>
-}
-
-function NeighborComplaintCard({ complaint }: { complaint: NeighborComplaintView }) {
-  return (
-    <div className="glass-card rounded-2xl p-4 border border-border/50">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-foreground text-sm">{complaint.title}</h3>
-            {complaint.isAnonymous ? (
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Anonima
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {complaint.authorLabel}
-            {complaint.authorUnit ? ` · ${complaint.authorUnit}` : ''}
-          </p>
-        </div>
-        <ComplaintStatusPill status={complaint.status} />
-      </div>
-      <p className="mt-3 text-sm text-muted-foreground leading-6">{complaint.description}</p>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>Creada el {new Date(complaint.createdAt).toLocaleDateString('es-AR')}</span>
-        <span>
-          {complaint.resolvedAt
-            ? `Resuelta el ${new Date(complaint.resolvedAt).toLocaleDateString('es-AR')}`
-            : `Actualizada el ${new Date(complaint.updatedAt).toLocaleDateString('es-AR')}`}
-        </span>
-      </div>
-    </div>
-  )
-}
-
 // ─── FULL PROMOTIONS VIEW ─────────────────────────────────────────────────────
 
-function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onUse, onBack, title }: {
+function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoupon, onBack, title }: {
   promotions: Promotion[]
   savedCoupons: string[]
   onSaveToggle: (p: Promotion) => void
-  onUse: (p: Promotion) => void
+  onWantCoupon: (p: Promotion) => void
   onBack: () => void
   title: string
 }) {
@@ -433,8 +385,8 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onUse, onB
               <div className="p-4">
                 <h3 className="font-semibold text-foreground text-sm">{p.businessName}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
-                <button onClick={() => onUse(p)} className="w-full py-2 rounded-xl text-xs font-semibold text-white btn-premium">
-                  Usar cupón
+                <button onClick={() => onWantCoupon(p)} className="w-full py-2.5 rounded-xl text-xs font-bold text-white btn-premium">
+                  Lo quiero
                 </button>
               </div>
             </div>
@@ -466,13 +418,9 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [savedCoupons, setSavedCoupons] = useState<string[]>(initialData.savedPromotionIds)
   const [usedCoupons, setUsedCoupons] = useState<string[]>(initialData.usedPromotionIds)
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
-  const [complaints, setComplaints] = useState<NeighborComplaintView[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
-  const [complaintTitle, setComplaintTitle] = useState('')
-  const [complaintDescription, setComplaintDescription] = useState('')
-  const [complaintAnonymous, setComplaintAnonymous] = useState(false)
-  const [isCreatingComplaint, setIsCreatingComplaint] = useState(false)
+  const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>('disponibles')
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
@@ -484,12 +432,6 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const featuredPromos = useMemo(() => allPromos.slice(0, 8), [allPromos])
 
   const filteredMarketplace = useMemo(() => marketplaceItems.filter(i => i.buildingId === buildingId), [marketplaceItems, buildingId])
-  const complaintStats = useMemo(() => ({
-    total: complaints.length,
-    pending: complaints.filter((complaint) => complaint.status === 'sin_completar').length,
-    inProgress: complaints.filter((complaint) => complaint.status === 'en_desarrollo').length,
-    resolved: complaints.filter((complaint) => complaint.status === 'resuelto').length,
-  }), [complaints])
 
   const uniqueBusinesses = useMemo(() => {
     const map = new Map<string, Promotion>()
@@ -513,6 +455,19 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     }
   }
 
+  async function handleWantCoupon(promotion: Promotion) {
+    if (!savedCoupons.includes(promotion.id)) {
+      const supabase = getSupabaseBrowserClient()
+      if (!supabase) { toast.error('Supabase no está configurado.'); return }
+      const { error } = await supabase.from('saved_promotions').insert({ profile_id: profileId, promotion_id: promotion.id })
+      if (error) { toast.error(error.message); return }
+      setSavedCoupons(prev => [...prev, promotion.id])
+      toast.success('Cupón guardado en tu billetera.')
+    }
+    setMainView('my-coupons')
+    setCouponFilter('disponibles')
+  }
+
   async function markUsed(promotion: Promotion) {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) { toast.error('Supabase no está configurado.'); return }
@@ -525,7 +480,6 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
   function handleUse(promotion: Promotion) {
     setQrPromotion(promotion)
-    void markUsed(promotion)
   }
 
   async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) {
@@ -555,42 +509,44 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     <div className="min-h-screen pb-24" style={{ background: 'var(--background)' }}>
 
       {/* ── HERO HEADER ──────────────────────────────────────────────────── */}
-      <div
-        className="relative overflow-hidden px-5 pt-3 pb-5"
-        style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}
-      >
-        {/* decorative blobs */}
-        <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
-        <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
+      {mainView === 'home' && (
+        <div
+          className="relative overflow-hidden px-5 pt-3 pb-5"
+          style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}
+        >
+          {/* decorative blobs */}
+          <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
+          <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
 
-        <div className="relative z-10">
-          <p className="text-white/70 text-sm font-medium mb-0.5">Bienvenido/a de vuelta</p>
-          <h1 className="text-white text-2xl font-bold mb-0.5">
-            Hola, {firstName} 👋
-          </h1>
-          <p className="text-white/80 text-sm mb-1">
-            <span className="font-semibold text-white">{allPromos.length} promociones</span> disponibles para vos
-          </p>
-          {buildingPromos.length > 0 && (
-            <p className="text-white/70 text-xs">
-              {buildingPromos.length} exclusivas de {buildingName}
+          <div className="relative z-10">
+            <p className="text-white/70 text-sm font-medium mb-0.5">Bienvenido/a de vuelta</p>
+            <h1 className="text-white text-2xl font-bold mb-0.5">
+              Hola, {firstName} 👋
+            </h1>
+            <p className="text-white/80 text-sm mb-1">
+              <span className="font-semibold text-white">{allPromos.length} promociones</span> disponibles para vos
             </p>
-          )}
+            {buildingPromos.length > 0 && (
+              <p className="text-white/70 text-xs">
+                {buildingPromos.length} exclusivas de {buildingName}
+              </p>
+            )}
 
-          {/* Search bar */}
-          <div className="mt-5 relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onFocus={() => setMainView('all-promos')}
-              placeholder="Buscar promociones..."
-              className="w-full pl-10 pr-4 py-3 rounded-xl text-sm outline-none"
-              style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--foreground)' }}
-            />
+            {/* Search bar */}
+            <div className="mt-5 relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={() => setMainView('all-promos')}
+                placeholder="Buscar promociones..."
+                className="w-full pl-10 pr-4 py-3 rounded-xl text-sm outline-none"
+                style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--foreground)' }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       <div className="px-4 pt-5 max-w-5xl mx-auto">
@@ -606,7 +562,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 {featuredPromos.length === 0 ? (
                   <div className="text-muted-foreground text-sm py-4">Sin promociones disponibles aún.</div>
                 ) : featuredPromos.map(p => (
-                  <FeaturedBusinessCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onUse={handleUse} />
+                  <FeaturedBusinessCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                 ))}
               </div>
             </section>
@@ -617,7 +573,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <SectionTitle icon={Flame} title="Más canjeados hoy" onSeeAll={() => setMainView('all-promos')} />
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
                   {mostRedeemed.filter(p => p.usageCount > 0).map(p => (
-                    <HotCouponCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onUse={handleUse} />
+                    <HotCouponCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                   ))}
                 </div>
               </section>
@@ -629,7 +585,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <SectionTitle icon={Sparkles} title={`Exclusivos de ${buildingName}`} onSeeAll={() => setMainView('building-promos')} />
                 <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
                   {buildingPromos.map(p => (
-                    <ExclusiveCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onUse={handleUse} />
+                    <ExclusiveCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                   ))}
                 </div>
               </section>
@@ -660,7 +616,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             promotions={allPromos}
             savedCoupons={savedCoupons}
             onSaveToggle={toggleSave}
-            onUse={handleUse}
+            onWantCoupon={handleWantCoupon}
             onBack={() => setMainView('home')}
             title="Todos los beneficios"
           />
@@ -672,7 +628,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             promotions={buildingPromos}
             savedCoupons={savedCoupons}
             onSaveToggle={toggleSave}
-            onUse={handleUse}
+            onWantCoupon={handleWantCoupon}
             onBack={() => setMainView('home')}
             title={`Exclusivos de ${buildingName}`}
           />
@@ -686,20 +642,53 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <ArrowLeft className="w-4 h-4" /> Volver
               </button>
               <h2 className="font-bold text-foreground text-lg">Mi billetera</h2>
-              {savedCoupons.length > 0 && (
-                <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#B85C38,#8F4020)' }}>
-                  {savedCoupons.length}
-                </span>
-              )}
             </div>
 
-            {savedCoupons.length > 0 ? (
+            {(() => {
+              const disponiblesCount = allPromos.filter(p => savedCoupons.includes(p.id) && !usedCoupons.includes(p.id)).length;
+              const usadosCount = allPromos.filter(p => savedCoupons.includes(p.id) && usedCoupons.includes(p.id)).length;
+              
+              return (
+                <div className="flex gap-2 mb-6">
+                  <button
+                    onClick={() => setCouponFilter('disponibles')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      couponFilter === 'disponibles' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
+                    }`}
+                    style={couponFilter === 'disponibles' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                  >
+                    Disponibles
+                    {disponiblesCount > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${couponFilter === 'disponibles' ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground border border-border/50'}`}>
+                        {disponiblesCount}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setCouponFilter('usados')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      couponFilter === 'usados' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
+                    }`}
+                    style={couponFilter === 'usados' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                  >
+                    Usados
+                    {usadosCount > 0 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${couponFilter === 'usados' ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground border border-border/50'}`}>
+                        {usadosCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
+
+            {allPromos.filter(p => savedCoupons.includes(p.id) && (couponFilter === 'disponibles' ? !usedCoupons.includes(p.id) : usedCoupons.includes(p.id))).length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {allPromos.filter(p => savedCoupons.includes(p.id)).map(p => {
+                {allPromos.filter(p => savedCoupons.includes(p.id) && (couponFilter === 'disponibles' ? !usedCoupons.includes(p.id) : usedCoupons.includes(p.id))).map(p => {
                   const isUsed = usedCoupons.includes(p.id)
                   const isExpired = p.expirationDate < new Date().toISOString().slice(0, 10)
                   return (
-                    <div key={p.id} className={`glass-card rounded-2xl overflow-hidden border ${isUsed ? 'opacity-60' : ''}`}>
+                    <div key={p.id} className={`glass-card rounded-2xl overflow-hidden border ${isUsed ? 'opacity-70 grayscale-[0.5]' : ''}`}>
                       <div className="relative h-28 bg-gradient-to-br from-secondary to-muted">
                         {p.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -709,8 +698,10 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                         )}
                         <div className="absolute top-2 left-2"><DiscountBadge discount={p.discount} /></div>
                         {isUsed && (
-                          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-                            <span className="text-white font-bold text-sm tracking-wide uppercase">Canjeado</span>
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }}>
+                            <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg border border-white/20">
+                              <span className="text-white font-bold text-xs tracking-widest uppercase">Utilizado</span>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -718,14 +709,22 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                         <h3 className="font-semibold text-foreground text-sm">{p.businessName}</h3>
                         <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
                         <div className="flex gap-2">
-                          {!isUsed && !isExpired && (
-                            <button onClick={() => handleUse(p)} className="flex-1 py-2 rounded-xl text-xs font-semibold text-white btn-premium flex items-center justify-center gap-1">
-                              <QrCode className="w-3.5 h-3.5" /> Usar cupón
+                          {!isUsed && !isExpired ? (
+                            <>
+                              <button onClick={() => handleUse(p)} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white btn-premium flex items-center justify-center gap-1.5 shadow-md">
+                                <QrCode className="w-3.5 h-3.5" /> Ver QR
+                              </button>
+                              <button onClick={() => markUsed(p)} className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+                                Marcar Usado
+                              </button>
+                            </>
+                          ) : isUsed ? (
+                            <button onClick={() => toggleSave(p)} className="w-full py-2 rounded-xl text-xs font-medium border border-border/60 text-muted-foreground hover:text-destructive transition-colors">
+                              Quitar de la billetera
                             </button>
+                          ) : (
+                            <div className="w-full py-2 bg-muted rounded-xl text-center text-xs font-medium text-muted-foreground">Expirado</div>
                           )}
-                          <button onClick={() => toggleSave(p)} className="px-3 py-2 rounded-xl text-xs font-medium border border-border/60 text-muted-foreground hover:text-destructive transition-colors">
-                            {isUsed ? 'Quitar' : '✕'}
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -735,11 +734,17 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             ) : (
               <div className="text-center py-20 glass-card rounded-2xl">
                 <Gift className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <p className="text-foreground font-medium mb-1">Tu billetera está vacía</p>
-                <p className="text-muted-foreground text-sm mb-5">Guardá promociones para empezar a usar cupones.</p>
-                <button onClick={() => setMainView('all-promos')} className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white btn-premium">
-                  Explorar beneficios
-                </button>
+                <p className="text-foreground font-medium mb-1">
+                  {couponFilter === 'disponibles' ? 'No tenés cupones disponibles' : 'Aún no usaste ningún cupón'}
+                </p>
+                <p className="text-muted-foreground text-sm mb-5">
+                  {couponFilter === 'disponibles' ? 'Explorá los beneficios para guardar tus favoritos.' : 'Cuando uses un cupón, aparecerá en esta sección.'}
+                </p>
+                {couponFilter === 'disponibles' && (
+                  <button onClick={() => setMainView('all-promos')} className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white btn-premium">
+                    Explorar beneficios
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -848,11 +853,11 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           {nav.map(item => {
             const isActive = mainView === item.key
             return (
-              <button key={item.key} onClick={() => setMainView(item.key as MainView)} className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all">
+              <button key={item.key} onClick={() => setMainView(item.key as MainView)} className="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all">
                 <item.icon className="w-5 h-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
                 <span className="text-[10px] font-medium" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}>{item.label}</span>
                 {item.key === 'my-coupons' && savedCoupons.length > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+                  <span className="absolute top-0 right-0 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center translate-x-1/4 -translate-y-1/4" style={{ background: 'var(--primary)' }}>
                     {savedCoupons.length}
                   </span>
                 )}
