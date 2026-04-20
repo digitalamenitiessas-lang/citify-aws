@@ -35,14 +35,12 @@ export function PromotionCard({
   isUsed,
   onMarkUsed,
 }: PromotionCardProps) {
-  const [usageCount, setUsageCount] = useState(promotion.usageCount)
   const [used, setUsed] = useState(false)
 
   const handleUseCoupon = () => {
     if (onUse) {
       onUse(promotion)
     } else {
-      setUsageCount((current) => current + 1)
       setUsed(true)
     }
   }
@@ -93,12 +91,12 @@ export function PromotionCard({
         {showAnalytics ? (
           <span className="flex items-center gap-1">
             <TrendingUp className="w-3.5 h-3.5" />
-            {usageCount} usados
+            {promotion.usageCount} usados
           </span>
         ) : (
           <span className="flex items-center gap-1">
             <Tag className="w-3.5 h-3.5" />
-            {usageCount} canjeados
+            {promotion.usageCount} canjeados
           </span>
         )}
       </div>

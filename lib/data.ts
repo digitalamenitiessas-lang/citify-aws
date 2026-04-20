@@ -20,9 +20,39 @@ import type {
   ConsorcioManagedBuilding,
   ConsumerDashboardData,
   HomeData,
+  IAdminAccountingPeriod,
+  IAdminAIExtraction,
+  IAdminConsorcioDetail,
+  IAdminExpenseDocument,
+  IAdminExpenseSummary,
+  IAdminLiquidationRunSummary,
+  IAdminCashAccount,
+  IAdminCashAccountWithBalance,
+  IAdminCashMovement,
+  IAdminCashStatement,
+  IAdminConsorcioDashboard,
+  IAdminDashboardCashSnapshot,
+  IAdminDueDate,
+  IAdminExpenseLineInRun,
+  IAdminLegalInfo,
+  IAdminLiquidationItem,
+  IAdminLiquidationItemDueAmount,
+  IAdminLiquidationRunDetail,
+  IAdminManagedProperty,
+  IAdminPayment,
+  IAdminPeriodCollections,
+  IAdminAccountPayable,
+  IAdminOverdueBucket,
+  IAdminPortfolio,
+  IAdminProvider,
+  IAdminUnit,
+  IAdminUnitHolder,
+  IAdminUnitWithHolders,
   MarketplaceItem,
   Profile,
   Promotion,
+  PromotionMonthlyStatus,
+  PromotionRedemptionHistoryItem,
   PromotionRedemptionByBuilding,
   PromotionsPageData,
   SuperAdminBuildingDetail,
@@ -109,9 +139,41 @@ function mapPromotion(client: any, row: any): Promotion {
     usageCount: redemptions.length,
     buildingId: row.building_id ?? null,
     createdAt: row.created_at,
+    publishedMonth: row.published_month ?? row.created_at?.slice(0, 7) + '-01',
+    sourcePromotionId: row.source_promotion_id ?? null,
     imagePath: row.image_path ?? null,
     imageUrl: publicUrl(client, 'promotion-images', row.image_path),
     isActive: Boolean(row.is_active),
+  }
+}
+
+function getMonthStart(input = new Date()) {
+  return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), 1)).toISOString().slice(0, 10)
+}
+
+function getPreviousMonthStart(monthStart: string) {
+  const date = new Date(`${monthStart}T00:00:00.000Z`)
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
+}
+
+function formatMonthLabel(monthStart: string) {
+  return new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthStart}T00:00:00.000Z`))
+}
+
+function buildPromotionMonthlyStatus(promotions: Promotion[], referenceMonthStart = getMonthStart()): PromotionMonthlyStatus {
+  const previousMonthStart = getPreviousMonthStart(referenceMonthStart)
+  const promotionsThisMonth = promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
+  const lastMonthPromotion =
+    [...promotions]
+      .filter((promotion) => promotion.publishedMonth === previousMonthStart)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+
+  return {
+    monthStart: referenceMonthStart,
+    monthLabel: formatMonthLabel(referenceMonthStart),
+    isCompliant: promotionsThisMonth.length > 0,
+    promotionsThisMonth: promotionsThisMonth.length,
+    lastMonthPromotion,
   }
 }
 
@@ -160,6 +222,26 @@ function normalizeReasonRows(rows: any[] | null | undefined): ComplaintCaseReaso
 
 function profileUnitLabel(row: any): string | null {
   return [row?.floor, row?.unit].filter(Boolean).join(' - ') || null
+}
+
+function mapPromotionRedemptionHistoryItem(row: any): PromotionRedemptionHistoryItem {
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  const promotion = Array.isArray(row.promotions) ? row.promotions[0] : row.promotions
+  const building = profile?.buildings ? (Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings) : null
+
+  return {
+    id: row.id,
+    promotionId: row.promotion_id,
+    promotionTitle: promotion?.title ?? 'Promocion',
+    promotionDiscount: promotion?.discount ?? null,
+    profileId: row.profile_id,
+    neighborName: profile?.full_name ?? 'Vecino',
+    neighborUnitLabel: profileUnitLabel(profile),
+    buildingName: building?.name ?? null,
+    status: row.status ?? 'redeemed',
+    redeemedAt: row.redeemed_at ?? row.created_at,
+    createdAt: row.created_at,
+  }
 }
 
 function buildMentionLabel(row: any): string {
@@ -365,13 +447,13 @@ export async function getPromotionsPageData(): Promise<PromotionsPageData> {
 export async function getBusinessDashboardData(profileId: string): Promise<BusinessDashboardData> {
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
-    return { business: null, promotions: [], consumersCount: 0, availableBuildings: [] }
+    return { business: null, promotions: [], consumersCount: 0, availableBuildings: [], monthlyStatus: null, redemptionHistory: [] }
   }
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
   const businessId = profile?.business_id
 
-  const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }] = await Promise.all([
+  const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }, { data: redemptionsData }] = await Promise.all([
     businessId ? supabase.from('businesses').select('*').eq('id', businessId).maybeSingle() : Promise.resolve({ data: null }),
     businessId
       ? supabase
@@ -382,13 +464,44 @@ export async function getBusinessDashboardData(profileId: string): Promise<Busin
       : Promise.resolve({ data: [] }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'vecino'),
     supabase.from('buildings').select('*').order('name'),
+    businessId
+      ? supabase
+          .from('promotion_redemptions')
+          .select(`
+            id,
+            profile_id,
+            promotion_id,
+            status,
+            redeemed_at,
+            created_at,
+            profiles (
+              id,
+              full_name,
+              floor,
+              unit,
+              buildings ( id, name )
+            ),
+            promotions (
+              id,
+              title,
+              discount
+            )
+          `)
+          .eq('promotions.business_id', businessId)
+          .order('redeemed_at', { ascending: false })
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
   ])
+
+  const promotions = (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row))
 
   return {
     business: businessData ? mapBusiness(supabase, businessData) : null,
-    promotions: (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row)),
+    promotions,
     consumersCount: count ?? 0,
     availableBuildings: (buildingsData ?? []).map(mapBuilding),
+    monthlyStatus: businessData ? buildPromotionMonthlyStatus(promotions) : null,
+    redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
   }
 }
 
@@ -668,7 +781,13 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
       }
     }
     const topEntry = Array.from(buildingCounts.values()).sort((a, b) => b.count - a.count)[0]
-    return { ...business, promotions, totalRedemptions, topBuilding: topEntry?.name ?? null }
+    return {
+      ...business,
+      promotions,
+      totalRedemptions,
+      topBuilding: topEntry?.name ?? null,
+      monthlyStatus: buildPromotionMonthlyStatus(promotions),
+    }
   })
 
   return {
@@ -736,13 +855,15 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
         const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
         return profile ? mapMentionableUser(profile, row.building_id) : null
       })
-      .filter((user): user is NonNullable<typeof user> => user !== null),
+      .filter((user): user is ComplaintCaseMentionableUser => Boolean(user)),
   ]
-    .filter((user, index, array) => user && array.findIndex((item) => item.profileId === user.profileId) === index)
-    .sort((a, b) => a!.label.localeCompare(b!.label)) as any[] // Temporarily casting to any array if ComplaintCaseMentionableUser is not in scope here or inferred. Wait, it's returning anything? No, ComplaintCaseMentionableUser[]
+    .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
+    .sort((a: ComplaintCaseMentionableUser, b: ComplaintCaseMentionableUser) => a.label.localeCompare(b.label))
 
   const complaintCaseDetails = (complaintRows ?? []).map((row: any) => mapNeighborComplaintCaseDetail(row, mentionableUsers))
-  const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem).sort((a: any, b: any) => b.lastEventAt.localeCompare(a.lastEventAt))
+  const complaintCases = complaintCaseDetails
+    .map(buildComplaintCaseListItem)
+    .sort((a: ComplaintCaseListItem, b: ComplaintCaseListItem) => b.lastEventAt.localeCompare(a.lastEventAt))
   const promotions = (promotionsData ?? [])
     .map((row: any) => mapPromotion(supabase, row))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
@@ -759,6 +880,1098 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
     complaintCases,
     complaintCaseDetails,
   }
+}
+
+// ----------------------------------------------------------------------------
+// IAdmin: lecturas base del backoffice administrativo
+// ----------------------------------------------------------------------------
+
+function mapManagedProperty(row: any): IAdminManagedProperty {
+  const building = Array.isArray(row.buildings) ? row.buildings[0] : row.buildings
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    buildingId: row.building_id,
+    buildingName: building?.name ?? 'Edificio',
+    buildingAddress: building?.address ?? '',
+    displayName: row.display_name ?? null,
+    propertyKind: row.property_kind ?? 'consorcio',
+    taxId: row.tax_id ?? null,
+    managedSince: row.managed_since ?? null,
+    managementFeePct: row.management_fee_pct !== null ? Number(row.management_fee_pct) : null,
+    notes: row.notes ?? null,
+    isActive: Boolean(row.is_active),
+    totalUnits: building?.total_units ?? 0,
+    legalInfo: (row.legal_info ?? {}) as IAdminLegalInfo,
+    createdAt: row.created_at,
+  }
+}
+
+function mapUnit(row: any): IAdminUnit {
+  const holder = Array.isArray(row.iadmin_unit_holders)
+    ? row.iadmin_unit_holders.find((h: any) => h?.is_active) ?? row.iadmin_unit_holders[0] ?? null
+    : null
+  return {
+    id: row.id,
+    managedPropertyId: row.managed_property_id,
+    code: row.code,
+    kind: row.kind ?? 'departamento',
+    floor: row.floor ?? null,
+    surfaceM2: row.surface_m2 !== null ? Number(row.surface_m2) : null,
+    prorataCoefficient: row.prorata_coefficient !== null ? Number(row.prorata_coefficient) : null,
+    isActive: Boolean(row.is_active),
+    activeHolderName: holder?.full_name ?? null,
+    activeHolderKind: holder?.holder_kind ?? null,
+  }
+}
+
+function mapAccountingPeriod(row: any): IAdminAccountingPeriod {
+  return {
+    id: row.id,
+    managedPropertyId: row.managed_property_id,
+    periodYear: row.period_year,
+    periodMonth: row.period_month,
+    status: row.status,
+    closedAt: row.closed_at ?? null,
+  }
+}
+
+function mapAIExtraction(row: any): IAdminAIExtraction {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    status: row.status,
+    provider: row.provider ?? null,
+    suggestedFields: row.suggested_fields ?? null,
+    confidence: row.confidence !== null ? Number(row.confidence) : null,
+    validatedBy: row.validated_by ?? null,
+    validatedAt: row.validated_at ?? null,
+    validationNotes: row.validation_notes ?? null,
+  }
+}
+
+function mapExpenseSummary(row: any, propertyName: string): IAdminExpenseSummary {
+  const provider = Array.isArray(row.iadmin_providers) ? row.iadmin_providers[0] : row.iadmin_providers
+  const documents = Array.isArray(row.iadmin_expense_documents) ? row.iadmin_expense_documents : []
+  const pendingExtraction = documents.some((doc: any) => {
+    const extraction = Array.isArray(doc.iadmin_ai_document_extractions)
+      ? doc.iadmin_ai_document_extractions[0]
+      : doc.iadmin_ai_document_extractions
+    return extraction && extraction.status !== 'validated'
+  })
+
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    managedPropertyName: propertyName,
+    providerName: provider?.name ?? null,
+    category: row.category ?? null,
+    description: row.description,
+    amount: Number(row.amount),
+    currency: row.currency ?? 'ARS',
+    issuedAt: row.issued_at ?? null,
+    status: row.status,
+    expenseKind: (row.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+    hasDocuments: documents.length > 0,
+    pendingExtraction,
+    createdAt: row.created_at,
+  }
+}
+
+export async function getIAdminPortfolio(administrationId: string): Promise<IAdminPortfolio | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const [{ data: adminData }, { data: propertiesData }, { count: openExpensesCount }, { count: pendingDocsCount }] =
+    await Promise.all([
+      supabase.from('iadmin_administrations').select('*').eq('id', administrationId).maybeSingle(),
+      supabase
+        .from('iadmin_managed_properties')
+        .select(`*, buildings ( id, name, address, total_units )`)
+        .eq('administration_id', administrationId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('iadmin_expenses')
+        .select('*', { count: 'exact', head: true })
+        .eq('administration_id', administrationId)
+        .in('status', ['draft', 'pending_review', 'needs_doc']),
+      supabase
+        .from('iadmin_ai_document_extractions')
+        .select('id, iadmin_expense_documents!inner(iadmin_expenses!inner(administration_id))', {
+          count: 'exact',
+          head: true,
+        })
+        .neq('status', 'validated')
+        .eq('iadmin_expense_documents.iadmin_expenses.administration_id', administrationId),
+    ])
+
+  if (!adminData) return null
+
+  const properties = (propertiesData ?? []).map(mapManagedProperty)
+  const totalUnits = properties.reduce((sum, p) => sum + p.totalUnits, 0)
+
+  return {
+    administration: {
+      id: adminData.id,
+      name: adminData.name,
+      legalName: adminData.legal_name ?? null,
+      taxId: adminData.tax_id ?? null,
+      contactEmail: adminData.contact_email ?? null,
+      contactPhone: adminData.contact_phone ?? null,
+      isActive: Boolean(adminData.is_active),
+      createdAt: adminData.created_at,
+    },
+    properties,
+    stats: {
+      totalProperties: properties.length,
+      totalUnits,
+      openExpenses: openExpensesCount ?? 0,
+      pendingDocs: pendingDocsCount ?? 0,
+    },
+  }
+}
+
+export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdminConsorcioDetail | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: propertyRow } = await supabase
+    .from('iadmin_managed_properties')
+    .select(`*, buildings ( id, name, address, total_units )`)
+    .eq('id', propertyId)
+    .maybeSingle()
+
+  if (!propertyRow) return null
+
+  const property = mapManagedProperty(propertyRow)
+
+  const now = new Date()
+  const periodYear = now.getFullYear()
+  const periodMonth = now.getMonth() + 1
+
+  const [{ data: unitsData }, { data: periodData }, { data: expensesData }, { count: holderCount }] = await Promise.all([
+    supabase
+      .from('iadmin_units')
+      .select(`*, iadmin_unit_holders ( id, full_name, holder_kind, is_active )`)
+      .eq('managed_property_id', propertyId)
+      .order('code'),
+    supabase
+      .from('iadmin_accounting_periods')
+      .select('*')
+      .eq('managed_property_id', propertyId)
+      .eq('period_year', periodYear)
+      .eq('period_month', periodMonth)
+      .maybeSingle(),
+    supabase
+      .from('iadmin_expenses')
+      .select(`
+        *,
+        iadmin_providers ( id, name ),
+        iadmin_expense_documents ( id, iadmin_ai_document_extractions ( id, status ) )
+      `)
+      .eq('managed_property_id', propertyId)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('iadmin_unit_holders')
+      .select('id, iadmin_units!inner(managed_property_id)', { count: 'exact', head: true })
+      .eq('is_active', true)
+      .eq('iadmin_units.managed_property_id', propertyId),
+  ])
+
+  const units = (unitsData ?? []).map(mapUnit)
+  const recentExpenses = (expensesData ?? []).map((row: any) => mapExpenseSummary(row, property.displayName ?? property.buildingName))
+
+  const monthExpenses = recentExpenses.filter((expense) => {
+    if (!expense.issuedAt) return false
+    const date = new Date(expense.issuedAt)
+    return date.getFullYear() === periodYear && date.getMonth() + 1 === periodMonth
+  })
+  const monthAmount = monthExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+  return {
+    property,
+    units,
+    recentExpenses,
+    currentPeriod: periodData ? mapAccountingPeriod(periodData) : null,
+    totals: {
+      units: units.length,
+      activeHolders: holderCount ?? 0,
+      monthExpenses: monthExpenses.length,
+      monthAmount,
+    },
+  }
+}
+
+export async function getIAdminExpensesInbox(administrationId: string): Promise<IAdminExpenseSummary[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+
+  const { data } = await supabase
+    .from('iadmin_expenses')
+    .select(`
+      *,
+      iadmin_providers ( id, name ),
+      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
+      iadmin_expense_documents ( id, iadmin_ai_document_extractions ( id, status ) )
+    `)
+    .eq('administration_id', administrationId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  return (data ?? []).map((row: any) => {
+    const property = Array.isArray(row.iadmin_managed_properties)
+      ? row.iadmin_managed_properties[0]
+      : row.iadmin_managed_properties
+    const building = property?.buildings
+      ? Array.isArray(property.buildings)
+        ? property.buildings[0]
+        : property.buildings
+      : null
+    const propertyName = property?.display_name ?? building?.name ?? 'Consorcio'
+    return mapExpenseSummary(row, propertyName)
+  })
+}
+
+export async function getIAdminExpenseDetail(
+  expenseId: string,
+): Promise<
+  | {
+      expense: IAdminExpenseSummary
+      documents: IAdminExpenseDocument[]
+      payment: { paid: boolean; paidAt: string | null; paidFromAccountName: string | null }
+      cashAccounts: IAdminCashAccountWithBalance[]
+    }
+  | null
+> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: row } = await supabase
+    .from('iadmin_expenses')
+    .select(`
+      *,
+      iadmin_providers ( id, name ),
+      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
+      iadmin_expense_documents (
+        id,
+        storage_path,
+        file_name,
+        mime_type,
+        size_bytes,
+        uploaded_at,
+        iadmin_ai_document_extractions ( * )
+      )
+    `)
+    .eq('id', expenseId)
+    .maybeSingle()
+
+  if (!row) return null
+
+  const property = Array.isArray(row.iadmin_managed_properties)
+    ? row.iadmin_managed_properties[0]
+    : row.iadmin_managed_properties
+  const building = property?.buildings
+    ? Array.isArray(property.buildings)
+      ? property.buildings[0]
+      : property.buildings
+    : null
+  const propertyName = property?.display_name ?? building?.name ?? 'Consorcio'
+
+  const documents: IAdminExpenseDocument[] = (row.iadmin_expense_documents ?? []).map((doc: any) => {
+    const extraction = Array.isArray(doc.iadmin_ai_document_extractions)
+      ? doc.iadmin_ai_document_extractions[0]
+      : doc.iadmin_ai_document_extractions
+    return {
+      id: doc.id,
+      expenseId: row.id,
+      storagePath: doc.storage_path,
+      fileName: doc.file_name,
+      mimeType: doc.mime_type ?? null,
+      sizeBytes: doc.size_bytes ?? null,
+      uploadedAt: doc.uploaded_at,
+      extraction: extraction ? mapAIExtraction(extraction) : null,
+    }
+  })
+
+  // Estado de pago: movimiento expense_payment para este gasto
+  const { data: paymentRow } = await supabase
+    .from('iadmin_bank_movements')
+    .select(`movement_date, iadmin_cash_accounts ( name )`)
+    .eq('expense_id', expenseId)
+    .eq('movement_kind', 'expense_payment')
+    .maybeSingle()
+
+  const paymentAccount = paymentRow
+    ? Array.isArray(paymentRow.iadmin_cash_accounts)
+      ? paymentRow.iadmin_cash_accounts[0]
+      : paymentRow.iadmin_cash_accounts
+    : null
+
+  const payment = {
+    paid: Boolean(paymentRow),
+    paidAt: paymentRow?.movement_date ?? null,
+    paidFromAccountName: paymentAccount?.name ?? null,
+  }
+
+  const cashAccounts = await getIAdminCashAccounts(row.managed_property_id)
+
+  return {
+    expense: mapExpenseSummary(row, propertyName),
+    documents,
+    payment,
+    cashAccounts,
+  }
+}
+
+export async function getIAdminLiquidationRuns(administrationId: string): Promise<IAdminLiquidationRunSummary[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+
+  const { data } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select(`
+      *,
+      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
+      iadmin_accounting_periods ( period_year, period_month )
+    `)
+    .eq('administration_id', administrationId)
+    .order('generated_at', { ascending: false })
+    .limit(50)
+
+  return (data ?? []).map((row: any): IAdminLiquidationRunSummary => {
+    const property = Array.isArray(row.iadmin_managed_properties)
+      ? row.iadmin_managed_properties[0]
+      : row.iadmin_managed_properties
+    const building = property?.buildings
+      ? Array.isArray(property.buildings)
+        ? property.buildings[0]
+        : property.buildings
+      : null
+    const period = Array.isArray(row.iadmin_accounting_periods)
+      ? row.iadmin_accounting_periods[0]
+      : row.iadmin_accounting_periods
+    return {
+      id: row.id,
+      managedPropertyId: row.managed_property_id,
+      managedPropertyName: property?.display_name ?? building?.name ?? 'Consorcio',
+      periodYear: period?.period_year ?? 0,
+      periodMonth: period?.period_month ?? 0,
+      status: row.status,
+      totalExpenses: Number(row.total_expenses ?? 0),
+      totalUnits: Number(row.total_units ?? 0),
+      generatedAt: row.generated_at,
+      closedAt: row.closed_at ?? null,
+    }
+  })
+}
+
+function mapProvider(row: any): IAdminProvider {
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    name: row.name,
+    taxId: row.tax_id ?? null,
+    category: row.category ?? null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    notes: row.notes ?? null,
+    defaultCategory: row.default_category ?? null,
+    defaultDescription: row.default_description ?? null,
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+  }
+}
+
+function mapUnitHolder(row: any): IAdminUnitHolder {
+  return {
+    id: row.id,
+    unitId: row.unit_id,
+    profileId: row.profile_id ?? null,
+    fullName: row.full_name,
+    taxId: row.tax_id ?? null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    holderKind: row.holder_kind,
+    startDate: row.start_date ?? null,
+    endDate: row.end_date ?? null,
+    isActive: Boolean(row.is_active),
+  }
+}
+
+export async function getIAdminProviders(administrationId: string): Promise<IAdminProvider[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('iadmin_providers')
+    .select('*')
+    .eq('administration_id', administrationId)
+    .order('is_active', { ascending: false })
+    .order('name')
+  return (data ?? []).map(mapProvider)
+}
+
+export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAdminUnitWithHolders[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('iadmin_units')
+    .select('*, iadmin_unit_holders ( * )')
+    .eq('managed_property_id', propertyId)
+    .order('code')
+
+  return (data ?? []).map((row: any) => {
+    const baseUnit = mapUnit(row)
+    const holders = (row.iadmin_unit_holders ?? [])
+      .map(mapUnitHolder)
+      .sort((a: IAdminUnitHolder, b: IAdminUnitHolder) => {
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
+        return (b.startDate ?? '').localeCompare(a.startDate ?? '')
+      })
+    return { ...baseUnit, holders }
+  })
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+function mapPayment(row: any): IAdminPayment {
+  const cashAccount = Array.isArray(row.iadmin_cash_accounts) ? row.iadmin_cash_accounts[0] : row.iadmin_cash_accounts
+  const unit = Array.isArray(row.iadmin_units) ? row.iadmin_units[0] : row.iadmin_units
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    liquidationRunId: row.liquidation_run_id ?? null,
+    liquidationItemId: row.liquidation_item_id ?? null,
+    unitId: row.unit_id ?? null,
+    unitCode: unit?.code ?? null,
+    cashAccountId: row.cash_account_id ?? null,
+    cashAccountName: cashAccount?.name ?? null,
+    bankMovementId: row.bank_movement_id ?? null,
+    amount: Number(row.amount),
+    surchargeAmount: Number(row.surcharge_amount ?? 0),
+    paidAt: row.paid_at,
+    method: row.method ?? null,
+    reference: row.reference ?? null,
+    receiptNumber: row.receipt_number ?? null,
+    dueLabel: row.due_label ?? null,
+    notes: row.notes ?? null,
+    isVoid: Boolean(row.is_void),
+    voidedAt: row.voided_at ?? null,
+    voidReason: row.void_reason ?? null,
+    createdAt: row.created_at,
+  }
+}
+
+function computeDueAmountsForItem(
+  ordinary: number,
+  extraordinary: number,
+  previousBalance: number,
+  dueDates: IAdminDueDate[],
+): IAdminLiquidationItemDueAmount[] {
+  const subtotal = ordinary + extraordinary + previousBalance
+  return dueDates.map((due) => ({
+    label: due.label,
+    date: due.date,
+    surchargePct: due.surchargePct,
+    amount: round2(subtotal * (1 + due.surchargePct / 100)),
+  }))
+}
+
+export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdminLiquidationRunDetail | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: row } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select(`
+      *,
+      iadmin_administrations ( id, name, legal_info ),
+      iadmin_managed_properties ( id, display_name, legal_info, buildings ( name, address ) ),
+      iadmin_accounting_periods ( id, period_year, period_month ),
+      generated_by_profile:profiles!iadmin_liquidation_runs_generated_by_fkey ( id, full_name ),
+      issued_by_profile:profiles!iadmin_liquidation_runs_issued_by_fkey ( id, full_name ),
+      closed_by_profile:profiles!iadmin_liquidation_runs_closed_by_fkey ( id, full_name ),
+      iadmin_liquidation_items (
+        id,
+        unit_id,
+        prorata_coefficient,
+        amount,
+        ordinary_amount,
+        extraordinary_amount,
+        previous_balance,
+        iadmin_units (
+          id,
+          code,
+          kind,
+          iadmin_unit_holders ( id, full_name, holder_kind, is_active )
+        )
+      )
+    `)
+    .eq('id', runId)
+    .maybeSingle()
+
+  if (!row) return null
+
+  const administration = Array.isArray(row.iadmin_administrations)
+    ? row.iadmin_administrations[0]
+    : row.iadmin_administrations
+  const property = Array.isArray(row.iadmin_managed_properties)
+    ? row.iadmin_managed_properties[0]
+    : row.iadmin_managed_properties
+  const building = property?.buildings
+    ? Array.isArray(property.buildings)
+      ? property.buildings[0]
+      : property.buildings
+    : null
+  const period = Array.isArray(row.iadmin_accounting_periods)
+    ? row.iadmin_accounting_periods[0]
+    : row.iadmin_accounting_periods
+  const generatedBy = Array.isArray(row.generated_by_profile)
+    ? row.generated_by_profile[0]
+    : row.generated_by_profile
+  const issuedBy = Array.isArray(row.issued_by_profile)
+    ? row.issued_by_profile[0]
+    : row.issued_by_profile
+  const closedBy = Array.isArray(row.closed_by_profile)
+    ? row.closed_by_profile[0]
+    : row.closed_by_profile
+
+  const dueDates = ((row.due_dates ?? []) as any[]).map(
+    (d: any): IAdminDueDate => ({
+      label: d.label ?? '',
+      date: d.date ?? '',
+      surchargePct: Number(d.surcharge_pct ?? d.surchargePct ?? 0),
+    }),
+  )
+
+  // Traer pagos vivos (no anulados) de esta run para calcular saldo por item
+  const { data: paymentsRows } = await supabase
+    .from('iadmin_payments')
+    .select(`
+      *,
+      iadmin_cash_accounts ( id, name ),
+      iadmin_units ( id, code )
+    `)
+    .eq('liquidation_run_id', row.id)
+    .eq('is_void', false)
+    .order('paid_at', { ascending: false })
+
+  const payments: IAdminPayment[] = (paymentsRows ?? []).map(mapPayment)
+  const paymentsByItem = new Map<string, IAdminPayment[]>()
+  for (const p of payments) {
+    if (!p.liquidationItemId) continue
+    const arr = paymentsByItem.get(p.liquidationItemId) ?? []
+    arr.push(p)
+    paymentsByItem.set(p.liquidationItemId, arr)
+  }
+
+  const items: IAdminLiquidationItem[] = (row.iadmin_liquidation_items ?? [])
+    .map((item: any): IAdminLiquidationItem => {
+      const unit = Array.isArray(item.iadmin_units) ? item.iadmin_units[0] : item.iadmin_units
+      const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
+      const activeHolder = holders.find((h: any) => h?.is_active) ?? null
+      const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
+      const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
+      const previousBalance = Number(item.previous_balance ?? 0)
+      const subtotal = round2(ordinaryAmount + extraordinaryAmount + previousBalance)
+      const itemPayments = paymentsByItem.get(item.id) ?? []
+      const collectedAmount = round2(itemPayments.reduce((s, p) => s + p.amount, 0))
+      const balanceRemaining = round2(Math.max(0, subtotal - collectedAmount))
+      return {
+        id: item.id,
+        unitId: item.unit_id,
+        unitCode: unit?.code ?? '—',
+        unitKind: unit?.kind ?? 'otro',
+        activeHolderName: activeHolder?.full_name ?? null,
+        activeHolderKind: activeHolder?.holder_kind ?? null,
+        prorataCoefficient: Number(item.prorata_coefficient),
+        ordinaryAmount,
+        extraordinaryAmount,
+        previousBalance,
+        amount: ordinaryAmount,
+        subtotal,
+        dueAmounts: computeDueAmountsForItem(ordinaryAmount, extraordinaryAmount, previousBalance, dueDates),
+        collectedAmount,
+        balanceRemaining,
+        payments: itemPayments,
+      }
+    })
+    .sort((a: IAdminLiquidationItem, b: IAdminLiquidationItem) => a.unitCode.localeCompare(b.unitCode))
+
+  // Lineas de egresos: gastos imputados del periodo
+  const { data: expenseRows } = await supabase
+    .from('iadmin_expenses')
+    .select(`
+      id, description, amount, category, issued_at, expense_kind,
+      iadmin_providers ( name )
+    `)
+    .eq('accounting_period_id', row.accounting_period_id)
+    .eq('status', 'imputed')
+    .order('issued_at', { ascending: true })
+
+  const expenseLines: IAdminExpenseLineInRun[] = (expenseRows ?? []).map((e: any) => {
+    const provider = Array.isArray(e.iadmin_providers) ? e.iadmin_providers[0] : e.iadmin_providers
+    return {
+      id: e.id,
+      issuedAt: e.issued_at ?? null,
+      providerName: provider?.name ?? null,
+      description: e.description,
+      category: e.category ?? null,
+      amount: Number(e.amount),
+      kind: (e.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+    }
+  })
+
+  const ordinaryExpenses = round2(
+    expenseLines.filter((l) => l.kind === 'ordinaria').reduce((s, l) => s + l.amount, 0),
+  )
+  const extraordinaryExpenses = round2(
+    expenseLines.filter((l) => l.kind === 'extraordinaria').reduce((s, l) => s + l.amount, 0),
+  )
+
+  // Ingresos reales: sumamos los pagos vivos de esta run
+  const ordinaryIncome = round2(payments.reduce((s, p) => s + p.amount, 0))
+  const extraordinaryIncome = 0 // por ahora no distinguimos ord/ext en el pago
+  const previousBalance = Number(row.previous_balance ?? 0)
+
+  const cashStatement: IAdminCashStatement = {
+    previousBalance,
+    ordinaryIncome,
+    extraordinaryIncome,
+    totalIncome: round2(ordinaryIncome + extraordinaryIncome),
+    ordinaryExpenses,
+    extraordinaryExpenses,
+    totalExpenses: round2(ordinaryExpenses + extraordinaryExpenses),
+    endingBalance: round2(previousBalance + ordinaryIncome + extraordinaryIncome - ordinaryExpenses - extraordinaryExpenses),
+  }
+
+  const totalAssigned = round2(items.reduce((sum, it) => sum + it.subtotal, 0))
+  const totalExpenses = Number(row.total_expenses ?? 0)
+  const coverageDelta = round2(totalExpenses - round2(items.reduce((sum, it) => sum + it.ordinaryAmount, 0)))
+  const collectedTotal = round2(items.reduce((sum, it) => sum + it.collectedAmount, 0))
+  const balanceTotal = round2(items.reduce((sum, it) => sum + it.balanceRemaining, 0))
+
+  const cashAccounts = await getIAdminCashAccounts(row.managed_property_id)
+
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    administrationName: administration?.name ?? '',
+    administrationLegalInfo: (administration?.legal_info ?? {}) as IAdminLegalInfo,
+    propertyLegalInfo: (property?.legal_info ?? {}) as IAdminLegalInfo,
+    managedPropertyId: row.managed_property_id,
+    managedPropertyName: property?.display_name ?? building?.name ?? 'Consorcio',
+    managedPropertyAddress: building?.address ?? '',
+    accountingPeriodId: row.accounting_period_id,
+    periodYear: period?.period_year ?? 0,
+    periodMonth: period?.period_month ?? 0,
+    status: row.status,
+    totalExpenses,
+    ordinaryTotal: Number(row.ordinary_total ?? 0),
+    extraordinaryTotal: Number(row.extraordinary_total ?? 0),
+    previousBalance,
+    totalUnits: Number(row.total_units ?? 0),
+    generatedAt: row.generated_at,
+    generatedByName: generatedBy?.full_name ?? null,
+    issuedAt: row.issued_at ?? null,
+    issuedByName: issuedBy?.full_name ?? null,
+    closedAt: row.closed_at ?? null,
+    closedByName: closedBy?.full_name ?? null,
+    dueDates,
+    items,
+    expenseLines,
+    cashStatement,
+    totalAssigned,
+    coverageDelta,
+    collectedTotal,
+    balanceTotal,
+    cashAccounts,
+  }
+}
+
+export async function getIAdminConsorcioDashboard(propertyId: string): Promise<IAdminConsorcioDashboard | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: propertyRow } = await supabase
+    .from('iadmin_managed_properties')
+    .select(`*, buildings ( id, name, address, total_units )`)
+    .eq('id', propertyId)
+    .maybeSingle()
+
+  if (!propertyRow) return null
+
+  const property = mapManagedProperty(propertyRow)
+  const administrationId = property.administrationId
+
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  // Paraleliza todas las queries que necesita el dashboard
+  const [
+    expensesRes,
+    unitsRes,
+    runsRes,
+    periodRes,
+  ] = await Promise.all([
+    // Gastos del consorcio para calcular: egresos del mes, pendientes, pagables a proveedor
+    supabase
+      .from('iadmin_expenses')
+      .select(`
+        id, amount, status, expense_kind, issued_at, provider_id,
+        iadmin_providers ( id, name )
+      `)
+      .eq('managed_property_id', propertyId)
+      .order('issued_at', { ascending: false }),
+
+    supabase
+      .from('iadmin_units')
+      .select('id')
+      .eq('managed_property_id', propertyId)
+      .eq('is_active', true),
+
+    // Ultimas corridas cerradas / emitidas para deudas historicas y liquidado
+    supabase
+      .from('iadmin_liquidation_runs')
+      .select(`
+        id, status, ordinary_total, extraordinary_total, total_expenses,
+        accounting_period_id,
+        iadmin_accounting_periods ( period_year, period_month ),
+        iadmin_liquidation_items ( id, ordinary_amount, extraordinary_amount, previous_balance )
+      `)
+      .eq('managed_property_id', propertyId)
+      .in('status', ['calculated', 'issued', 'closed'])
+      .order('generated_at', { ascending: false })
+      .limit(12),
+
+    supabase
+      .from('iadmin_accounting_periods')
+      .select('id, period_year, period_month, status')
+      .eq('managed_property_id', propertyId)
+      .eq('period_year', currentYear)
+      .eq('period_month', currentMonth)
+      .maybeSingle(),
+  ])
+
+  const expenses = expensesRes.data ?? []
+
+  // ---- Saldos reales desde iadmin_cash_accounts ----
+  const cashAccounts = await getIAdminCashAccounts(propertyId)
+  const activeAccounts = cashAccounts.filter((a) => a.isActive)
+
+  const balances: IAdminDashboardCashSnapshot[] = activeAccounts.map((a) => ({
+    label: a.name,
+    amount: a.currentBalance,
+    kind: a.kind === 'reserve' ? 'reserve' : a.kind === 'cash' ? 'cash' : 'bank',
+  }))
+
+  if (balances.length === 0) {
+    // Si todavia no hay cuentas cargadas, placeholder
+    balances.push({
+      label: 'Sin cuentas cargadas',
+      amount: 0,
+      kind: 'operating',
+      placeholder: true,
+    })
+  }
+
+  const totalBalance = balances.reduce((sum, b) => sum + b.amount, 0)
+
+  // ---- Cuentas por pagar a proveedores ----
+  // Gastos approved o imputed que aun NO tienen pago registrado
+  // Traemos el set de expense_ids que ya fueron pagados (tienen movimiento expense_payment)
+  const candidateExpenseIds = expenses
+    .filter((e: any) => e.status === 'approved' || e.status === 'imputed')
+    .map((e: any) => e.id)
+
+  const paidExpenseIds = new Set<string>()
+  if (candidateExpenseIds.length > 0) {
+    const { data: paidRows } = await supabase
+      .from('iadmin_bank_movements')
+      .select('expense_id')
+      .eq('movement_kind', 'expense_payment')
+      .in('expense_id', candidateExpenseIds)
+    for (const r of paidRows ?? []) {
+      if (r.expense_id) paidExpenseIds.add(r.expense_id)
+    }
+  }
+
+  const payableMap = new Map<string, IAdminAccountPayable>()
+  for (const e of expenses) {
+    if (e.status !== 'approved' && e.status !== 'imputed') continue
+    if (paidExpenseIds.has(e.id)) continue
+    const provider = Array.isArray(e.iadmin_providers) ? e.iadmin_providers[0] : e.iadmin_providers
+    const providerId = provider?.id ?? e.provider_id ?? null
+    const providerName = provider?.name ?? 'Sin proveedor'
+    const key = providerId ?? 'no-provider'
+    const current = payableMap.get(key) ?? {
+      providerId,
+      providerName,
+      amount: 0,
+      expensesCount: 0,
+      oldestDate: null,
+    }
+    current.amount += Number(e.amount)
+    current.expensesCount += 1
+    if (!current.oldestDate || (e.issued_at && e.issued_at < current.oldestDate)) {
+      current.oldestDate = e.issued_at ?? current.oldestDate
+    }
+    payableMap.set(key, current)
+  }
+  const accountsPayable = Array.from(payableMap.values()).sort((a, b) => b.amount - a.amount)
+  const totalPayable = accountsPayable.reduce((sum, p) => sum + p.amount, 0)
+
+  // ---- Liquidados / Cobranzas del periodo actual ----
+  const runs = runsRes.data ?? []
+  const currentRun = runs.find((r: any) => {
+    const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+    return p?.period_year === currentYear && p?.period_month === currentMonth
+  })
+
+  const liquidatedOrdinary = currentRun ? Number(currentRun.ordinary_total ?? 0) : 0
+  const liquidatedExtraordinary = currentRun ? Number(currentRun.extraordinary_total ?? 0) : 0
+  const liquidatedTotal = liquidatedOrdinary + liquidatedExtraordinary
+
+  // Cobranzas reales: sumamos pagos vivos de la run actual
+  let collectedTotal = 0
+  if (currentRun) {
+    const { data: paymentsSum } = await supabase
+      .from('iadmin_payments')
+      .select('amount')
+      .eq('liquidation_run_id', currentRun.id)
+      .eq('is_void', false)
+    collectedTotal = (paymentsSum ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0)
+  }
+  collectedTotal = Math.round(collectedTotal * 100) / 100
+  const collectedOrdinary = collectedTotal // sin distinguir ord/ext en V1
+  const collectedExtraordinary = 0
+  const collectionRatePct = liquidatedTotal > 0 ? Math.round((collectedTotal / liquidatedTotal) * 100) : null
+
+  const periodCollections: IAdminPeriodCollections = {
+    liquidatedOrdinary,
+    liquidatedExtraordinary,
+    liquidatedTotal,
+    collectedOrdinary,
+    collectedExtraordinary,
+    collectedTotal,
+    collectionRatePct,
+    runId: currentRun?.id ?? null,
+    periodLabel: currentRun
+      ? `${String((Array.isArray(currentRun.iadmin_accounting_periods) ? currentRun.iadmin_accounting_periods[0] : currentRun.iadmin_accounting_periods)?.period_month ?? 0).padStart(2, '0')}/${(Array.isArray(currentRun.iadmin_accounting_periods) ? currentRun.iadmin_accounting_periods[0] : currentRun.iadmin_accounting_periods)?.period_year ?? ''}`
+      : null,
+    placeholder: false,
+  }
+
+  // ---- Deudas de vecinos reales ----
+  // Por cada run issued/closed (excepto el mes actual), restamos los pagos vivos.
+  const overdueBuckets: IAdminOverdueBucket[] = []
+  const historicalRuns = runs.filter((r: any) => {
+    if (r.status === 'calculated') return false
+    const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+    if (!p) return false
+    return !(p.period_year === currentYear && p.period_month === currentMonth)
+  })
+
+  if (historicalRuns.length > 0) {
+    const runIds = historicalRuns.map((r: any) => r.id)
+    const { data: paymentsRows } = await supabase
+      .from('iadmin_payments')
+      .select('liquidation_run_id, liquidation_item_id, amount')
+      .in('liquidation_run_id', runIds)
+      .eq('is_void', false)
+
+    const paidByRun = new Map<string, number>()
+    const unitsWithDebtByRun = new Map<string, Set<string>>()
+    const paidByItem = new Map<string, number>()
+    for (const p of paymentsRows ?? []) {
+      const key = p.liquidation_run_id as string
+      paidByRun.set(key, (paidByRun.get(key) ?? 0) + Number(p.amount))
+      if (p.liquidation_item_id) {
+        paidByItem.set(p.liquidation_item_id as string, (paidByItem.get(p.liquidation_item_id as string) ?? 0) + Number(p.amount))
+      }
+    }
+
+    for (const run of historicalRuns) {
+      const period = Array.isArray(run.iadmin_accounting_periods) ? run.iadmin_accounting_periods[0] : run.iadmin_accounting_periods
+      if (!period) continue
+      const items = Array.isArray(run.iadmin_liquidation_items) ? run.iadmin_liquidation_items : []
+      let runDebt = 0
+      let unitsOwing = 0
+      for (const it of items) {
+        const subtotal = Number(it.ordinary_amount ?? 0) + Number(it.extraordinary_amount ?? 0) + Number(it.previous_balance ?? 0)
+        const paid = paidByItem.get(it.id as string) ?? 0
+        const debt = Math.max(0, subtotal - paid)
+        if (debt > 0) {
+          runDebt += debt
+          unitsOwing += 1
+        }
+      }
+      void paidByRun // ya usado via paidByItem
+      unitsWithDebtByRun.set(run.id, new Set())
+      if (runDebt <= 0) continue
+      const periodDate = new Date(period.period_year, period.period_month - 1, 1)
+      const today = new Date(currentYear, currentMonth - 1, 1)
+      const periodsOld = Math.max(1, (today.getFullYear() - periodDate.getFullYear()) * 12 + (today.getMonth() - periodDate.getMonth()))
+      overdueBuckets.push({
+        periodLabel: periodLabelFromDate(period.period_year, period.period_month),
+        periodsOld,
+        unitsCount: unitsOwing,
+        totalAmount: Math.round(runDebt * 100) / 100,
+      })
+    }
+  }
+  // ordenar por mas viejo primero
+  overdueBuckets.sort((a, b) => b.periodsOld - a.periodsOld)
+  const totalOverdueAmount = overdueBuckets.reduce((s, b) => s + b.totalAmount, 0)
+  const totalOverdueUnits = overdueBuckets.reduce((s, b) => s + b.unitsCount, 0)
+
+  // ---- KPIs secundarios ----
+  const pendingExpenses = expenses.filter((e: any) => e.status === 'pending_review' || e.status === 'needs_doc').length
+
+  const pendingDocsRes = await supabase
+    .from('iadmin_ai_document_extractions')
+    .select('id, iadmin_expense_documents!inner(iadmin_expenses!inner(managed_property_id))', {
+      count: 'exact',
+      head: true,
+    })
+    .in('status', ['pending', 'suggested'])
+    .eq('iadmin_expense_documents.iadmin_expenses.managed_property_id', propertyId)
+
+  const pendingDocuments = pendingDocsRes.count ?? 0
+  const activeUnitsCount = (unitsRes.data ?? []).length
+
+  void periodRes // reservado para futura integracion con periodo actual
+
+  return {
+    property,
+    balances,
+    totalBalance,
+    accountsPayable,
+    totalPayable,
+    periodCollections,
+    overdueBuckets,
+    totalOverdueAmount,
+    totalOverdueUnits,
+    pendingExpenses,
+    pendingDocuments,
+    activeUnitsCount,
+  }
+}
+
+function periodLabelFromDate(year: number, month: number): string {
+  const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+  return `${names[month - 1] ?? ''} ${year}`
+}
+
+function mapCashAccount(row: any): IAdminCashAccount {
+  return {
+    id: row.id,
+    managedPropertyId: row.managed_property_id,
+    name: row.name,
+    kind: (row.kind ?? 'bank') as IAdminCashAccount['kind'],
+    bankName: row.bank_name ?? null,
+    accountNumber: row.account_number ?? null,
+    cbu: row.cbu ?? null,
+    alias: row.alias ?? null,
+    openingBalance: Number(row.opening_balance ?? 0),
+    openingBalanceAt: row.opening_balance_at ?? null,
+    isActive: Boolean(row.is_active),
+    notes: row.notes ?? null,
+    createdAt: row.created_at,
+  }
+}
+
+export async function getIAdminCashAccounts(propertyId: string): Promise<IAdminCashAccountWithBalance[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+
+  const { data: accounts } = await supabase
+    .from('iadmin_cash_accounts')
+    .select('*')
+    .eq('managed_property_id', propertyId)
+    .order('is_active', { ascending: false })
+    .order('created_at')
+
+  if (!accounts || accounts.length === 0) return []
+
+  const accountIds = accounts.map((a: any) => a.id)
+
+  // Traemos todos los movimientos de esas cuentas y calculamos sumas
+  const { data: moves } = await supabase
+    .from('iadmin_bank_movements')
+    .select('cash_account_id, amount')
+    .in('cash_account_id', accountIds)
+
+  const sumByAccount = new Map<string, { sum: number; count: number }>()
+  for (const m of moves ?? []) {
+    const existing = sumByAccount.get(m.cash_account_id) ?? { sum: 0, count: 0 }
+    existing.sum += Number(m.amount)
+    existing.count += 1
+    sumByAccount.set(m.cash_account_id, existing)
+  }
+
+  return accounts.map((row: any): IAdminCashAccountWithBalance => {
+    const base = mapCashAccount(row)
+    const sum = sumByAccount.get(base.id) ?? { sum: 0, count: 0 }
+    return {
+      ...base,
+      currentBalance: Math.round(sum.sum * 100) / 100,
+      movementsCount: sum.count,
+    }
+  })
+}
+
+export async function getIAdminCashMovements(
+  propertyId: string,
+  options: { accountId?: string; limit?: number } = {},
+): Promise<IAdminCashMovement[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+
+  let query = supabase
+    .from('iadmin_bank_movements')
+    .select(`
+      *,
+      iadmin_cash_accounts ( id, name ),
+      iadmin_expenses ( id, description )
+    `)
+    .eq('managed_property_id', propertyId)
+    .order('movement_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(options.limit ?? 100)
+
+  if (options.accountId) {
+    query = query.eq('cash_account_id', options.accountId)
+  }
+
+  const { data } = await query
+
+  return (data ?? []).map((row: any): IAdminCashMovement => {
+    const account = Array.isArray(row.iadmin_cash_accounts) ? row.iadmin_cash_accounts[0] : row.iadmin_cash_accounts
+    const expense = Array.isArray(row.iadmin_expenses) ? row.iadmin_expenses[0] : row.iadmin_expenses
+    return {
+      id: row.id,
+      cashAccountId: row.cash_account_id ?? null,
+      cashAccountName: account?.name ?? null,
+      administrationId: row.administration_id,
+      managedPropertyId: row.managed_property_id ?? null,
+      movementDate: row.movement_date,
+      description: row.description ?? null,
+      amount: Number(row.amount),
+      balance: row.balance !== null && row.balance !== undefined ? Number(row.balance) : null,
+      externalRef: row.external_ref ?? null,
+      movementKind: (row.movement_kind ?? 'manual') as IAdminCashMovement['movementKind'],
+      expenseId: row.expense_id ?? null,
+      expenseDescription: expense?.description ?? null,
+      createdAt: row.created_at,
+    }
+  })
 }
 
 export function getCategoryOptions(promotions: Promotion[]) {
