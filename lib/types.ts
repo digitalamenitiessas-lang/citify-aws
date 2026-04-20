@@ -359,6 +359,7 @@ export type IAdminCapability =
   | 'cash_accounts.manage'
   | 'collections.register'
   | 'collections.void'
+  | 'liquidations.share'
 
 export interface IAdminLegalInfoBank {
   name?: string

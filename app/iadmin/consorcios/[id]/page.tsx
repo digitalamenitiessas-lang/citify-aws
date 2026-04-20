@@ -8,17 +8,20 @@ import {
   OverdueWidget,
   PeriodCollectionsWidget,
 } from '@/components/admin-backoffice/consorcio/dashboard-widgets'
-import { requireIAdmin } from '@/lib/auth'
+import { ProjectionCard } from '@/components/admin-backoffice/consorcio/projection-card'
+import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminConsorcioDashboard } from '@/lib/data'
 
 export default async function ConsorcioInicioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  await requireIAdmin({ capability: 'consorcio.view' })
+  const { context } = await requireIAdmin({ capability: 'consorcio.view' })
 
   const dashboard = await getIAdminConsorcioDashboard(id)
   if (!dashboard) {
     notFound()
   }
+
+  const canViewReports = can(context, 'reports.view', { administrationId: dashboard.property.administrationId })
 
   return (
     <div className="space-y-6">
@@ -45,6 +48,8 @@ export default async function ConsorcioInicioPage({ params }: { params: Promise<
           totalUnits={dashboard.totalOverdueUnits}
         />
       </div>
+
+      {canViewReports ? <ProjectionCard propertyId={id} /> : null}
 
       {/* Accesos rapidos segun el estado del consorcio */}
       <section className="glass-card rounded-2xl p-5">

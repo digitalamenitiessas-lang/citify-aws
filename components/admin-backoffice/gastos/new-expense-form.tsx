@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState, useTransition } from 'react'
-import { CheckCircle2, Plus, Search, Zap } from 'lucide-react'
+import { CheckCircle2, Loader2, Plus, Search, Sparkles, UploadCloud, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import type { IAdminExpenseKind, IAdminManagedProperty, IAdminProvider } from '@/lib/types'
 import { createExpense } from '@/app/iadmin/gastos/actions'
+import { extractExpenseFromFile } from '@/app/iadmin/gastos/ai-actions'
+import type { ExpenseAnomaly } from '@/lib/iadmin/expense-anomalies'
 
 type Props = {
   administrationId: string
@@ -32,6 +34,18 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
   const [selectedProvider, setSelectedProvider] = useState<Pick<IAdminProvider, 'id' | 'name'> | null>(null)
   const [providerOpen, setProviderOpen] = useState(false)
   const providerWrapRef = useRef<HTMLDivElement>(null)
+
+  // Documento IA
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [aiFile, setAiFile] = useState<{
+    file: File
+    base64: string
+    preview: string | null
+  } | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiInfo, setAiInfo] = useState<{ confidence: number | null; model: string } | null>(null)
+  const [aiSuggested, setAiSuggested] = useState<Record<string, unknown> | null>(null)
+  const [anomalies, setAnomalies] = useState<ExpenseAnomaly[]>([])
 
   const activeProviders = useMemo(() => providers.filter((p) => p.isActive), [providers])
 
@@ -59,6 +73,88 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
     setProviderInput('')
     setSelectedProvider(null)
     setProviderOpen(false)
+    setAiFile(null)
+    setAiInfo(null)
+    setAiSuggested(null)
+    setAnomalies([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        // Strip data:...;base64, prefix
+        const idx = result.indexOf(',')
+        resolve(idx >= 0 ? result.slice(idx + 1) : result)
+      }
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function handleFilePicked(file: File | null) {
+    if (!file) return
+    const maxMB = 10
+    if (file.size > maxMB * 1024 * 1024) {
+      toast.error(`El archivo supera ${maxMB}MB`)
+      return
+    }
+    setAiBusy(true)
+    try {
+      const base64 = await readFileAsBase64(file)
+      const preview = file.type.startsWith('image/')
+        ? URL.createObjectURL(file)
+        : null
+      setAiFile({ file, base64, preview })
+
+      const { suggestion, model, anomalies: extractAnomalies } = await extractExpenseFromFile({
+        administrationId,
+        managedPropertyId,
+        fileBase64: base64,
+        mimeType: file.type || 'application/octet-stream',
+        fileName: file.name,
+      })
+
+      setAiSuggested(suggestion as unknown as Record<string, unknown>)
+      setAiInfo({ confidence: suggestion.confidence ?? null, model })
+      setAnomalies(extractAnomalies ?? [])
+
+      // Pre-llenar campos
+      if (suggestion.amount != null) setAmount(String(suggestion.amount))
+      if (suggestion.issued_at) setIssuedAt(suggestion.issued_at)
+      if (suggestion.category) setCategory(suggestion.category)
+      if (suggestion.description) setDescription(suggestion.description)
+      if (suggestion.provider_name) {
+        const match = providers.find(
+          (p) => p.isActive && p.name.toLowerCase() === suggestion.provider_name!.toLowerCase(),
+        )
+        if (match) {
+          setSelectedProvider({ id: match.id, name: match.name })
+          setProviderInput(match.name)
+        } else {
+          setProviderInput(suggestion.provider_name)
+          setSelectedProvider(null)
+        }
+      }
+
+      const confLabel = suggestion.confidence != null ? `${Math.round(suggestion.confidence)}% confianza` : 'listo'
+      toast.success(`Factura leida por IA (${confLabel}) · Revisa y guarda.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Fallo la lectura IA')
+      setAiFile(null)
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function clearAiFile() {
+    setAiFile(null)
+    setAiInfo(null)
+    setAiSuggested(null)
+    setAnomalies([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   function pickProvider(p: Pick<IAdminProvider, 'id' | 'name' | 'defaultCategory' | 'defaultDescription'>) {
@@ -92,6 +188,18 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
         ? { providerId: null, providerName: providerInput.trim() }
         : { providerId: null, providerName: undefined }
 
+    const draftDocument = aiFile
+      ? {
+          fileBase64: aiFile.base64,
+          fileName: aiFile.file.name,
+          mimeType: aiFile.file.type || 'application/octet-stream',
+          sizeBytes: aiFile.file.size,
+          aiSuggestedFields: aiSuggested ?? undefined,
+          aiConfidence: aiInfo?.confidence ?? undefined,
+          aiProvider: aiInfo?.model ?? 'openrouter',
+        }
+      : undefined
+
     startTransition(async () => {
       try {
         const result = await createExpense({
@@ -103,6 +211,7 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
           issuedAt: issuedAt || null,
           category: category.trim() || null,
           expenseKind,
+          draftDocument,
           ...providerPayload,
         })
         if (result.status === 'imputed') {
@@ -152,6 +261,110 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
           Cancelar
         </button>
       </div>
+
+      {/* Magic: subir factura y que IA autocomplete */}
+      <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">Subi la factura y autocompleto</div>
+              <div className="text-xs text-muted-foreground">
+                Imagen o PDF. La IA lee proveedor, monto, fecha y categoria.
+              </div>
+              {aiFile ? (
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <span className="truncate max-w-[240px] font-medium text-foreground">{aiFile.file.name}</span>
+                  {aiInfo?.confidence != null ? (
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5">
+                      {Math.round(aiInfo.confidence)}% confianza
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={clearAiFile}
+                    className="text-muted-foreground hover:text-rose-700 inline-flex items-center"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,image/*"
+              className="hidden"
+              disabled={aiBusy || pending}
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null
+                void handleFilePicked(file)
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant={aiFile ? 'outline' : 'default'}
+              disabled={aiBusy || pending}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {aiBusy ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Leyendo…
+                </>
+              ) : aiFile ? (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
+                  Cambiar
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
+                  Subir factura
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+        {aiFile?.preview ? (
+          <div className="mt-3">
+            <img
+              src={aiFile.preview}
+              alt="Preview"
+              className="max-h-40 rounded-lg border border-border/50"
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {anomalies.length > 0 ? (
+        <div className="space-y-2">
+          {anomalies.map((a, idx) => {
+            const tone =
+              a.severity === 'danger'
+                ? 'border-rose-300 bg-rose-50 text-rose-900'
+                : a.severity === 'warning'
+                  ? 'border-amber-300 bg-amber-50 text-amber-900'
+                  : 'border-sky-200 bg-sky-50 text-sky-900'
+            return (
+              <div
+                key={`${a.code}-${idx}`}
+                className={`rounded-lg border px-3 py-2 text-sm ${tone}`}
+              >
+                <span className="font-medium mr-1">
+                  {a.severity === 'danger' ? '⚠' : a.severity === 'warning' ? '⚠' : 'ℹ'}
+                </span>
+                {a.message}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {properties.length > 1 ? (
