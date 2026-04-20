@@ -50,10 +50,73 @@ export interface Promotion {
   usageCount: number
   buildingId: string | null
   createdAt: string
+  publishedMonth: string
+  sourcePromotionId: string | null
   imagePath: string | null
   imageUrl: string | null
   isActive: boolean
 }
+
+export interface PromotionMonthlyStatus {
+  monthStart: string
+  monthLabel: string
+  isCompliant: boolean
+  promotionsThisMonth: number
+  lastMonthPromotion: Promotion | null
+}
+
+export interface PromotionRedemptionToken {
+  id: string
+  token: string
+  qrValue: string
+  expiresAt: string
+  promotionId: string
+  promotionTitle: string
+  businessName: string
+}
+
+export type PromotionRedemptionValidationStatus =
+  | 'redeemed'
+  | 'already_used'
+  | 'expired'
+  | 'not_found'
+  | 'promotion_unavailable'
+  | 'forbidden'
+
+export interface PromotionRedemptionValidationResult {
+  status: PromotionRedemptionValidationStatus
+  message: string
+  tokenId: string | null
+  promotionId: string | null
+  promotionTitle: string | null
+  neighborName: string | null
+  redeemedAt: string | null
+}
+
+export interface PromotionRedemptionHistoryItem {
+  id: string
+  promotionId: string
+  promotionTitle: string
+  promotionDiscount: string | null
+  profileId: string
+  neighborName: string
+  neighborUnitLabel: string | null
+  buildingName: string | null
+  status: string
+  redeemedAt: string
+  createdAt: string
+}
+
+export type BusinessDashboardSection = 'home' | 'promotions' | 'history' | 'profile'
+
+export type BusinessScannerState =
+  | 'idle'
+  | 'starting'
+  | 'scanning'
+  | 'unsupported'
+  | 'permission_denied'
+  | 'validating'
+  | 'error'
 
 export type MarketplaceCondition = 'Nuevo' | 'Como Nuevo' | 'Buen Estado' | 'Usado'
 
@@ -220,6 +283,8 @@ export interface BusinessDashboardData {
   promotions: Promotion[]
   consumersCount: number
   availableBuildings: Building[]
+  monthlyStatus: PromotionMonthlyStatus | null
+  redemptionHistory: PromotionRedemptionHistoryItem[]
 }
 
 export interface BuildingAdminAssignment {
@@ -284,6 +349,7 @@ export interface SuperAdminBusinessDetail extends Business {
   promotions: SuperAdminPromotionDetail[]
   totalRedemptions: number
   topBuilding: string | null
+  monthlyStatus: PromotionMonthlyStatus | null
 }
 
 export interface SuperAdminDashboardData {

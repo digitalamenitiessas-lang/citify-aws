@@ -29,7 +29,7 @@ import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
-import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, Business } from '@/lib/types'
+import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, PromotionRedemptionToken, Business } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import type { MapMarker } from '@/components/map/map-view'
@@ -80,6 +80,62 @@ function QRModal({ promotion, onClose }: { promotion: Promotion; onClose: () => 
           <QrCode className="w-full h-full text-foreground" strokeWidth={1} />
         </div>
         <p className="text-xs text-muted-foreground mb-5">Mostra este código QR en el local para canjear el beneficio.</p>
+        <button onClick={onClose} className="w-full py-3 rounded-xl text-sm font-semibold text-white btn-premium">Cerrar</button>
+      </div>
+    </div>
+  )
+}
+
+function PromotionQrModal({
+  promotion,
+  token,
+  loading,
+  onClose,
+}: {
+  promotion: Promotion
+  token: PromotionRedemptionToken | null
+  loading: boolean
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(10,6,2,0.85)', backdropFilter: 'blur(6px)' }}>
+      <div className="glass-card rounded-2xl p-8 w-full max-w-sm flex flex-col items-center relative text-center">
+        <button onClick={onClose} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-5 h-5" />
+        </button>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+          <QrCode className="w-7 h-7 text-white" />
+        </div>
+        <h2 className="font-serif text-xl font-bold text-foreground mb-0.5">{promotion.businessName}</h2>
+        <p className="text-muted-foreground text-sm mb-6">{promotion.title}</p>
+        <div className="bg-white p-4 rounded-2xl border border-border/50 mb-4 w-56 min-h-56 flex items-center justify-center">
+          {loading ? (
+            <div className="flex flex-col items-center gap-3 text-muted-foreground">
+              <QrCode className="w-12 h-12 text-primary/60" strokeWidth={1.25} />
+              <p className="text-xs font-medium">Preparando tu codigo...</p>
+            </div>
+          ) : token ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=224x224&data=${encodeURIComponent(token.qrValue)}`}
+              alt={`QR de ${promotion.title}`}
+              className="h-52 w-52 rounded-xl"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-3 text-muted-foreground">
+              <QrCode className="w-12 h-12 text-primary/60" strokeWidth={1.25} />
+              <p className="text-xs font-medium">No pudimos generar el QR.</p>
+            </div>
+          )}
+        </div>
+        <div className="mb-5 w-full rounded-2xl border border-border/60 bg-background/80 p-4 text-left">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Codigo unico</p>
+          <p className="mt-2 text-lg font-bold tracking-[0.24em] text-foreground">{token?.token ?? '---'}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {token ? `Valido hasta ${new Date(token.expiresAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}.` : 'Vuelve a intentarlo en unos segundos.'}
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground mb-5">Mostra este QR o el codigo al negocio. El canje queda disponible una sola vez por promocion.</p>
         <button onClick={onClose} className="w-full py-3 rounded-xl text-sm font-semibold text-white btn-premium">Cerrar</button>
       </div>
     </div>
@@ -431,6 +487,8 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 }) {
   const [mainView, setMainView] = useState<MainView>('home')
   const [qrPromotion, setQrPromotion] = useState<Promotion | null>(null)
+  const [qrToken, setQrToken] = useState<PromotionRedemptionToken | null>(null)
+  const [isLoadingQr, setIsLoadingQr] = useState(false)
   const [savedCoupons, setSavedCoupons] = useState<string[]>(initialData.savedPromotionIds)
   const [usedCoupons, setUsedCoupons] = useState<string[]>(initialData.usedPromotionIds)
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
@@ -536,8 +594,46 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     setQrPromotion(null)
   }
 
-  function handleUse(promotion: Promotion) {
+  async function handleUse(promotion: Promotion) {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) { toast.error('Supabase no esta configurado.'); return }
+    if (usedCoupons.includes(promotion.id)) {
+      toast.error('Esta promocion ya fue usada.')
+      return
+    }
+
     setQrPromotion(promotion)
+    setQrToken(null)
+    setIsLoadingQr(true)
+
+    const { data, error } = await supabase.rpc('create_promotion_redemption_token', {
+      target_promotion_id: promotion.id,
+    })
+
+    setIsLoadingQr(false)
+
+    if (error) {
+      toast.error(error.message)
+      setQrPromotion(null)
+      return
+    }
+
+    const row = Array.isArray(data) ? data[0] : null
+    if (!row) {
+      toast.error('No se pudo generar el codigo del cupon.')
+      setQrPromotion(null)
+      return
+    }
+
+    setQrToken({
+      id: row.id,
+      token: row.token,
+      qrValue: row.qr_value,
+      expiresAt: row.expires_at,
+      promotionId: row.promotion_id,
+      promotionTitle: row.promotion_title,
+      businessName: row.business_name,
+    })
   }
 
   async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) {
@@ -768,14 +864,9 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                         <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
                         <div className="flex gap-2">
                           {!isUsed && !isExpired ? (
-                            <>
-                              <button onClick={() => handleUse(p)} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white btn-premium flex items-center justify-center gap-1.5 shadow-md">
-                                <QrCode className="w-3.5 h-3.5" /> Ver QR
-                              </button>
-                              <button onClick={() => markUsed(p)} className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
-                                Marcar Usado
-                              </button>
-                            </>
+                            <button onClick={() => handleUse(p)} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white btn-premium flex items-center justify-center gap-1.5 shadow-md">
+                              <QrCode className="w-3.5 h-3.5" /> Ver QR
+                            </button>
                           ) : isUsed ? (
                             <button onClick={() => toggleSave(p)} className="w-full py-2 rounded-xl text-xs font-medium border border-border/60 text-muted-foreground hover:text-destructive transition-colors">
                               Quitar de la billetera
@@ -951,7 +1042,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       </nav>
 
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
-      {qrPromotion && <QRModal promotion={qrPromotion} onClose={() => setQrPromotion(null)} />}
+      {qrPromotion && <PromotionQrModal promotion={qrPromotion} token={qrToken} loading={isLoadingQr} onClose={() => { setQrPromotion(null); setQrToken(null) }} />}
       {showCreateModal && <CreateMarketplaceModal onClose={() => setShowCreateModal(false)} onSave={createMarketplaceItem} />}
 
       {/* ── AI ASSISTANT ─────────────────────────────────────────────────── */}

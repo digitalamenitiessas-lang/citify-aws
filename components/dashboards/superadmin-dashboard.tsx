@@ -380,6 +380,12 @@ function BusinessesList({
                 <div className="text-xs text-muted-foreground">Top edificio</div>
               </div>
             </div>
+
+            <div className="mt-3">
+              <Badge color={business.monthlyStatus?.isCompliant ? 'success' : 'warn'}>
+                {business.monthlyStatus?.isCompliant ? 'Al dia este mes' : 'Pendiente este mes'}
+              </Badge>
+            </div>
           </button>
         ))}
 
@@ -414,6 +420,9 @@ function BusinessDetail({ business, onBack }: { business: SuperAdminBusinessDeta
           <p className="text-sm text-muted-foreground mt-0.5">{business.description}</p>
           <div className="flex items-center gap-3 mt-3">
             <Badge>{business.category}</Badge>
+            <Badge color={business.monthlyStatus?.isCompliant ? 'success' : 'warn'}>
+              {business.monthlyStatus?.isCompliant ? 'Promocion mensual cumplida' : 'Promocion mensual pendiente'}
+            </Badge>
             {business.topBuilding && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <MapPin className="w-3 h-3" />

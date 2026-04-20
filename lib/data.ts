@@ -51,6 +51,8 @@ import type {
   MarketplaceItem,
   Profile,
   Promotion,
+  PromotionMonthlyStatus,
+  PromotionRedemptionHistoryItem,
   PromotionRedemptionByBuilding,
   PromotionsPageData,
   SuperAdminBuildingDetail,
@@ -137,9 +139,41 @@ function mapPromotion(client: any, row: any): Promotion {
     usageCount: redemptions.length,
     buildingId: row.building_id ?? null,
     createdAt: row.created_at,
+    publishedMonth: row.published_month ?? row.created_at?.slice(0, 7) + '-01',
+    sourcePromotionId: row.source_promotion_id ?? null,
     imagePath: row.image_path ?? null,
     imageUrl: publicUrl(client, 'promotion-images', row.image_path),
     isActive: Boolean(row.is_active),
+  }
+}
+
+function getMonthStart(input = new Date()) {
+  return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), 1)).toISOString().slice(0, 10)
+}
+
+function getPreviousMonthStart(monthStart: string) {
+  const date = new Date(`${monthStart}T00:00:00.000Z`)
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
+}
+
+function formatMonthLabel(monthStart: string) {
+  return new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthStart}T00:00:00.000Z`))
+}
+
+function buildPromotionMonthlyStatus(promotions: Promotion[], referenceMonthStart = getMonthStart()): PromotionMonthlyStatus {
+  const previousMonthStart = getPreviousMonthStart(referenceMonthStart)
+  const promotionsThisMonth = promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
+  const lastMonthPromotion =
+    [...promotions]
+      .filter((promotion) => promotion.publishedMonth === previousMonthStart)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+
+  return {
+    monthStart: referenceMonthStart,
+    monthLabel: formatMonthLabel(referenceMonthStart),
+    isCompliant: promotionsThisMonth.length > 0,
+    promotionsThisMonth: promotionsThisMonth.length,
+    lastMonthPromotion,
   }
 }
 
@@ -188,6 +222,26 @@ function normalizeReasonRows(rows: any[] | null | undefined): ComplaintCaseReaso
 
 function profileUnitLabel(row: any): string | null {
   return [row?.floor, row?.unit].filter(Boolean).join(' - ') || null
+}
+
+function mapPromotionRedemptionHistoryItem(row: any): PromotionRedemptionHistoryItem {
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  const promotion = Array.isArray(row.promotions) ? row.promotions[0] : row.promotions
+  const building = profile?.buildings ? (Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings) : null
+
+  return {
+    id: row.id,
+    promotionId: row.promotion_id,
+    promotionTitle: promotion?.title ?? 'Promocion',
+    promotionDiscount: promotion?.discount ?? null,
+    profileId: row.profile_id,
+    neighborName: profile?.full_name ?? 'Vecino',
+    neighborUnitLabel: profileUnitLabel(profile),
+    buildingName: building?.name ?? null,
+    status: row.status ?? 'redeemed',
+    redeemedAt: row.redeemed_at ?? row.created_at,
+    createdAt: row.created_at,
+  }
 }
 
 function buildMentionLabel(row: any): string {
@@ -393,13 +447,13 @@ export async function getPromotionsPageData(): Promise<PromotionsPageData> {
 export async function getBusinessDashboardData(profileId: string): Promise<BusinessDashboardData> {
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
-    return { business: null, promotions: [], consumersCount: 0, availableBuildings: [] }
+    return { business: null, promotions: [], consumersCount: 0, availableBuildings: [], monthlyStatus: null, redemptionHistory: [] }
   }
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
   const businessId = profile?.business_id
 
-  const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }] = await Promise.all([
+  const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }, { data: redemptionsData }] = await Promise.all([
     businessId ? supabase.from('businesses').select('*').eq('id', businessId).maybeSingle() : Promise.resolve({ data: null }),
     businessId
       ? supabase
@@ -410,13 +464,44 @@ export async function getBusinessDashboardData(profileId: string): Promise<Busin
       : Promise.resolve({ data: [] }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'vecino'),
     supabase.from('buildings').select('*').order('name'),
+    businessId
+      ? supabase
+          .from('promotion_redemptions')
+          .select(`
+            id,
+            profile_id,
+            promotion_id,
+            status,
+            redeemed_at,
+            created_at,
+            profiles (
+              id,
+              full_name,
+              floor,
+              unit,
+              buildings ( id, name )
+            ),
+            promotions (
+              id,
+              title,
+              discount
+            )
+          `)
+          .eq('promotions.business_id', businessId)
+          .order('redeemed_at', { ascending: false })
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
   ])
+
+  const promotions = (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row))
 
   return {
     business: businessData ? mapBusiness(supabase, businessData) : null,
-    promotions: (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row)),
+    promotions,
     consumersCount: count ?? 0,
     availableBuildings: (buildingsData ?? []).map(mapBuilding),
+    monthlyStatus: businessData ? buildPromotionMonthlyStatus(promotions) : null,
+    redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
   }
 }
 
@@ -696,7 +781,13 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
       }
     }
     const topEntry = Array.from(buildingCounts.values()).sort((a, b) => b.count - a.count)[0]
-    return { ...business, promotions, totalRedemptions, topBuilding: topEntry?.name ?? null }
+    return {
+      ...business,
+      promotions,
+      totalRedemptions,
+      topBuilding: topEntry?.name ?? null,
+      monthlyStatus: buildPromotionMonthlyStatus(promotions),
+    }
   })
 
   return {
@@ -764,13 +855,15 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
         const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
         return profile ? mapMentionableUser(profile, row.building_id) : null
       })
-      .filter((user): user is NonNullable<typeof user> => user !== null),
+      .filter((user): user is ComplaintCaseMentionableUser => Boolean(user)),
   ]
-    .filter((user, index, array) => user && array.findIndex((item) => item.profileId === user.profileId) === index)
-    .sort((a, b) => a!.label.localeCompare(b!.label)) as any[] // Temporarily casting to any array if ComplaintCaseMentionableUser is not in scope here or inferred. Wait, it's returning anything? No, ComplaintCaseMentionableUser[]
+    .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
+    .sort((a: ComplaintCaseMentionableUser, b: ComplaintCaseMentionableUser) => a.label.localeCompare(b.label))
 
   const complaintCaseDetails = (complaintRows ?? []).map((row: any) => mapNeighborComplaintCaseDetail(row, mentionableUsers))
-  const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem).sort((a: any, b: any) => b.lastEventAt.localeCompare(a.lastEventAt))
+  const complaintCases = complaintCaseDetails
+    .map(buildComplaintCaseListItem)
+    .sort((a: ComplaintCaseListItem, b: ComplaintCaseListItem) => b.lastEventAt.localeCompare(a.lastEventAt))
   const promotions = (promotionsData ?? [])
     .map((row: any) => mapPromotion(supabase, row))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
