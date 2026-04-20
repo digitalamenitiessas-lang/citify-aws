@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import type { IAdminCapability, IAdminLiquidationItem, IAdminLiquidationRunDetail, IAdminLiquidationStatus } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { LiquidationStatusActions } from '@/components/admin-backoffice/liquidaciones/liquidation-status-actions'
+import { QuickPayButton } from '@/components/admin-backoffice/cobranzas/quick-pay-button'
 import { RegisterCollectionForm } from '@/components/admin-backoffice/cobranzas/register-collection-form'
 import { VoidPaymentButton } from '@/components/admin-backoffice/cobranzas/void-payment-button'
 
@@ -42,6 +43,7 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
   const canCollect = caps.has('collections.register') && run.status !== 'draft'
   const canVoid = caps.has('collections.void')
   const [collectingItem, setCollectingItem] = useState<IAdminLiquidationItem | null>(null)
+  const defaultCashAccount = run.cashAccounts.find((a) => a.isActive) ?? null
 
   return (
     <div className="space-y-6">
@@ -308,14 +310,12 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
                         {canCollect ? (
                           <td className="px-2 py-2.5">
                             {item.balanceRemaining > 0.01 ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setCollectingItem(item)}
-                                className="whitespace-nowrap"
-                              >
-                                Registrar
-                              </Button>
+                              <QuickPayButton
+                                itemId={item.id}
+                                balanceRemaining={item.balanceRemaining}
+                                defaultAccount={defaultCashAccount}
+                                onEditClick={() => setCollectingItem(item)}
+                              />
                             ) : null}
                           </td>
                         ) : null}

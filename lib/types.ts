@@ -547,6 +547,8 @@ export interface IAdminProvider {
   email: string | null
   phone: string | null
   notes: string | null
+  defaultCategory: string | null
+  defaultDescription: string | null
   isActive: boolean
   createdAt: string
 }

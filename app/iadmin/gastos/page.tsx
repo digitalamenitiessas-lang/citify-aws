@@ -41,7 +41,13 @@ export default async function GastosPage() {
             displayName: p.displayName,
             buildingName: p.buildingName,
           }))}
-          providers={providers.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive }))}
+          providers={providers.map((p) => ({
+            id: p.id,
+            name: p.name,
+            isActive: p.isActive,
+            defaultCategory: p.defaultCategory,
+            defaultDescription: p.defaultDescription,
+          }))}
         />
       ) : null}
 

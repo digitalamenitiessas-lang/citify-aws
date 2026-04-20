@@ -1177,6 +1177,8 @@ function mapProvider(row: any): IAdminProvider {
     email: row.email ?? null,
     phone: row.phone ?? null,
     notes: row.notes ?? null,
+    defaultCategory: row.default_category ?? null,
+    defaultDescription: row.default_description ?? null,
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
   }

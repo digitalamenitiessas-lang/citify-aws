@@ -11,7 +11,9 @@ const createExpenseSchema = z.object({
   administrationId: z.string().uuid(),
   managedPropertyId: z.string().uuid(),
   accountingPeriodId: z.string().uuid().nullable().optional(),
+  // Proveedor: podes pasar uno existente (providerId) o uno a crear (providerName)
   providerId: z.string().uuid().nullable().optional(),
+  providerName: z.string().trim().max(120).optional(),
   category: z.string().trim().max(80).nullable().optional(),
   description: z.string().trim().min(1).max(240),
   amount: z.number().nonnegative(),
@@ -19,13 +21,16 @@ const createExpenseSchema = z.object({
   issuedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   dueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   expenseKind: z.enum(['ordinaria', 'extraordinaria']).optional().default('ordinaria'),
+  // Default: true. Si el user tiene expenses.approve, el gasto se crea imputado al
+  // periodo abierto. Sino, queda en pending_review.
+  autoImpute: z.boolean().optional().default(true),
 })
 
 export type CreateExpenseInput = z.input<typeof createExpenseSchema>
 
 export async function createExpense(input: CreateExpenseInput) {
   const parsed = createExpenseSchema.parse(input)
-  const { profile } = await requireIAdmin({
+  const { profile, context } = await requireIAdmin({
     capability: 'expenses.create',
     administrationId: parsed.administrationId,
   })
@@ -33,7 +38,7 @@ export async function createExpense(input: CreateExpenseInput) {
   const supabase = await getSupabaseServerClient()
   if (!supabase) throw new Error('Supabase no configurado')
 
-  // Verificamos que la property pertenece a la administracion que declaramos.
+  // Verificamos que la property pertenece a la administracion
   const { data: propertyRow } = await supabase
     .from('iadmin_managed_properties')
     .select('id, administration_id')
@@ -44,22 +49,102 @@ export async function createExpense(input: CreateExpenseInput) {
     throw new Error('Consorcio fuera de la administracion')
   }
 
+  // --- Proveedor inline: si viene providerName y no providerId, creamos ---
+  let providerId = parsed.providerId ?? null
+  if (!providerId && parsed.providerName && parsed.providerName.trim().length > 0) {
+    // Existe ya con ese nombre?
+    const { data: existing } = await supabase
+      .from('iadmin_providers')
+      .select('id')
+      .eq('administration_id', parsed.administrationId)
+      .ilike('name', parsed.providerName.trim())
+      .maybeSingle()
+
+    if (existing) {
+      providerId = existing.id as string
+    } else {
+      const { data: newProvider, error: provError } = await supabase
+        .from('iadmin_providers')
+        .insert({
+          administration_id: parsed.administrationId,
+          name: parsed.providerName.trim(),
+          category: parsed.category ?? null,
+          default_category: parsed.category ?? null,
+          is_active: true,
+        })
+        .select('id')
+        .single()
+      if (provError) throw new Error(provError.message)
+      providerId = newProvider.id as string
+    }
+  } else if (providerId && parsed.category) {
+    // Proveedor existente: memorizamos su default_category si no tiene una
+    await supabase
+      .from('iadmin_providers')
+      .update({ default_category: parsed.category })
+      .eq('id', providerId)
+      .is('default_category', null)
+  }
+
+  // --- Periodo contable: si no vino, buscamos el abierto del mes; si no existe, lo creamos ---
+  let accountingPeriodId = parsed.accountingPeriodId ?? null
+  if (!accountingPeriodId) {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1
+
+    const { data: existingPeriod } = await supabase
+      .from('iadmin_accounting_periods')
+      .select('id, status')
+      .eq('managed_property_id', parsed.managedPropertyId)
+      .eq('period_year', year)
+      .eq('period_month', month)
+      .maybeSingle()
+
+    if (existingPeriod) {
+      accountingPeriodId = existingPeriod.id as string
+    } else {
+      const { data: newPeriod, error: periodError } = await supabase
+        .from('iadmin_accounting_periods')
+        .insert({
+          managed_property_id: parsed.managedPropertyId,
+          period_year: year,
+          period_month: month,
+          status: 'open',
+        })
+        .select('id')
+        .single()
+      if (periodError) throw new Error(periodError.message)
+      accountingPeriodId = newPeriod.id as string
+    }
+  }
+
+  // --- Status inicial: si el user puede aprobar y pidio auto-imputar, directo a imputed ---
+  const canApprove = context.isSuperAdmin || (context.memberships
+    .find((m) => m.administration.id === parsed.administrationId)
+    ?.capabilities.includes('expenses.approve') ?? false)
+  const initialStatus: IAdminExpenseStatus = parsed.autoImpute && canApprove ? 'imputed' : 'pending_review'
+  const approvedFields = initialStatus === 'imputed'
+    ? { approved_by: profile.id, approved_at: new Date().toISOString() }
+    : {}
+
   const { data, error } = await supabase
     .from('iadmin_expenses')
     .insert({
       administration_id: parsed.administrationId,
       managed_property_id: parsed.managedPropertyId,
-      accounting_period_id: parsed.accountingPeriodId ?? null,
-      provider_id: parsed.providerId ?? null,
+      accounting_period_id: accountingPeriodId,
+      provider_id: providerId,
       category: parsed.category ?? null,
       description: parsed.description,
       amount: parsed.amount,
       currency: parsed.currency,
       issued_at: parsed.issuedAt ?? null,
       due_at: parsed.dueAt ?? null,
-      status: 'draft' as IAdminExpenseStatus,
+      status: initialStatus,
       expense_kind: parsed.expenseKind ?? 'ordinaria',
       created_by: profile.id,
+      ...approvedFields,
     })
     .select('id')
     .single()
@@ -73,13 +158,14 @@ export async function createExpense(input: CreateExpenseInput) {
     actor_profile_id: profile.id,
     entity_type: 'iadmin_expenses',
     entity_id: data.id,
-    action: 'expense.created',
-    metadata: { amount: parsed.amount, currency: parsed.currency },
+    action: initialStatus === 'imputed' ? 'expense.created_and_imputed' : 'expense.created',
+    metadata: { amount: parsed.amount, currency: parsed.currency, status: initialStatus },
   })
 
   revalidatePath('/iadmin/gastos')
   revalidatePath('/iadmin/cartera')
-  return { id: data.id as string }
+  revalidatePath(`/iadmin/consorcios/${parsed.managedPropertyId}`)
+  return { id: data.id as string, status: initialStatus }
 }
 
 const changeStatusSchema = z.object({
