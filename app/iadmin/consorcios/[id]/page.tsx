@@ -9,6 +9,7 @@ import {
   PeriodCollectionsWidget,
 } from '@/components/admin-backoffice/consorcio/dashboard-widgets'
 import { ProjectionCard } from '@/components/admin-backoffice/consorcio/projection-card'
+import { CloneRecurringButton } from '@/components/admin-backoffice/gastos/clone-recurring-button'
 import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminConsorcioDashboard } from '@/lib/data'
 
@@ -22,6 +23,7 @@ export default async function ConsorcioInicioPage({ params }: { params: Promise<
   }
 
   const canViewReports = can(context, 'reports.view', { administrationId: dashboard.property.administrationId })
+  const canManageRecurring = can(context, 'expenses.recurring.manage', { administrationId: dashboard.property.administrationId })
 
   return (
     <div className="space-y-6">
@@ -48,6 +50,13 @@ export default async function ConsorcioInicioPage({ params }: { params: Promise<
           totalUnits={dashboard.totalOverdueUnits}
         />
       </div>
+
+      {canManageRecurring ? (
+        <CloneRecurringButton
+          propertyId={id}
+          recurringCount={dashboard.recurringProvidersCount}
+        />
+      ) : null}
 
       {canViewReports ? <ProjectionCard propertyId={id} /> : null}
 

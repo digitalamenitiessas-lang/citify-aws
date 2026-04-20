@@ -12,6 +12,9 @@ const providerFields = z.object({
   email: z.string().trim().email().max(120).nullable().optional().or(z.literal('').transform(() => null)),
   phone: z.string().trim().max(30).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
+  isRecurring: z.boolean().optional(),
+  recurringAmount: z.number().nonnegative().nullable().optional(),
+  recurringKind: z.enum(['ordinaria', 'extraordinaria']).optional(),
 })
 
 const createProviderSchema = providerFields.extend({
@@ -38,6 +41,9 @@ export async function createProvider(input: z.input<typeof createProviderSchema>
       email: parsed.email ?? null,
       phone: parsed.phone ?? null,
       notes: parsed.notes ?? null,
+      is_recurring: parsed.isRecurring ?? false,
+      recurring_amount: parsed.recurringAmount ?? null,
+      recurring_kind: parsed.recurringKind ?? 'ordinaria',
       is_active: true,
     })
     .select('id')
@@ -86,6 +92,9 @@ export async function updateProvider(input: z.input<typeof updateProviderSchema>
   if (parsed.email !== undefined) patch.email = parsed.email
   if (parsed.phone !== undefined) patch.phone = parsed.phone
   if (parsed.notes !== undefined) patch.notes = parsed.notes
+  if (parsed.isRecurring !== undefined) patch.is_recurring = parsed.isRecurring
+  if (parsed.recurringAmount !== undefined) patch.recurring_amount = parsed.recurringAmount
+  if (parsed.recurringKind !== undefined) patch.recurring_kind = parsed.recurringKind
   if (Object.keys(patch).length === 0) return
 
   const { error } = await supabase.from('iadmin_providers').update(patch).eq('id', parsed.providerId)
