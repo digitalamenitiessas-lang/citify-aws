@@ -2,6 +2,7 @@
 
 import { Building2, Home, Mail, Phone, Users } from 'lucide-react'
 import { ConsorcioCasesPanel } from '@/components/complaints/consorcio-cases-panel'
+import { ChatWidget } from '@/components/ai/chat-widget'
 import type { ConsorcioDashboardData } from '@/lib/types'
 
 export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
@@ -29,7 +30,8 @@ export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
   )
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+    <>
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
       <div className="glass-card rounded-3xl p-6">
         <div className="flex items-center gap-2 mb-1">
           <Building2 className="w-4 h-4 text-primary" />
@@ -122,5 +124,8 @@ export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
         </table>
       </div>
     </div>
+
+      <ChatWidget />
+    </>
   )
 }
