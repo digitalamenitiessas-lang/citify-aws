@@ -12,6 +12,8 @@ import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { Building, Business, BusinessDashboardData, Promotion } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ChatWidget } from '@/components/ai/chat-widget'
+import DynamicMap from '@/components/map/map-view-dynamic'
+import { MapPin } from 'lucide-react'
 
 interface PromotionFormState {
   id?: string
@@ -200,6 +202,12 @@ export function BusinessDashboard({
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoUploading, setLogoUploading] = useState(false)
 
+  const [mapLocation, setMapLocation] = useState<[number, number] | null>(
+    business?.latitude && business?.longitude ? [business.latitude, business.longitude] : null,
+  )
+  const [address, setAddress] = useState(business?.address ?? '')
+  const [locationSaving, setLocationSaving] = useState(false)
+
   const totalUsage = useMemo(() => promotions.reduce((sum, promotion) => sum + promotion.usageCount, 0), [promotions])
 
   async function handlePromotionSave(form: PromotionFormState, file: File | null) {
@@ -308,6 +316,37 @@ export function BusinessDashboard({
     }
   }
 
+  async function handleLocationSave() {
+    if (!business || !mapLocation) {
+      toast.error('Selecciona una ubicación en el mapa.')
+      return
+    }
+
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) {
+      toast.error('Supabase no esta configurado.')
+      return
+    }
+
+    setLocationSaving(true)
+    try {
+      const { error } = await supabase.from('businesses').update({
+        address,
+        latitude: mapLocation[0],
+        longitude: mapLocation[1],
+      }).eq('id', business.id)
+
+      if (error) throw error
+
+      setBusiness({ ...business, address, latitude: mapLocation[0], longitude: mapLocation[1] })
+      toast.success('Ubicación actualizada.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo guardar la ubicación.')
+    } finally {
+      setLocationSaving(false)
+    }
+  }
+
   if (!business) {
     return (
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -360,6 +399,64 @@ export function BusinessDashboard({
             <Upload className="w-4 h-4" />
             {logoUploading ? 'Subiendo logo...' : 'Actualizar logo'}
           </Button>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-2xl p-6 mb-8 overflow-hidden relative">
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex-1">
+            <h3 className="font-serif text-xl font-bold text-foreground mb-2 flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-primary" />
+              Ubicación del Negocio
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Selecciona tu ubicación en el mapa para que los vecinos puedan encontrarte fácilmente.
+            </p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Dirección</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Ej. Av. Sarmiento 2555"
+                  />
+                  <Button variant="secondary" onClick={async () => {
+                    if (!address) return
+                    toast.loading('Buscando...', { id: 'geoco' })
+                    try {
+                      // Agregar tucuman al query
+                      const q = encodeURIComponent(address + ', San Miguel de Tucumán, Argentina')
+                      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`)
+                      const data = await res.json()
+                      if (data && data.length > 0) {
+                        setMapLocation([parseFloat(data[0].lat), parseFloat(data[0].lon)])
+                        toast.success('Ubicación aproximada encontrada.', { id: 'geoco' })
+                      } else {
+                        toast.error('No se pudo ubicar con exactitud. Por favor marcá el punto en el mapa a mano.', { id: 'geoco' })
+                      }
+                    } catch {
+                      toast.error('Error buscando dirección.', { id: 'geoco' })
+                    }
+                  }}>
+                    Ubicar en mapa
+                  </Button>
+                </div>
+              </div>
+              <Button onClick={handleLocationSave} className="w-full btn-premium gap-2" disabled={locationSaving || !mapLocation}>
+                {locationSaving ? 'Guardando...' : 'Guardar ubicación y dirección'}
+              </Button>
+            </div>
+          </div>
+          <div className="flex-[2] rounded-xl overflow-hidden relative z-0 h-[300px]">
+            <DynamicMap
+              center={mapLocation ?? [-26.8306, -65.2038]} // Default San Miguel de Tucumán
+              zoom={mapLocation ? 16 : 13}
+              interactive={true}
+              selectedLocation={mapLocation}
+              onLocationSelect={(lat, lng) => setMapLocation([lat, lng])}
+            />
+          </div>
         </div>
       </div>
 

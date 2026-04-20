@@ -29,10 +29,25 @@ import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
-import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion } from '@/lib/types'
+import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, Business } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import DynamicMap from '@/components/map/map-view-dynamic'
+import type { MapMarker } from '@/components/map/map-view'
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3 // metres
+  const phi1 = (lat1 * Math.PI) / 180
+  const phi2 = (lat2 * Math.PI) / 180
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
 
 function buildMarketplacePath(profileId: string, itemId: string, file: File) {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
@@ -440,6 +455,48 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     return Array.from(map.values())
   }, [allPromos])
 
+  const sortedMapBusinesses = useMemo(() => {
+    let list = initialData.businesses.filter(b => b.latitude != null && b.longitude != null)
+    if (initialData.building?.latitude && initialData.building?.longitude) {
+      const bLat = initialData.building.latitude
+      const bLng = initialData.building.longitude
+      list = list.map(b => {
+        const dist = calculateDistance(bLat, bLng, b.latitude!, b.longitude!)
+        return { ...b, distanceToBuilding: dist }
+      }).sort((a, b) => (a as any).distanceToBuilding - (b as any).distanceToBuilding)
+    }
+    return list
+  }, [initialData.businesses, initialData.building])
+
+  const mapMarkers: MapMarker[] = useMemo(() => {
+    const markers: MapMarker[] = []
+    if (initialData.building?.latitude && initialData.building?.longitude) {
+      markers.push({
+        id: 'building',
+        lat: initialData.building.latitude,
+        lng: initialData.building.longitude,
+        type: 'building',
+        popupContent: <div className="font-bold text-center">Tu edificio<br/><span className="text-xs font-normal">{initialData.building.name}</span></div>
+      })
+    }
+    sortedMapBusinesses.forEach(b => {
+      markers.push({
+        id: b.id,
+        lat: b.latitude!,
+        lng: b.longitude!,
+        type: 'business',
+        popupContent: (
+          <div className="flex flex-col gap-1 items-center min-w-[120px]">
+            <span className="font-bold">{b.name}</span>
+            <span className="text-xs text-muted-foreground">{b.address}</span>
+            <span className="text-xs text-primary font-medium">{b.category}</span>
+          </div>
+        )
+      })
+    })
+    return markers
+  }, [sortedMapBusinesses, initialData.building])
+
   async function toggleSave(promotion: Promotion) {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) { toast.error('Supabase no está configurado.'); return }
@@ -503,7 +560,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
     { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
     { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
-    { key: 'stores', label: 'Locales', icon: MapPin },
+    { key: 'stores', label: 'Ubicaciones', icon: MapPin },
   ] as const
 
   return (
@@ -818,31 +875,56 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           />
         )}
 
-        {/* STORES */}
+        {/* STORES / UBICACIONES */}
         {mainView === 'stores' && (
-          <div>
-            <div className="flex items-center gap-3 mb-6">
+          <div className="flex flex-col h-[calc(100vh-140px)]">
+            <div className="flex items-center gap-3 mb-4 shrink-0">
               <button onClick={() => setMainView('home')} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
                 <ArrowLeft className="w-4 h-4" /> Volver
               </button>
-              <h2 className="font-bold text-foreground text-lg">Locales afiliados</h2>
+              <h2 className="font-bold text-foreground text-lg">Mapa de Locales</h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {uniqueBusinesses.map(p => {
-                const count = allPromos.filter(x => x.businessId === p.businessId).length
-                return (
-                  <button key={p.businessId} onClick={() => { setMainView('all-promos') }} className="glass-card glass-card-hover rounded-2xl p-4 text-left flex items-center gap-3 group">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#B85C38,#8F4020)' }}>
-                      <Building2 className="w-5 h-5 text-white" />
+            
+            <div className="flex-1 rounded-2xl overflow-hidden glass-card border flex flex-col md:flex-row relative">
+              <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-border/50 bg-card overflow-y-auto z-10 relative">
+                <div className="p-4 pt-5 pb-2 sticky top-0 bg-card/95 backdrop-blur-md border-b border-border/50 z-20">
+                  <h3 className="font-bold text-sm text-foreground mb-1">Locales por la zona</h3>
+                  <p className="text-xs text-muted-foreground">Listados por cercanía a tu edificio.</p>
+                </div>
+                <div className="p-2 space-y-2">
+                  {sortedMapBusinesses.length > 0 ? sortedMapBusinesses.map(b => (
+                    <div key={b.id} className="p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors border border-transparent hover:border-primary/20 group">
+                      <div className="flex justify-between items-start gap-2">
+                        <div>
+                          <h4 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">{b.name}</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">{b.address || 'Sin dirección específica'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
+                          {b.category}
+                        </span>
+                        {(b as any).distanceToBuilding !== undefined ? (
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {((b as any).distanceToBuilding / 1000).toFixed(1)} km
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">{p.businessName}</h3>
-                      <p className="text-xs text-muted-foreground">{count} promoción{count !== 1 ? 'es' : ''} activa{count !== 1 ? 's' : ''}</p>
+                  )) : (
+                    <div className="p-8 text-center text-muted-foreground text-sm">
+                      Aún no hay locales con ubicación en el mapa.
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </button>
-                )
-              })}
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 relative min-h-[300px] bg-muted/10 h-full z-0">
+                <DynamicMap
+                  center={initialData.building?.latitude && initialData.building?.longitude ? [initialData.building.latitude, initialData.building.longitude] : [-26.8306, -65.2038]}
+                  zoom={initialData.building?.latitude && initialData.building?.longitude ? 14 : 12}
+                  markers={mapMarkers}
+                />
+              </div>
             </div>
           </div>
         )}
