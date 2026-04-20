@@ -23,6 +23,8 @@ export function Navbar() {
     let active = true
 
     async function loadSession() {
+      if (!supabase) return
+
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -38,19 +40,21 @@ export function Navbar() {
       }
 
       if (data?.role) {
-        setUserState({ fullName: data.full_name ?? 'Usuario', role: data.role })
+        setUserState({ fullName: data.full_name ?? 'Usuario', role: data.role as UserRole })
       }
     }
 
     loadSession()
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+    const listener = supabase?.auth.onAuthStateChange(() => {
       loadSession()
     })
 
     return () => {
       active = false
-      listener.subscription.unsubscribe()
+      if (listener?.data?.subscription) {
+        listener.data.subscription.unsubscribe()
+      }
     }
   }, [])
 
@@ -66,7 +70,7 @@ export function Navbar() {
   }
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-[#DDD0BB]/60" style={{ background: 'rgba(247, 240, 228, 0.92)', backdropFilter: 'blur(16px)' }}>
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-[#DDD0BB]/60" style={{ backgroundColor: 'rgba(247, 240, 228, 0.92)', backdropFilter: 'blur(16px)' }}>
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>

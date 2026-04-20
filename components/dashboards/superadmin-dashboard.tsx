@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react'
 import { ROLE_LABELS } from '@/lib/constants'
+import { ChatWidget } from '@/components/ai/chat-widget'
 import type {
   SuperAdminBuildingDetail,
   SuperAdminBusinessDetail,
@@ -718,6 +719,8 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           </div>
         </div>
       )}
+
+      <ChatWidget />
     </div>
   )
 }

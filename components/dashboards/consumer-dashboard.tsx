@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
 import { ImageUploadField } from '@/components/image-upload-field'
+import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -870,6 +871,9 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
       {qrPromotion && <QRModal promotion={qrPromotion} onClose={() => setQrPromotion(null)} />}
       {showCreateModal && <CreateMarketplaceModal onClose={() => setShowCreateModal(false)} onSave={createMarketplaceItem} />}
+
+      {/* ── AI ASSISTANT ─────────────────────────────────────────────────── */}
+      <ChatWidget />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import { ImageUploadField } from '@/components/image-upload-field'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { Building, Business, BusinessDashboardData, Promotion } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { ChatWidget } from '@/components/ai/chat-widget'
 
 interface PromotionFormState {
   id?: string
@@ -428,6 +429,8 @@ export function BusinessDashboard({
           onSave={handlePromotionSave}
         />
       ) : null}
+
+      <ChatWidget />
     </div>
   )
 }
