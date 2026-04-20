@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { LogOut, Menu, UserRound, X } from 'lucide-react'
+import { Briefcase, LogOut, Menu, UserRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME, ROLE_LABELS } from '@/lib/constants'
@@ -78,6 +78,12 @@ export function Navbar() {
         <nav className="hidden md:flex items-center gap-6">
           {userState ? (
             <>
+              {(userState.role === 'consorcio_admin' || userState.role === 'super_admin') ? (
+                <Link href="/iadmin" className="text-xs font-medium px-3 py-2 rounded-full inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+                  <Briefcase className="w-3.5 h-3.5" />
+                  Backoffice
+                </Link>
+              ) : null}
               <Link href={ROLE_HOME[userState.role]} className="text-xs font-medium px-4 py-2 rounded-full inline-flex items-center gap-2" style={{ background: 'rgba(184, 92, 56, 0.08)', border: '1px solid rgba(184, 92, 56, 0.2)', color: '#8B6B52' }}>
                 <UserRound className="w-3.5 h-3.5" />
                 {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>

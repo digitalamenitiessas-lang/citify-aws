@@ -315,3 +315,466 @@ export interface NeighborComplaintView {
   authorLabel: string
   authorUnit: string | null
 }
+
+// ----------------------------------------------------------------------------
+// IAdmin (backoffice administrativo de consorcios)
+// ----------------------------------------------------------------------------
+
+export type IAdminPropertyKind = 'consorcio' | 'barrio_privado' | 'edificio' | 'mixto'
+export type IAdminUnitKind = 'departamento' | 'casa' | 'local' | 'cochera' | 'baulera' | 'otro'
+export type IAdminHolderKind = 'propietario' | 'inquilino' | 'apoderado' | 'otro'
+export type IAdminPeriodStatus = 'open' | 'locked' | 'closed'
+export type IAdminExpenseStatus = 'draft' | 'pending_review' | 'needs_doc' | 'approved' | 'rejected' | 'imputed'
+export type IAdminExpenseKind = 'ordinaria' | 'extraordinaria'
+export type IAdminAIExtractionStatus = 'pending' | 'suggested' | 'validated' | 'rejected'
+export type IAdminLiquidationStatus = 'draft' | 'calculated' | 'issued' | 'closed'
+
+export type IAdminOperationalRole = 'titular' | 'contable' | 'asistente' | 'documental'
+
+export type IAdminCapability =
+  | 'portfolio.view'
+  | 'consorcio.view'
+  | 'consorcio.edit'
+  | 'consorcio.legal.edit'
+  | 'units.manage'
+  | 'unit_groups.manage'
+  | 'holders.manage'
+  | 'providers.manage'
+  | 'expenses.view'
+  | 'expenses.create'
+  | 'expenses.approve'
+  | 'expenses.mark_paid'
+  | 'documents.upload'
+  | 'documents.validate'
+  | 'liquidations.view'
+  | 'liquidations.create'
+  | 'liquidations.close'
+  | 'collections.view'
+  | 'communications.send'
+  | 'reports.view'
+  | 'reports.sensitive.view'
+  | 'admin.legal.edit'
+  | 'admin.settings.manage'
+  | 'cash_accounts.view'
+  | 'cash_accounts.manage'
+  | 'collections.register'
+  | 'collections.void'
+
+export interface IAdminLegalInfoBank {
+  name?: string
+  cbu?: string
+  alias?: string
+  account?: string
+}
+
+export interface IAdminLegalInfoInsurance {
+  company?: string
+  policy?: string
+  coverage?: string
+  from?: string
+  to?: string
+}
+
+export interface IAdminLegalInfoAmenity {
+  name?: string
+  price?: string
+  deposit?: string
+}
+
+export interface IAdminLegalInfo {
+  bank?: IAdminLegalInfoBank
+  accountantName?: string
+  accountantPhone?: string
+  accountantEmail?: string
+  insurance?: IAdminLegalInfoInsurance[]
+  amenities?: IAdminLegalInfoAmenity[]
+  collectionSchedule?: string
+  footerNotes?: string
+}
+
+export interface IAdminAdministration {
+  id: string
+  name: string
+  legalName: string | null
+  taxId: string | null
+  contactEmail: string | null
+  contactPhone: string | null
+  isActive: boolean
+  legalInfo: IAdminLegalInfo
+  createdAt: string
+}
+
+export interface IAdminMembership {
+  administration: IAdminAdministration
+  operationalRole: IAdminOperationalRole | string
+  isPrimary: boolean
+  capabilities: IAdminCapability[]
+}
+
+export interface IAdminContext {
+  isSuperAdmin: boolean
+  memberships: IAdminMembership[]
+  primary: IAdminMembership | null
+}
+
+export interface IAdminManagedProperty {
+  id: string
+  administrationId: string
+  buildingId: string
+  buildingName: string
+  buildingAddress: string
+  displayName: string | null
+  propertyKind: IAdminPropertyKind
+  taxId: string | null
+  managedSince: string | null
+  managementFeePct: number | null
+  notes: string | null
+  isActive: boolean
+  totalUnits: number
+  legalInfo: IAdminLegalInfo
+  createdAt: string
+}
+
+export interface IAdminPortfolioStats {
+  totalProperties: number
+  totalUnits: number
+  openExpenses: number
+  pendingDocs: number
+}
+
+export interface IAdminPortfolio {
+  administration: IAdminAdministration
+  properties: IAdminManagedProperty[]
+  stats: IAdminPortfolioStats
+}
+
+export interface IAdminUnit {
+  id: string
+  managedPropertyId: string
+  code: string
+  kind: IAdminUnitKind
+  floor: string | null
+  surfaceM2: number | null
+  prorataCoefficient: number | null
+  isActive: boolean
+  activeHolderName: string | null
+  activeHolderKind: IAdminHolderKind | null
+}
+
+export interface IAdminUnitHolder {
+  id: string
+  unitId: string
+  profileId: string | null
+  fullName: string
+  taxId: string | null
+  email: string | null
+  phone: string | null
+  holderKind: IAdminHolderKind
+  startDate: string | null
+  endDate: string | null
+  isActive: boolean
+}
+
+export interface IAdminAccountingPeriod {
+  id: string
+  managedPropertyId: string
+  periodYear: number
+  periodMonth: number
+  status: IAdminPeriodStatus
+  closedAt: string | null
+}
+
+export interface IAdminExpenseSummary {
+  id: string
+  administrationId: string
+  managedPropertyId: string
+  managedPropertyName: string
+  providerName: string | null
+  category: string | null
+  description: string
+  amount: number
+  currency: string
+  issuedAt: string | null
+  status: IAdminExpenseStatus
+  expenseKind: IAdminExpenseKind
+  hasDocuments: boolean
+  pendingExtraction: boolean
+  createdAt: string
+}
+
+export interface IAdminExpenseDocument {
+  id: string
+  expenseId: string
+  storagePath: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  uploadedAt: string
+  extraction: IAdminAIExtraction | null
+}
+
+export interface IAdminAIExtraction {
+  id: string
+  documentId: string
+  status: IAdminAIExtractionStatus
+  provider: string | null
+  suggestedFields: Record<string, unknown> | null
+  confidence: number | null
+  validatedBy: string | null
+  validatedAt: string | null
+  validationNotes: string | null
+}
+
+export interface IAdminConsorcioDetail {
+  property: IAdminManagedProperty
+  units: IAdminUnit[]
+  recentExpenses: IAdminExpenseSummary[]
+  currentPeriod: IAdminAccountingPeriod | null
+  totals: {
+    units: number
+    activeHolders: number
+    monthExpenses: number
+    monthAmount: number
+  }
+}
+
+export interface IAdminProvider {
+  id: string
+  administrationId: string
+  name: string
+  taxId: string | null
+  category: string | null
+  email: string | null
+  phone: string | null
+  notes: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+export interface IAdminUnitWithHolders extends IAdminUnit {
+  holders: IAdminUnitHolder[]
+}
+
+export type IAdminCashAccountKind = 'bank' | 'cash' | 'reserve' | 'other'
+
+export type IAdminMovementKind =
+  | 'manual'
+  | 'expense_payment'
+  | 'collection'
+  | 'transfer'
+  | 'adjustment'
+  | 'opening'
+
+export interface IAdminCashAccount {
+  id: string
+  managedPropertyId: string
+  name: string
+  kind: IAdminCashAccountKind
+  bankName: string | null
+  accountNumber: string | null
+  cbu: string | null
+  alias: string | null
+  openingBalance: number
+  openingBalanceAt: string | null
+  isActive: boolean
+  notes: string | null
+  createdAt: string
+}
+
+export interface IAdminCashAccountWithBalance extends IAdminCashAccount {
+  currentBalance: number
+  movementsCount: number
+}
+
+export interface IAdminCashMovement {
+  id: string
+  cashAccountId: string | null
+  cashAccountName: string | null
+  administrationId: string
+  managedPropertyId: string | null
+  movementDate: string
+  description: string | null
+  amount: number
+  balance: number | null
+  externalRef: string | null
+  movementKind: IAdminMovementKind
+  expenseId: string | null
+  expenseDescription: string | null
+  createdAt: string
+}
+
+export interface IAdminDashboardCashSnapshot {
+  label: string
+  amount: number
+  kind: 'operating' | 'reserve' | 'bank' | 'cash'
+  placeholder?: boolean
+}
+
+export interface IAdminAccountPayable {
+  providerId: string | null
+  providerName: string
+  amount: number
+  expensesCount: number
+  oldestDate: string | null
+}
+
+export interface IAdminPeriodCollections {
+  liquidatedOrdinary: number
+  liquidatedExtraordinary: number
+  liquidatedTotal: number
+  collectedOrdinary: number
+  collectedExtraordinary: number
+  collectedTotal: number
+  collectionRatePct: number | null  // null si no hay liquidado
+  runId: string | null
+  periodLabel: string | null
+  placeholder?: boolean
+}
+
+export interface IAdminOverdueBucket {
+  periodLabel: string        // ej. "Enero 2026"
+  periodsOld: number          // cantidad de meses vencidos
+  unitsCount: number
+  totalAmount: number
+}
+
+export interface IAdminConsorcioDashboard {
+  property: IAdminManagedProperty
+  balances: IAdminDashboardCashSnapshot[]
+  totalBalance: number
+  accountsPayable: IAdminAccountPayable[]
+  totalPayable: number
+  periodCollections: IAdminPeriodCollections
+  overdueBuckets: IAdminOverdueBucket[]
+  totalOverdueAmount: number
+  totalOverdueUnits: number
+  pendingExpenses: number       // gastos pending_review + needs_doc
+  pendingDocuments: number      // extracciones pending/suggested
+  activeUnitsCount: number
+}
+
+export interface IAdminLiquidationRunSummary {
+  id: string
+  managedPropertyId: string
+  managedPropertyName: string
+  periodYear: number
+  periodMonth: number
+  status: IAdminLiquidationStatus
+  totalExpenses: number
+  totalUnits: number
+  generatedAt: string
+  closedAt: string | null
+}
+
+export interface IAdminDueDate {
+  label: string           // ej. "1er venc"
+  date: string            // ISO date (YYYY-MM-DD)
+  surchargePct: number    // recargo sobre el subtotal (0 para el primer venc)
+}
+
+export interface IAdminLiquidationItemDueAmount {
+  label: string
+  date: string
+  surchargePct: number
+  amount: number          // total a pagar en ese vencimiento (ordinaria + extra + saldo previo + recargo)
+}
+
+export interface IAdminPayment {
+  id: string
+  administrationId: string
+  managedPropertyId: string
+  liquidationRunId: string | null
+  liquidationItemId: string | null
+  unitId: string | null
+  unitCode: string | null
+  cashAccountId: string | null
+  cashAccountName: string | null
+  bankMovementId: string | null
+  amount: number
+  surchargeAmount: number
+  paidAt: string
+  method: string | null
+  reference: string | null
+  receiptNumber: string | null
+  dueLabel: string | null
+  notes: string | null
+  isVoid: boolean
+  voidedAt: string | null
+  voidReason: string | null
+  createdAt: string
+}
+
+export interface IAdminLiquidationItem {
+  id: string
+  unitId: string
+  unitCode: string
+  unitKind: IAdminUnitKind
+  activeHolderName: string | null
+  activeHolderKind: IAdminHolderKind | null
+  prorataCoefficient: number
+  ordinaryAmount: number
+  extraordinaryAmount: number
+  previousBalance: number
+  amount: number                       // compat: ordinary_amount (legacy)
+  subtotal: number                     // ordinary + extraordinary + previousBalance
+  dueAmounts: IAdminLiquidationItemDueAmount[]
+  collectedAmount: number              // total cobrado (sin void)
+  balanceRemaining: number             // subtotal - collectedAmount (clamp >= 0)
+  payments: IAdminPayment[]
+}
+
+export interface IAdminExpenseLineInRun {
+  id: string
+  issuedAt: string | null
+  providerName: string | null
+  description: string
+  category: string | null
+  amount: number
+  kind: IAdminExpenseKind
+}
+
+export interface IAdminCashStatement {
+  previousBalance: number
+  ordinaryIncome: number
+  extraordinaryIncome: number
+  totalIncome: number
+  ordinaryExpenses: number
+  extraordinaryExpenses: number
+  totalExpenses: number
+  endingBalance: number
+}
+
+export interface IAdminLiquidationRunDetail {
+  id: string
+  administrationId: string
+  administrationName: string
+  administrationLegalInfo: IAdminLegalInfo
+  propertyLegalInfo: IAdminLegalInfo
+  managedPropertyId: string
+  managedPropertyName: string
+  managedPropertyAddress: string
+  accountingPeriodId: string
+  periodYear: number
+  periodMonth: number
+  status: IAdminLiquidationStatus
+  totalExpenses: number
+  ordinaryTotal: number
+  extraordinaryTotal: number
+  previousBalance: number
+  totalUnits: number
+  generatedAt: string
+  generatedByName: string | null
+  issuedAt: string | null
+  issuedByName: string | null
+  closedAt: string | null
+  closedByName: string | null
+  dueDates: IAdminDueDate[]
+  items: IAdminLiquidationItem[]
+  expenseLines: IAdminExpenseLineInRun[]
+  cashStatement: IAdminCashStatement
+  totalAssigned: number
+  coverageDelta: number
+  collectedTotal: number
+  balanceTotal: number
+  cashAccounts: IAdminCashAccountWithBalance[]
+}
