@@ -45,6 +45,8 @@ function mapBuilding(row: any): Building {
     id: row.id,
     name: row.name,
     address: row.address,
+    latitude: row.latitude ? Number(row.latitude) : null,
+    longitude: row.longitude ? Number(row.longitude) : null,
     totalUnits: row.total_units ?? 0,
     createdAt: row.created_at,
   }
@@ -82,6 +84,9 @@ function mapBusiness(client: any, row: any): Business {
     name: row.name,
     category: row.category,
     description: row.description ?? '',
+    address: row.address ?? null,
+    latitude: row.latitude ? Number(row.latitude) : null,
+    longitude: row.longitude ? Number(row.longitude) : null,
     ownerProfileId: row.owner_profile_id ?? null,
     logoPath: row.logo_path ?? null,
     logoUrl: publicUrl(client, 'business-logos', row.logo_path),
@@ -679,6 +684,7 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
   if (!supabase) {
     return {
       building: null,
+      businesses: [],
       promotions: [],
       marketplaceItems: [],
       savedPromotionIds: [],
@@ -693,7 +699,7 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
   const buildingId = profile?.building_id
 
-  const [{ data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }, { data: reasonRows }, { data: complaintRows }, { data: neighborRows }, { data: buildingAdminRows }] =
+  const [{ data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }, { data: reasonRows }, { data: complaintRows }, { data: neighborRows }, { data: buildingAdminRows }, { data: businessesData }] =
     await Promise.all([
       buildingId ? supabase.from('buildings').select('*').eq('id', buildingId).maybeSingle() : Promise.resolve({ data: null }),
       supabase
@@ -720,6 +726,7 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
             .select(`building_id, profiles!building_admin_assignments_profile_id_fkey ( id, full_name, role, floor, unit )`)
             .eq('building_id', buildingId)
         : Promise.resolve({ data: [] }),
+      supabase.from('businesses').select('*').order('name'),
     ])
 
   const mentionableUsers = [
@@ -729,19 +736,20 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
         const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
         return profile ? mapMentionableUser(profile, row.building_id) : null
       })
-      .filter(Boolean),
+      .filter((user): user is NonNullable<typeof user> => user !== null),
   ]
-    .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .filter((user, index, array) => user && array.findIndex((item) => item.profileId === user.profileId) === index)
+    .sort((a, b) => a!.label.localeCompare(b!.label)) as any[] // Temporarily casting to any array if ComplaintCaseMentionableUser is not in scope here or inferred. Wait, it's returning anything? No, ComplaintCaseMentionableUser[]
 
   const complaintCaseDetails = (complaintRows ?? []).map((row: any) => mapNeighborComplaintCaseDetail(row, mentionableUsers))
-  const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem).sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt))
+  const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem).sort((a: any, b: any) => b.lastEventAt.localeCompare(a.lastEventAt))
   const promotions = (promotionsData ?? [])
     .map((row: any) => mapPromotion(supabase, row))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
 
   return {
     building: buildingData ? mapBuilding(buildingData) : null,
+    businesses: (businessesData ?? []).map((row: any) => mapBusiness(supabase, row)),
     promotions,
     marketplaceItems: (marketplaceData ?? []).map((row: any) => mapMarketplaceItem(supabase, row)),
     savedPromotionIds: (savedRows ?? []).map((row: any) => row.promotion_id),

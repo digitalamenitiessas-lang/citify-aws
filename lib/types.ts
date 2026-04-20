@@ -4,6 +4,8 @@ export interface Building {
   id: string
   name: string
   address: string
+  latitude: number | null
+  longitude: number | null
   totalUnits: number
   createdAt: string
 }
@@ -27,6 +29,9 @@ export interface Business {
   name: string
   category: string
   description: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
   ownerProfileId: string | null
   logoPath: string | null
   logoUrl: string | null
@@ -290,6 +295,7 @@ export interface SuperAdminDashboardData {
 
 export interface ConsumerDashboardData {
   building: Building | null
+  businesses: Business[]
   promotions: Promotion[]
   marketplaceItems: MarketplaceItem[]
   savedPromotionIds: string[]
