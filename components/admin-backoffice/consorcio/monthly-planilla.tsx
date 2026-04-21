@@ -28,6 +28,8 @@ import { PublishDialog } from '@/components/admin-backoffice/consorcio/publish-d
 import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-distribution'
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
 import { MesaAssistant } from '@/components/admin-backoffice/consorcio/mesa-assistant'
+import { MesaHeader } from '@/components/admin-backoffice/consorcio/mesa-header'
+import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -37,6 +39,8 @@ type Props = {
   canManageRubros: boolean
   canRegisterPayments: boolean
 }
+
+type VisibleRange = 3 | 6 | 12
 
 function formatARSShort(n: number): string {
   return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n)
@@ -68,6 +72,16 @@ export function MonthlyPlanilla({
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [predictions, setPredictions] = useState<Map<string, MonthPrediction>>(new Map())
 
+  // Rango visible (client-side). El grid ya vino con hasta 12 meses.
+  const initialRange: VisibleRange =
+    grid.months.length >= 12 ? 3 : grid.months.length >= 6 ? 3 : 3
+  const [visibleRange, setVisibleRange] = useState<VisibleRange>(initialRange)
+
+  const visibleMonths = useMemo(() => {
+    const take = Math.min(visibleRange, grid.months.length)
+    return grid.months.slice(-take)
+  }, [grid.months, visibleRange])
+
   const currentMonth = grid.months[grid.months.length - 1]
 
   function getDisplayAmount(row: IAdminMonthlyGridRow, year: number, month: number): number | null {
@@ -77,7 +91,12 @@ export function MonthlyPlanilla({
     return cell?.amount ?? null
   }
 
-  async function commitCell(row: IAdminMonthlyGridRow, year: number, month: number, nextAmount: number | null) {
+  async function commitCell(
+    row: IAdminMonthlyGridRow,
+    year: number,
+    month: number,
+    nextAmount: number | null,
+  ) {
     const key = cellKey(row.providerId, year, month)
     const cell = row.cells.find((c) => c.year === year && c.month === month)
     if (cell && cell.amount === nextAmount) return
@@ -236,29 +255,29 @@ export function MonthlyPlanilla({
   }
 
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
-  const alicuotaOk = Math.abs(grid.totalAlicuota - 1) < 0.001
   const hasPredictions = predictions.size > 0
 
   return (
     <div className="space-y-4">
-      {/* Advertencia si alicuotas mal */}
+      <MesaHeader
+        grid={grid}
+        state={state}
+        visibleRange={visibleRange}
+        onChangeRange={setVisibleRange}
+      />
+
       {grid.activeUnitsCount === 0 ? (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           ⚠ No hay unidades activas. Agregá las unidades desde Configuración → Datos del consorcio.
         </div>
-      ) : !alicuotaOk ? (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          ⚠ Las alícuotas suman {(grid.totalAlicuota * 100).toFixed(2)}% en lugar de 100%.
-        </div>
       ) : null}
 
-      {/* Planilla principal — tipo Excel, sin adornos */}
       <section className="glass-card rounded-2xl overflow-hidden">
-        <header className="px-5 py-4 border-b border-border/40 flex items-start justify-between gap-3 flex-wrap">
+        <header className="px-5 py-3 border-b border-border/40 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="font-serif text-xl font-semibold text-foreground">Gastos del mes</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Cargá los montos del mes actual. Cada celda se guarda sola.
+            <h2 className="font-serif text-lg font-semibold text-foreground">Gastos del mes</h2>
+            <p className="text-xs text-muted-foreground">
+              Cargá los montos. Cada celda se guarda sola. La evolución a la derecha del rubro es la tendencia real.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -311,11 +330,13 @@ export function MonthlyPlanilla({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium sticky left-0 bg-muted/30 z-10">Rubro</th>
-                {grid.months.map((m) => (
+                <th className="text-left px-4 py-3 font-medium sticky left-0 bg-muted/30 z-10 min-w-[220px]">
+                  Rubro
+                </th>
+                {visibleMonths.map((m) => (
                   <th
                     key={`${m.year}-${m.month}`}
-                    className={`text-right px-4 py-3 font-medium min-w-[120px] ${m.isCurrent ? 'bg-primary/10 text-primary' : ''}`}
+                    className={`text-right px-4 py-3 font-medium min-w-[110px] ${m.isCurrent ? 'bg-primary/10 text-primary' : ''}`}
                   >
                     {m.label}
                     {m.isCurrent ? <span className="ml-1 text-[9px]">(actual)</span> : null}
@@ -326,52 +347,73 @@ export function MonthlyPlanilla({
             <tbody>
               {allRows.length === 0 ? (
                 <tr>
-                  <td colSpan={grid.months.length + 1} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={visibleMonths.length + 1} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Sin rubros. Agregá con <b>+ Rubro</b> arriba.
                   </td>
                 </tr>
               ) : (
-                allRows.map((row) => (
-                  <tr key={row.providerId || 'free'} className="border-b border-border/20 last:border-0">
-                    <td className="px-4 py-2 sticky left-0 bg-background font-medium text-foreground">
-                      {row.providerName}
-                      {row.expenseKind === 'extraordinaria' ? (
-                        <span className="ml-1.5 inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px]">EXT</span>
-                      ) : null}
-                    </td>
-                    {grid.months.map((m) => {
-                      const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
-                      const displayedAmount = getDisplayAmount(row, m.year, m.month)
-                      return (
-                        <EditableCell
-                          key={`${row.providerId}-${m.year}-${m.month}`}
-                          year={m.year}
-                          month={m.month}
-                          editing={editingCell === cellKey(row.providerId, m.year, m.month)}
-                          pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
-                          amount={displayedAmount}
-                          prediction={displayedAmount === null ? prediction : undefined}
-                          isCurrent={m.isCurrent}
-                          isEditable={row.cells.find((c) => c.year === m.year && c.month === m.month)?.isEditable ?? true}
-                          onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
-                          onCommit={(val) => {
-                            setEditingCell(null)
-                            void commitCell(row, m.year, m.month, val)
-                          }}
-                          onCancel={() => setEditingCell(null)}
-                          onAcceptPrediction={() => acceptPrediction(row.providerId)}
-                          onDismissPrediction={() => dismissPrediction(row.providerId)}
-                        />
-                      )
-                    })}
-                  </tr>
-                ))
+                allRows.map((row) => {
+                  // Serie completa (12m) para la sparkline del rubro
+                  const fullSeries = grid.months.map((m) => {
+                    const val = getDisplayAmount(row, m.year, m.month)
+                    return val
+                  })
+                  return (
+                    <tr key={row.providerId || 'free'} className="border-b border-border/20 last:border-0">
+                      <td className="px-4 py-2 sticky left-0 bg-background">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-foreground truncate flex items-center gap-1.5">
+                              {row.providerName}
+                              {row.expenseKind === 'extraordinaria' ? (
+                                <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px]">
+                                  EXT
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <Sparkline
+                            values={fullSeries}
+                            width={68}
+                            height={18}
+                            ariaLabel={`Tendencia de ${row.providerName}`}
+                          />
+                        </div>
+                      </td>
+                      {visibleMonths.map((m) => {
+                        const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
+                        const displayedAmount = getDisplayAmount(row, m.year, m.month)
+                        return (
+                          <EditableCell
+                            key={`${row.providerId}-${m.year}-${m.month}`}
+                            year={m.year}
+                            month={m.month}
+                            editing={editingCell === cellKey(row.providerId, m.year, m.month)}
+                            pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
+                            amount={displayedAmount}
+                            prediction={displayedAmount === null ? prediction : undefined}
+                            isCurrent={m.isCurrent}
+                            isEditable={row.cells.find((c) => c.year === m.year && c.month === m.month)?.isEditable ?? true}
+                            onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
+                            onCommit={(val) => {
+                              setEditingCell(null)
+                              void commitCell(row, m.year, m.month, val)
+                            }}
+                            onCancel={() => setEditingCell(null)}
+                            onAcceptPrediction={() => acceptPrediction(row.providerId)}
+                            onDismissPrediction={() => dismissPrediction(row.providerId)}
+                          />
+                        )
+                      })}
+                    </tr>
+                  )
+                })
               )}
             </tbody>
             <tfoot>
               <tr className="bg-muted/40 font-serif font-bold text-[15px]">
                 <td className="px-4 py-3 sticky left-0 bg-muted/40">TOTAL</td>
-                {grid.months.map((m) => {
+                {visibleMonths.map((m) => {
                   let total = 0
                   for (const row of allRows) {
                     const val = getDisplayAmount(row, m.year, m.month)
@@ -396,10 +438,8 @@ export function MonthlyPlanilla({
         </div>
       </section>
 
-      {/* Distribución */}
       <MesaDistribution state={state} />
 
-      {/* Pagos */}
       <MesaPayments
         state={state}
         cashAccounts={cashAccounts}
@@ -407,7 +447,6 @@ export function MonthlyPlanilla({
         onPayQuick={handleQuickPay}
       />
 
-      {/* Emitir */}
       <section className="glass-card rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>

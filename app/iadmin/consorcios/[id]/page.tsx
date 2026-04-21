@@ -7,7 +7,7 @@ export default async function PlanillaPage({ params }: { params: Promise<{ id: s
   const { id } = await params
   const { context } = await requireIAdmin({ capability: 'consorcio.view' })
 
-  const grid = await getIAdminMonthlyGrid(id, { monthsCount: 3 })
+  const grid = await getIAdminMonthlyGrid(id, { monthsCount: 12 })
   if (!grid) notFound()
 
   const currentMonth = grid.months[grid.months.length - 1]
