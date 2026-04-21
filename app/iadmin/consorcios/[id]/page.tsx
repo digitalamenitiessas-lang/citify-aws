@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { MonthlyPlanilla } from '@/components/admin-backoffice/consorcio/monthly-planilla'
 import { can, requireIAdmin } from '@/lib/auth'
-import { getIAdminMonthlyGrid } from '@/lib/data'
+import { getIAdminCashAccounts, getIAdminMesaState, getIAdminMonthlyGrid } from '@/lib/data'
 
 export default async function PlanillaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -10,14 +10,28 @@ export default async function PlanillaPage({ params }: { params: Promise<{ id: s
   const grid = await getIAdminMonthlyGrid(id, { monthsCount: 3 })
   if (!grid) notFound()
 
+  const currentMonth = grid.months[grid.months.length - 1]
+
+  const [state, cashAccounts] = await Promise.all([
+    getIAdminMesaState(id, currentMonth.year, currentMonth.month),
+    getIAdminCashAccounts(id),
+  ])
+  if (!state) notFound()
+
   const canEmit = can(context, 'liquidations.create', { administrationId: grid.administrationId })
   const canManageRubros = can(context, 'providers.manage', { administrationId: grid.administrationId })
+  const canRegisterPayments = can(context, 'collections.register', {
+    administrationId: grid.administrationId,
+  })
 
   return (
     <MonthlyPlanilla
       grid={grid}
+      state={state}
+      cashAccounts={cashAccounts}
       canEmit={canEmit}
       canManageRubros={canManageRubros}
+      canRegisterPayments={canRegisterPayments}
     />
   )
 }

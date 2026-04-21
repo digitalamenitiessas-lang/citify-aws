@@ -716,6 +716,40 @@ export interface IAdminMonthlyGridRow {
   lastAmount: number | null        // ultimo valor no-null (de referencia)
 }
 
+export interface IAdminMesaUnitLine {
+  unitId: string
+  unitCode: string
+  unitKind: IAdminUnitKind
+  holderName: string | null
+  holderPhone: string | null
+  prorataCoefficient: number
+  ordinary: number
+  extraordinary: number
+  previousBalance: number
+  subtotal: number
+  collected: number
+  balance: number
+  dueAmounts: Array<{ label: string; date: string; amount: number }>
+}
+
+export interface IAdminMesaState {
+  runId: string | null
+  runStatus: IAdminLiquidationStatus | null
+  hasRun: boolean
+  ordinaryTotal: number
+  extraordinaryTotal: number
+  previousBalanceTotal: number
+  totalToDistribute: number
+  totalCollected: number
+  totalPending: number
+  collectionRatePct: number | null
+  units: IAdminMesaUnitLine[]
+  dueDates: IAdminDueDate[]
+  coverageOk: boolean   // suma alicuotas = 100%
+  coverageDeltaPct: number
+  alicuotaSum: number
+}
+
 export interface IAdminMonthlyGrid {
   propertyId: string
   propertyName: string

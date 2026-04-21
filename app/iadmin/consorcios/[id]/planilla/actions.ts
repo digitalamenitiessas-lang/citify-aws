@@ -284,6 +284,121 @@ function formatARS(n: number): string {
   }).format(n)
 }
 
+// ----------------------------------------------------------------------------
+// quickPayFromMesa: cobra el saldo de una unidad del run actual con 1 click
+// ----------------------------------------------------------------------------
+
+const quickPaySchema = z.object({
+  propertyId: z.string().uuid(),
+  year: z.number().int(),
+  month: z.number().int().min(1).max(12),
+  unitId: z.string().uuid(),
+  amount: z.number().positive(),
+})
+
+function _randomToken(): string {
+  const bytes = new Uint8Array(18)
+  crypto.getRandomValues(bytes)
+  return Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export async function quickPayFromMesa(input: z.input<typeof quickPaySchema>): Promise<{ receiptNumber: string }> {
+  const parsed = quickPaySchema.parse(input)
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  const { data: property } = await supabase
+    .from('iadmin_managed_properties')
+    .select('id, administration_id')
+    .eq('id', parsed.propertyId)
+    .maybeSingle()
+  if (!property) throw new Error('Consorcio no encontrado')
+
+  const { profile } = await requireIAdmin({
+    capability: 'collections.register',
+    administrationId: property.administration_id,
+  })
+
+  const { data: period } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id')
+    .eq('managed_property_id', parsed.propertyId)
+    .eq('period_year', parsed.year)
+    .eq('period_month', parsed.month)
+    .maybeSingle()
+  if (!period) throw new Error('Período no encontrado')
+
+  const { data: run } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select('id')
+    .eq('managed_property_id', parsed.propertyId)
+    .eq('accounting_period_id', period.id)
+    .maybeSingle()
+  if (!run) throw new Error('No hay liquidación emitida para este mes')
+
+  const { data: item } = await supabase
+    .from('iadmin_liquidation_items')
+    .select('id')
+    .eq('liquidation_run_id', run.id)
+    .eq('unit_id', parsed.unitId)
+    .maybeSingle()
+  if (!item) throw new Error('Unidad sin item en la liquidación')
+
+  const { data: cashAccount } = await supabase
+    .from('iadmin_cash_accounts')
+    .select('id, name')
+    .eq('managed_property_id', parsed.propertyId)
+    .eq('is_active', true)
+    .order('created_at')
+    .limit(1)
+    .maybeSingle()
+  if (!cashAccount) throw new Error('Configurá una cuenta bancaria antes de cobrar')
+
+  const today = new Date().toISOString().slice(0, 10)
+  const { data: movement, error: movError } = await supabase
+    .from('iadmin_bank_movements')
+    .insert({
+      administration_id: property.administration_id,
+      managed_property_id: parsed.propertyId,
+      cash_account_id: cashAccount.id,
+      movement_date: today,
+      description: 'Cobranza',
+      amount: parsed.amount,
+      movement_kind: 'collection',
+      created_by: profile.id,
+    })
+    .select('id')
+    .single()
+  if (movError) throw new Error(movError.message)
+
+  const { data: receipt, error: receiptError } = await supabase.rpc('iadmin_next_receipt_number', {
+    admin_id: property.administration_id,
+  })
+  if (receiptError) throw new Error(receiptError.message)
+
+  const { error } = await supabase.from('iadmin_payments').insert({
+    administration_id: property.administration_id,
+    managed_property_id: parsed.propertyId,
+    liquidation_run_id: run.id,
+    liquidation_item_id: item.id,
+    unit_id: parsed.unitId,
+    cash_account_id: cashAccount.id,
+    bank_movement_id: movement.id,
+    amount: parsed.amount,
+    paid_at: today,
+    method: 'transferencia',
+    receipt_number: receipt,
+    created_by: profile.id,
+  })
+  if (error) {
+    await supabase.from('iadmin_bank_movements').delete().eq('id', movement.id)
+    throw new Error(error.message)
+  }
+
+  revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
+  return { receiptNumber: receipt as string }
+}
+
 export async function emitAndNotify(
   input: z.input<typeof emitSchema>,
 ): Promise<EmitAndNotifyResult> {
