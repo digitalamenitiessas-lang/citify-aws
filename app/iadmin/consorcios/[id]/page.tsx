@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { Building2, FileSpreadsheet, ShieldAlert } from 'lucide-react'
 import Link from 'next/link'
+import { ClosingChecklistCard } from '@/components/admin-backoffice/consorcio/closing-checklist-card'
 import {
   AccountsPayableWidget,
   BalancesWidget,
@@ -11,13 +12,16 @@ import {
 import { ProjectionCard } from '@/components/admin-backoffice/consorcio/projection-card'
 import { CloneRecurringButton } from '@/components/admin-backoffice/gastos/clone-recurring-button'
 import { can, requireIAdmin } from '@/lib/auth'
-import { getIAdminConsorcioDashboard } from '@/lib/data'
+import { getIAdminClosingChecklist, getIAdminConsorcioDashboard } from '@/lib/data'
 
 export default async function ConsorcioInicioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { context } = await requireIAdmin({ capability: 'consorcio.view' })
 
-  const dashboard = await getIAdminConsorcioDashboard(id)
+  const [dashboard, checklist] = await Promise.all([
+    getIAdminConsorcioDashboard(id),
+    getIAdminClosingChecklist(id),
+  ])
   if (!dashboard) {
     notFound()
   }
@@ -50,6 +54,8 @@ export default async function ConsorcioInicioPage({ params }: { params: Promise<
           totalUnits={dashboard.totalOverdueUnits}
         />
       </div>
+
+      {checklist ? <ClosingChecklistCard checklist={checklist} /> : null}
 
       {canManageRecurring ? (
         <CloneRecurringButton

@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Bell, Check, Clock, Loader2, MailX, RefreshCw, Share2, TrendingDown, X } from 'lucide-react'
+import { Bell, Check, Clock, Copy, Loader2, MailX, RefreshCw, Share2, TrendingDown, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import type { IAdminManagedProperty, IAdminReminder, IAdminReminderKind, IAdminReminderStatus } from '@/lib/types'
-import { generateReminders, updateReminderStatus } from '@/app/iadmin/recordatorios/actions'
+import { bulkUpdateReminders, generateReminders, updateReminderStatus } from '@/app/iadmin/recordatorios/actions'
 
 type Props = {
   administrationId: string
@@ -39,6 +39,7 @@ export function RemindersInbox({ administrationId, reminders, properties }: Prop
   const [filterStatus, setFilterStatus] = useState<IAdminReminderStatus | 'all'>('pending')
   const [filterProperty, setFilterProperty] = useState<string>('')
   const [generating, setGenerating] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const filtered = reminders.filter((r) => {
     if (filterStatus !== 'all' && r.status !== filterStatus) return false
@@ -72,10 +73,77 @@ export function RemindersInbox({ administrationId, reminders, properties }: Prop
       try {
         await updateReminderStatus({ reminderId, action })
         toast.success(action === 'sent' ? 'Marcado como enviado' : 'Descartado')
+        setSelected((prev) => {
+          const next = new Set(prev)
+          next.delete(reminderId)
+          return next
+        })
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
       }
     })
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllVisiblePending() {
+    const ids = filtered.filter((r) => r.status === 'pending').map((r) => r.id)
+    setSelected(new Set(ids))
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
+  }
+
+  function handleBulkAction(action: 'sent' | 'dismissed') {
+    if (selected.size === 0) {
+      toast.error('No hay recordatorios seleccionados')
+      return
+    }
+    const ids = Array.from(selected)
+    startTransition(async () => {
+      try {
+        const r = await bulkUpdateReminders({
+          administrationId,
+          reminderIds: ids,
+          action,
+        })
+        toast.success(`${r.updated} ${action === 'sent' ? 'marcados enviados' : 'descartados'}`)
+        clearSelection()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
+  async function handleCopyAll() {
+    const ids = selected.size > 0 ? selected : new Set(filtered.filter((r) => r.status === 'pending').map((r) => r.id))
+    if (ids.size === 0) {
+      toast.error('No hay mensajes para copiar')
+      return
+    }
+    const texts = filtered
+      .filter((r) => ids.has(r.id))
+      .map((r) => {
+        const header = `━━ ${r.propertyName ?? ''} · ${r.unitCode}${r.holderName ? ` · ${r.holderName}` : ''}${r.holderPhone ? ` · ${r.holderPhone}` : ''} ━━`
+        const body = r.messageBody ?? ''
+        const link = r.shareUrl ? `\n${r.shareUrl}` : ''
+        return `${header}\n${body}${link}`
+      })
+      .join('\n\n')
+    try {
+      await navigator.clipboard.writeText(texts)
+      toast.success(`${ids.size} mensajes copiados al clipboard`)
+    } catch {
+      toast.error('No se pudo copiar')
+    }
   }
 
   function whatsappHref(r: IAdminReminder): string {
@@ -139,12 +207,15 @@ export function RemindersInbox({ administrationId, reminders, properties }: Prop
         </div>
 
         {/* Filtros */}
-        <div className="mt-4 flex items-center gap-1">
+        <div className="mt-4 flex items-center gap-1 flex-wrap">
           {(['pending', 'sent', 'dismissed', 'all'] as const).map((s) => (
             <button
               key={s}
               type="button"
-              onClick={() => setFilterStatus(s)}
+              onClick={() => {
+                setFilterStatus(s)
+                clearSelection()
+              }}
               className={`px-3 py-1 rounded-full text-xs transition-colors ${
                 filterStatus === s
                   ? 'bg-primary text-primary-foreground font-medium'
@@ -159,6 +230,55 @@ export function RemindersInbox({ administrationId, reminders, properties }: Prop
         </div>
       </div>
 
+      {/* Barra de acciones masivas */}
+      {filterStatus === 'pending' && filtered.some((r) => r.status === 'pending') ? (
+        <div className="glass-card rounded-2xl p-3 flex items-center gap-2 flex-wrap text-sm">
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline font-medium"
+            onClick={selectAllVisiblePending}
+          >
+            Seleccionar los {filtered.filter((r) => r.status === 'pending').length} pendientes
+          </button>
+          {selected.size > 0 ? (
+            <>
+              <span className="text-xs text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground">
+                {selected.size} seleccionados
+              </span>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={clearSelection}
+              >
+                limpiar
+              </button>
+              <div className="flex-1" />
+              <Button size="sm" variant="outline" disabled={pending} onClick={handleCopyAll}>
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+                Copiar textos
+              </Button>
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => handleBulkAction('sent')}>
+                <Check className="w-3.5 h-3.5 mr-1.5" />
+                Marcar enviados
+              </Button>
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => handleBulkAction('dismissed')}>
+                <X className="w-3.5 h-3.5 mr-1.5" />
+                Descartar
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="flex-1" />
+              <Button size="sm" variant="outline" onClick={handleCopyAll}>
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+                Copiar todos los textos pendientes
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
+
       {filtered.length === 0 ? (
         <div className="glass-card rounded-2xl px-5 py-12 text-center text-sm text-muted-foreground">
           Sin recordatorios en este filtro.
@@ -168,6 +288,14 @@ export function RemindersInbox({ administrationId, reminders, properties }: Prop
           {filtered.map((r) => (
             <li key={r.id} className="glass-card rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3 flex-wrap">
+                {r.status === 'pending' ? (
+                  <input
+                    type="checkbox"
+                    className="mt-1 shrink-0"
+                    checked={selected.has(r.id)}
+                    onChange={() => toggleSelect(r.id)}
+                  />
+                ) : null}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_TONE[r.reminderKind]}`}>

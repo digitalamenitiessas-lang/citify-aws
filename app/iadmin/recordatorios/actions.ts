@@ -279,3 +279,53 @@ export async function updateReminderStatus(input: z.input<typeof markSchema>) {
 
   revalidatePath('/iadmin/recordatorios')
 }
+
+const bulkSchema = z.object({
+  administrationId: z.string().uuid(),
+  reminderIds: z.array(z.string().uuid()).min(1).max(500),
+  action: z.enum(['sent', 'dismissed']),
+})
+
+export async function bulkUpdateReminders(
+  input: z.input<typeof bulkSchema>,
+): Promise<{ updated: number }> {
+  const parsed = bulkSchema.parse(input)
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  const { profile } = await requireIAdmin({
+    capability: 'reminders.send',
+    administrationId: parsed.administrationId,
+  })
+
+  const now = new Date().toISOString()
+  const patch: Record<string, unknown> = { status: parsed.action }
+  if (parsed.action === 'sent') {
+    patch.sent_at = now
+    patch.sent_by = profile.id
+  } else {
+    patch.dismissed_at = now
+    patch.dismissed_by = profile.id
+  }
+
+  const { error, count } = await supabase
+    .from('iadmin_reminders')
+    .update(patch, { count: 'exact' })
+    .eq('administration_id', parsed.administrationId)
+    .in('id', parsed.reminderIds)
+    .eq('status', 'pending')
+
+  if (error) throw new Error(error.message)
+
+  await supabase.from('iadmin_audit_logs').insert({
+    administration_id: parsed.administrationId,
+    actor_profile_id: profile.id,
+    entity_type: 'iadmin_reminders',
+    entity_id: null,
+    action: `reminders.bulk_${parsed.action}`,
+    metadata: { count: count ?? 0 },
+  })
+
+  revalidatePath('/iadmin/recordatorios')
+  return { updated: count ?? 0 }
+}

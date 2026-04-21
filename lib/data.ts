@@ -30,6 +30,9 @@ import type {
   IAdminCashAccountWithBalance,
   IAdminCashMovement,
   IAdminCashStatement,
+  IAdminClosingChecklist,
+  IAdminClosingStep,
+  IAdminClosingStepId,
   IAdminConsorcioDashboard,
   IAdminDashboardCashSnapshot,
   IAdminDueDate,
@@ -2204,6 +2207,223 @@ export async function getIAdminCashMovements(
       createdAt: row.created_at,
     }
   })
+}
+
+export async function getIAdminClosingChecklist(
+  propertyId: string,
+  options: { year?: number; month?: number } = {},
+): Promise<IAdminClosingChecklist | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: property } = await supabase
+    .from('iadmin_managed_properties')
+    .select('id, administration_id')
+    .eq('id', propertyId)
+    .maybeSingle()
+  if (!property) return null
+
+  const now = new Date()
+  const year = options.year ?? now.getFullYear()
+  const month = options.month ?? now.getMonth() + 1
+  const periodLabel = `${String(month).padStart(2, '0')}/${year}`
+
+  // Periodo del mes
+  const { data: period } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id, status, period_year, period_month')
+    .eq('managed_property_id', propertyId)
+    .eq('period_year', year)
+    .eq('period_month', month)
+    .maybeSingle()
+
+  const periodId = period?.id ?? null
+  const periodStatus = (period?.status ?? null) as IAdminClosingChecklist['periodStatus']
+
+  // Gastos del periodo
+  let expensesCount = 0
+  let pendingReviewCount = 0
+  if (periodId) {
+    const { data: expenses } = await supabase
+      .from('iadmin_expenses')
+      .select('id, status')
+      .eq('managed_property_id', propertyId)
+      .eq('accounting_period_id', periodId)
+    for (const e of expenses ?? []) {
+      expensesCount += 1
+      if (e.status === 'pending_review' || e.status === 'needs_doc') pendingReviewCount += 1
+    }
+  }
+
+  // Run de esta liquidacion
+  let liquidationRunId: string | null = null
+  let runStatus: string | null = null
+  if (periodId) {
+    const { data: run } = await supabase
+      .from('iadmin_liquidation_runs')
+      .select('id, status')
+      .eq('managed_property_id', propertyId)
+      .eq('accounting_period_id', periodId)
+      .maybeSingle()
+    liquidationRunId = run?.id ?? null
+    runStatus = run?.status ?? null
+  }
+
+  // Recordatorios generados hoy para esta property
+  const todayStr = now.toISOString().slice(0, 10)
+  const { count: remindersTodayCount } = await supabase
+    .from('iadmin_reminders')
+    .select('id', { count: 'exact', head: true })
+    .eq('managed_property_id', propertyId)
+    .gte('generated_at', `${todayStr}T00:00:00Z`)
+
+  const hasReminders = (remindersTodayCount ?? 0) > 0
+
+  // Comunicado: no tenemos tabla dedicada todavia. Tomamos notifications enviados este mes como proxy
+  const firstOfMonth = new Date(year, month - 1, 1).toISOString()
+  const { count: notificationsCount } = await supabase
+    .from('iadmin_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('administration_id', property.administration_id)
+    .gte('created_at', firstOfMonth)
+
+  const hasAnnouncement = (notificationsCount ?? 0) > 0
+
+  // Armar steps
+  const steps: IAdminClosingStep[] = []
+
+  steps.push({
+    id: 'period_open',
+    label: 'Período abierto',
+    helper: 'Abrí el período contable del mes para poder cargar gastos.',
+    done: Boolean(periodStatus),
+    ctaHref: periodStatus ? undefined : `/iadmin/consorcios/${propertyId}`,
+    ctaLabel: periodStatus ? undefined : 'Abrir período',
+  })
+
+  steps.push({
+    id: 'expenses_loaded',
+    label: 'Gastos del mes cargados',
+    helper:
+      expensesCount > 0
+        ? `${expensesCount} gastos cargados${pendingReviewCount > 0 ? ` · ${pendingReviewCount} sin revisar` : ''}`
+        : 'Cargá facturas manualmente o clonà recurrentes desde el dashboard.',
+    done: expensesCount > 0,
+    blockedReason: !periodStatus ? 'Abrí el período primero' : undefined,
+    ctaHref: '/iadmin/gastos',
+    ctaLabel: expensesCount > 0 ? 'Ver gastos' : 'Cargar gastos',
+  })
+
+  steps.push({
+    id: 'expenses_reviewed',
+    label: 'Gastos pendientes revisados',
+    helper:
+      pendingReviewCount === 0
+        ? expensesCount > 0
+          ? 'Sin gastos pendientes'
+          : 'Aún no hay gastos cargados'
+        : `${pendingReviewCount} gasto${pendingReviewCount === 1 ? '' : 's'} esperando revisión o documento`,
+    done: expensesCount > 0 && pendingReviewCount === 0,
+    ctaHref: '/iadmin/gastos',
+    ctaLabel: pendingReviewCount > 0 ? `Revisar ${pendingReviewCount}` : undefined,
+  })
+
+  steps.push({
+    id: 'period_locked',
+    label: 'Período bloqueado (cierre provisorio)',
+    helper:
+      periodStatus === 'open'
+        ? 'Bloqueá el período antes de liquidar para evitar nuevos gastos'
+        : periodStatus === 'locked'
+          ? 'Bloqueado · listo para liquidar'
+          : periodStatus === 'closed'
+            ? 'El período ya está cerrado'
+            : 'Abrí el período primero',
+    done: periodStatus === 'locked' || periodStatus === 'closed',
+    blockedReason: !periodStatus ? 'Abrí el período primero' : undefined,
+    ctaHref: periodStatus === 'open' ? `/iadmin/consorcios/${propertyId}` : undefined,
+    ctaLabel: periodStatus === 'open' ? 'Bloquear período' : undefined,
+  })
+
+  steps.push({
+    id: 'liquidation_generated',
+    label: 'Liquidación generada',
+    helper: liquidationRunId
+      ? `Run existente en estado "${runStatus}"`
+      : 'Generá la liquidación desde el dashboard',
+    done: Boolean(liquidationRunId),
+    blockedReason: !periodId ? 'Abrí el período primero' : undefined,
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : `/iadmin/consorcios/${propertyId}`,
+    ctaLabel: liquidationRunId ? 'Ver liquidación' : 'Generar ahora',
+  })
+
+  steps.push({
+    id: 'liquidation_issued',
+    label: 'Liquidación emitida',
+    helper:
+      runStatus === 'issued' || runStatus === 'closed'
+        ? 'Emitida · ya podés mandar comunicado y recordatorios'
+        : liquidationRunId
+          ? 'La liquidación está calculada pero no emitida'
+          : 'Generá la liquidación primero',
+    done: runStatus === 'issued' || runStatus === 'closed',
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : undefined,
+    ctaLabel: liquidationRunId && runStatus !== 'issued' && runStatus !== 'closed' ? 'Emitir' : undefined,
+  })
+
+  steps.push({
+    id: 'announcement_sent',
+    label: 'Comunicado enviado a vecinos',
+    helper: hasAnnouncement
+      ? 'Tenés un comunicado registrado este mes'
+      : 'Generá un comunicado con IA y mandalo por email/WhatsApp',
+    done: hasAnnouncement,
+    skipped: !hasAnnouncement,
+    ctaHref: '/iadmin/comunicaciones',
+    ctaLabel: 'Redactar con IA',
+  })
+
+  steps.push({
+    id: 'reminders_generated',
+    label: 'Recordatorios de hoy generados',
+    helper: hasReminders
+      ? 'Recordatorios listos en la bandeja'
+      : 'Generá recordatorios según vencimientos y estado de pago',
+    done: hasReminders,
+    skipped: !hasReminders,
+    ctaHref: '/iadmin/recordatorios',
+    ctaLabel: 'Bandeja de recordatorios',
+  })
+
+  steps.push({
+    id: 'period_closed',
+    label: 'Período cerrado',
+    helper:
+      periodStatus === 'closed'
+        ? 'Período cerrado definitivamente'
+        : 'Una vez que liquidaste y mandaste el comunicado, cerrá el período',
+    done: periodStatus === 'closed',
+    blockedReason: runStatus !== 'issued' && runStatus !== 'closed' ? 'Emití la liquidación primero' : undefined,
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : undefined,
+    ctaLabel: runStatus === 'issued' ? 'Cerrar' : undefined,
+  })
+
+  const completedCount = steps.filter((s) => s.done).length
+  const totalCount = steps.length
+  const progressPct = Math.round((completedCount / totalCount) * 100)
+  const nextStep = steps.find((s) => !s.done && !s.blockedReason) ?? null
+
+  return {
+    periodYear: year,
+    periodMonth: month,
+    periodLabel,
+    periodStatus,
+    steps,
+    completedCount,
+    totalCount,
+    progressPct,
+    nextStep,
+  }
 }
 
 export function getCategoryOptions(promotions: Promotion[]) {

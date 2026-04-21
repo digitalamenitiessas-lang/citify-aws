@@ -699,6 +699,40 @@ export interface IAdminOverdueBucket {
   totalAmount: number
 }
 
+export type IAdminClosingStepId =
+  | 'period_open'
+  | 'expenses_loaded'
+  | 'expenses_reviewed'
+  | 'period_locked'
+  | 'liquidation_generated'
+  | 'liquidation_issued'
+  | 'announcement_sent'
+  | 'reminders_generated'
+  | 'period_closed'
+
+export interface IAdminClosingStep {
+  id: IAdminClosingStepId
+  label: string
+  helper: string
+  done: boolean
+  skipped?: boolean
+  ctaHref?: string
+  ctaLabel?: string
+  blockedReason?: string
+}
+
+export interface IAdminClosingChecklist {
+  periodYear: number
+  periodMonth: number
+  periodLabel: string
+  periodStatus: IAdminPeriodStatus | null
+  steps: IAdminClosingStep[]
+  completedCount: number
+  totalCount: number
+  progressPct: number
+  nextStep: IAdminClosingStep | null
+}
+
 export interface IAdminConsorcioDashboard {
   property: IAdminManagedProperty
   balances: IAdminDashboardCashSnapshot[]
