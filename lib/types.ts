@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'vecino'
+export type UserRole = 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'propietario' | 'vecino'
 
 export interface Building {
   id: string
@@ -105,6 +105,39 @@ export interface PromotionRedemptionHistoryItem {
   status: string
   redeemedAt: string
   createdAt: string
+}
+
+export type UnitProfileRelationship = 'propietario' | 'vecino_principal' | 'vecino_adicional'
+
+export interface UnitProfileMembership {
+  id: string
+  unitId: string
+  buildingId: string
+  profileId: string
+  relationshipType: UnitProfileRelationship
+  isPrimary: boolean
+  active: boolean
+  createdByProfileId: string | null
+  createdAt: string
+  unitCode: string | null
+  unitFloor: string | null
+  buildingName: string | null
+  profile: Profile | null
+}
+
+export type BuildingInformationVisibility = 'residentes' | 'vecinos' | 'propietarios'
+
+export interface BuildingInformationItem {
+  id: string
+  buildingId: string
+  title: string
+  category: string
+  content: string
+  visibleTo: BuildingInformationVisibility
+  sortOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export type BusinessDashboardSection = 'home' | 'promotions' | 'history' | 'profile'
@@ -366,10 +399,25 @@ export interface ConsumerDashboardData {
   marketplaceItems: MarketplaceItem[]
   savedPromotionIds: string[]
   usedPromotionIds: string[]
+  unitMemberships: UnitProfileMembership[]
+  householdMembers: UnitProfileMembership[]
+  buildingInformation: BuildingInformationItem[]
   complaintReasons: ComplaintReason[]
   complaintMentionableUsers: ComplaintCaseMentionableUser[]
   complaintCases: ComplaintCaseListItem[]
   complaintCaseDetails: ComplaintCaseDetailNeighborView[]
+}
+
+export interface OwnerUnitSummary {
+  membership: UnitProfileMembership
+  latestLiquidation: IAdminLiquidationItem | null
+  payments: IAdminPayment[]
+}
+
+export interface OwnerDashboardData {
+  profile: Profile
+  units: OwnerUnitSummary[]
+  buildingInformation: BuildingInformationItem[]
 }
 
 export type ComplaintStatus = 'sin_completar' | 'en_desarrollo' | 'resuelto'
@@ -633,6 +681,7 @@ export interface IAdminConsorcioDetail {
   units: IAdminUnit[]
   recentExpenses: IAdminExpenseSummary[]
   currentPeriod: IAdminAccountingPeriod | null
+  buildingInformation: BuildingInformationItem[]
   totals: {
     units: number
     activeHolders: number
@@ -686,6 +735,7 @@ export interface IAdminReminder {
 
 export interface IAdminUnitWithHolders extends IAdminUnit {
   holders: IAdminUnitHolder[]
+  memberships: UnitProfileMembership[]
 }
 
 export type IAdminCashAccountKind = 'bank' | 'cash' | 'reserve' | 'other'

@@ -28,6 +28,7 @@ export default async function ConsorcioDetailPage({ params }: { params: Promise<
       units={unitsWithHolders}
       recentExpenses={detail.recentExpenses}
       currentPeriod={detail.currentPeriod}
+      buildingInformation={detail.buildingInformation}
       totals={detail.totals}
       userCapabilities={capabilities}
     />

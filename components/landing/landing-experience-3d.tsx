@@ -372,7 +372,13 @@ function PendantLight({ position }: { position: [number, number, number] }) {
   )
 }
 
-function Sofa({ position, rotation = [0, 0, 0] as [number, number, number] }) {
+function Sofa({
+  position,
+  rotation = [0, 0, 0],
+}: {
+  position: [number, number, number]
+  rotation?: [number, number, number]
+}) {
   return (
     <group position={position} rotation={rotation}>
       <RoundedBox args={[2.7, 0.42, 1.05]} radius={0.08} smoothness={4} position={[0, 0.24, 0]} castShadow receiveShadow>
@@ -550,7 +556,13 @@ function DiningChair({ position, rotation }: { position: [number, number, number
   )
 }
 
-function DoorFrame({ position, rotation = [0, 0, 0] as [number, number, number] }) {
+function DoorFrame({
+  position,
+  rotation = [0, 0, 0],
+}: {
+  position: [number, number, number]
+  rotation?: [number, number, number]
+}) {
   return (
     <group position={position} rotation={rotation}>
       <mesh position={[-0.46, 1.08, 0]} castShadow receiveShadow>
