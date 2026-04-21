@@ -42,6 +42,8 @@ import type {
   IAdminLiquidationItemDueAmount,
   IAdminLiquidationRunDetail,
   IAdminManagedProperty,
+  IAdminMonthlyGrid,
+  IAdminMonthlyGridRow,
   IAdminPayment,
   IAdminReminder,
   IAdminReminderStatus,
@@ -2207,6 +2209,267 @@ export async function getIAdminCashMovements(
       createdAt: row.created_at,
     }
   })
+}
+
+export async function getIAdminMonthlyGrid(
+  propertyId: string,
+  options: { year?: number; monthsCount?: number } = {},
+): Promise<IAdminMonthlyGrid | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: propertyRow } = await supabase
+    .from('iadmin_managed_properties')
+    .select('id, administration_id, display_name, buildings(name)')
+    .eq('id', propertyId)
+    .maybeSingle()
+  if (!propertyRow) return null
+
+  const building = propertyRow.buildings
+    ? Array.isArray(propertyRow.buildings)
+      ? propertyRow.buildings[0]
+      : propertyRow.buildings
+    : null
+  const propertyName = propertyRow.display_name ?? building?.name ?? 'Consorcio'
+  const administrationId = propertyRow.administration_id as string
+
+  const now = new Date()
+  const currentYear = options.year ?? now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+  const monthsCount = options.monthsCount ?? 3  // 2 meses previos + actual
+
+  // Armar la ventana de meses (más reciente al final)
+  const months: IAdminMonthlyGrid['months'] = []
+  for (let i = monthsCount - 1; i >= 0; i--) {
+    const d = new Date(currentYear, currentMonth - 1 - i, 1)
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    const short = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'][m - 1]
+    months.push({
+      year: y,
+      month: m,
+      label: `${short} ${String(y).slice(2)}`,
+      isCurrent: y === currentYear && m === currentMonth,
+      total: 0,
+      periodStatus: null,
+      runId: null,
+      runStatus: null,
+    })
+  }
+
+  const yearsInWindow = Array.from(new Set(months.map((m) => m.year)))
+  const startDate = new Date(months[0].year, months[0].month - 1, 1).toISOString().slice(0, 10)
+
+  // Períodos de la ventana
+  const { data: periodsRows } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id, period_year, period_month, status')
+    .eq('managed_property_id', propertyId)
+    .in('period_year', yearsInWindow)
+  const periodMap = new Map<string, { id: string; status: IAdminPeriodStatus }>()
+  for (const p of periodsRows ?? []) {
+    periodMap.set(`${p.period_year}-${p.period_month}`, { id: p.id, status: p.status })
+  }
+  for (const m of months) {
+    const p = periodMap.get(`${m.year}-${m.month}`)
+    m.periodStatus = p?.status ?? null
+  }
+
+  // Liquidaciones de la ventana
+  const { data: runsRows } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select('id, managed_property_id, accounting_period_id, status, iadmin_accounting_periods(period_year, period_month)')
+    .eq('managed_property_id', propertyId)
+  for (const r of runsRows ?? []) {
+    const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+    if (!p) continue
+    const target = months.find((m) => m.year === p.period_year && m.month === p.period_month)
+    if (target) {
+      target.runId = r.id
+      target.runStatus = r.status
+    }
+  }
+
+  // Gastos: todos los imputed/approved de esos períodos + los pending_review/draft también
+  const { data: expenseRows } = await supabase
+    .from('iadmin_expenses')
+    .select(`
+      id, amount, provider_id, accounting_period_id, status, expense_kind,
+      iadmin_expense_documents(id),
+      iadmin_accounting_periods!inner(period_year, period_month)
+    `)
+    .eq('managed_property_id', propertyId)
+    .gte('iadmin_accounting_periods.period_year', months[0].year)
+
+  // Filtramos por la ventana y por status (excluimos rejected)
+  type ExpenseRow = {
+    id: string
+    amount: number
+    providerId: string | null
+    year: number
+    month: number
+    hasDocument: boolean
+  }
+  const expenses: ExpenseRow[] = []
+  for (const e of expenseRows ?? []) {
+    if (e.status === 'rejected') continue
+    const p = Array.isArray(e.iadmin_accounting_periods) ? e.iadmin_accounting_periods[0] : e.iadmin_accounting_periods
+    if (!p) continue
+    const inWindow = months.some((m) => m.year === p.period_year && m.month === p.period_month)
+    if (!inWindow) continue
+    const docs = Array.isArray(e.iadmin_expense_documents) ? e.iadmin_expense_documents : []
+    expenses.push({
+      id: e.id,
+      amount: Number(e.amount),
+      providerId: e.provider_id ?? null,
+      year: p.period_year,
+      month: p.period_month,
+      hasDocument: docs.length > 0,
+    })
+  }
+
+  // Proveedores recurrentes de la administración (rubros fijos)
+  const { data: allProviders } = await supabase
+    .from('iadmin_providers')
+    .select('*')
+    .eq('administration_id', administrationId)
+    .eq('is_active', true)
+
+  const providers = (allProviders ?? []).map(mapProvider)
+  const providerById = new Map(providers.map((p) => [p.id, p]))
+
+  // Armar filas: recurrentes primero, después los que tengan gastos en la ventana
+  const rowProviderIds = new Set<string>()
+  const orderedRows: IAdminMonthlyGridRow[] = []
+
+  const recurringProviders = providers
+    .filter((p) => p.isRecurring)
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const providersWithExpensesInWindow = new Set(
+    expenses.filter((e) => e.providerId).map((e) => e.providerId as string),
+  )
+
+  // Primero recurrentes
+  for (const p of recurringProviders) {
+    rowProviderIds.add(p.id)
+    orderedRows.push(buildRow(p.id, p.name, p.defaultCategory ?? p.category, true, p.recurringKind, months, expenses, providerById))
+  }
+
+  // Después los que tengan gastos en la ventana pero no sean recurrentes
+  for (const pid of providersWithExpensesInWindow) {
+    if (rowProviderIds.has(pid)) continue
+    const p = providerById.get(pid)
+    if (!p) continue
+    rowProviderIds.add(pid)
+    orderedRows.push(buildRow(p.id, p.name, p.defaultCategory ?? p.category, false, 'ordinaria', months, expenses, providerById))
+  }
+
+  // Gastos sin proveedor (agrupados como "Otros")
+  const noProviderExpenses = expenses.filter((e) => !e.providerId)
+  let freeRow: IAdminMonthlyGridRow | null = null
+  if (noProviderExpenses.length > 0) {
+    const cells = months.map((m) => {
+      const list = noProviderExpenses.filter((e) => e.year === m.year && e.month === m.month)
+      const amount = list.length > 0 ? list.reduce((s, e) => s + e.amount, 0) : null
+      return {
+        year: m.year,
+        month: m.month,
+        amount,
+        expenseId: list.length === 1 ? list[0].id : null,
+        hasDocument: list.some((e) => e.hasDocument),
+        isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+      }
+    })
+    freeRow = {
+      providerId: '',
+      providerName: 'Otros (sin proveedor)',
+      category: null,
+      isRecurring: false,
+      expenseKind: 'ordinaria',
+      cells,
+      lastAmount: cells.filter((c) => c.amount !== null).reverse()[0]?.amount ?? null,
+    }
+  }
+
+  // Totales
+  for (const m of months) {
+    let total = 0
+    for (const row of orderedRows) {
+      const cell = row.cells.find((c) => c.year === m.year && c.month === m.month)
+      if (cell?.amount) total += cell.amount
+    }
+    if (freeRow) {
+      const cell = freeRow.cells.find((c) => c.year === m.year && c.month === m.month)
+      if (cell?.amount) total += cell.amount
+    }
+    m.total = Math.round(total * 100) / 100
+  }
+
+  const totalByMonth: Record<string, number> = {}
+  for (const m of months) totalByMonth[`${m.year}-${m.month}`] = m.total
+
+  // Alícuota total y unidades activas
+  const { data: unitsData } = await supabase
+    .from('iadmin_units')
+    .select('id, prorata_coefficient')
+    .eq('managed_property_id', propertyId)
+    .eq('is_active', true)
+  const activeUnitsCount = (unitsData ?? []).length
+  const totalAlicuota = (unitsData ?? []).reduce(
+    (s, u: any) => s + (u.prorata_coefficient !== null ? Number(u.prorata_coefficient) : 0),
+    0,
+  )
+
+  const currentMonthObj = months[months.length - 1]
+  const readyToEmit = currentMonthObj.total > 0
+
+  return {
+    propertyId,
+    propertyName,
+    administrationId,
+    months,
+    rows: orderedRows,
+    freeRow,
+    totalByMonth,
+    activeUnitsCount,
+    totalAlicuota: Math.round(totalAlicuota * 1000000) / 1000000,
+    readyToEmit,
+  }
+}
+
+function buildRow(
+  providerId: string,
+  providerName: string,
+  category: string | null,
+  isRecurring: boolean,
+  expenseKind: 'ordinaria' | 'extraordinaria',
+  months: IAdminMonthlyGrid['months'],
+  expenses: Array<{ id: string; amount: number; providerId: string | null; year: number; month: number; hasDocument: boolean }>,
+  _providerById: Map<string, any>,
+): IAdminMonthlyGridRow {
+  const cells = months.map((m) => {
+    const list = expenses.filter((e) => e.providerId === providerId && e.year === m.year && e.month === m.month)
+    const total = list.reduce((s, e) => s + e.amount, 0)
+    return {
+      year: m.year,
+      month: m.month,
+      amount: list.length > 0 ? Math.round(total * 100) / 100 : null,
+      expenseId: list.length === 1 ? list[0].id : null,
+      hasDocument: list.some((e) => e.hasDocument),
+      isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+    }
+  })
+  const lastAmount = [...cells].reverse().find((c) => c.amount !== null)?.amount ?? null
+  return {
+    providerId,
+    providerName,
+    category,
+    isRecurring,
+    expenseKind,
+    cells,
+    lastAmount,
+  }
 }
 
 export async function getIAdminClosingChecklist(

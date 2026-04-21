@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { FileSpreadsheet, LayoutDashboard, Scale, Settings, Wallet } from 'lucide-react'
+import { FileSpreadsheet, LayoutDashboard, Scale, Settings, Table, Wallet } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 type SubNavItem = {
@@ -16,12 +16,19 @@ type SubNavItem = {
 
 const ITEMS: SubNavItem[] = [
   {
-    key: 'inicio',
+    key: 'planilla',
     href: (id) => `/iadmin/consorcios/${id}`,
-    label: 'Inicio',
-    icon: LayoutDashboard,
+    label: 'Planilla del mes',
+    icon: Table,
     need: 'consorcio.view',
     exact: true,
+  },
+  {
+    key: 'dashboard',
+    href: (id) => `/iadmin/consorcios/${id}/dashboard`,
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    need: 'consorcio.view',
   },
   {
     key: 'gestion',
@@ -38,18 +45,18 @@ const ITEMS: SubNavItem[] = [
     need: 'cash_accounts.view',
   },
   {
-    key: 'importar',
-    href: (id) => `/iadmin/consorcios/${id}/importar`,
-    label: 'Importar',
-    icon: FileSpreadsheet,
-    need: 'units.manage',
-  },
-  {
     key: 'conciliacion',
     href: (id) => `/iadmin/consorcios/${id}/conciliacion`,
     label: 'Conciliacion',
     icon: Scale,
     need: 'collections.register',
+  },
+  {
+    key: 'importar',
+    href: (id) => `/iadmin/consorcios/${id}/importar`,
+    label: 'Importar',
+    icon: FileSpreadsheet,
+    need: 'units.manage',
   },
 ]
 

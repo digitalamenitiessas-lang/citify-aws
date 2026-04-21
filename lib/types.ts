@@ -699,6 +699,45 @@ export interface IAdminOverdueBucket {
   totalAmount: number
 }
 
+export interface IAdminMonthlyGridRow {
+  providerId: string
+  providerName: string
+  category: string | null
+  isRecurring: boolean
+  expenseKind: IAdminExpenseKind
+  cells: Array<{
+    year: number
+    month: number
+    amount: number | null
+    expenseId: string | null
+    hasDocument: boolean
+    isEditable: boolean  // false si el periodo esta closed
+  }>
+  lastAmount: number | null        // ultimo valor no-null (de referencia)
+}
+
+export interface IAdminMonthlyGrid {
+  propertyId: string
+  propertyName: string
+  administrationId: string
+  months: Array<{
+    year: number
+    month: number
+    label: string       // "NOV 25"
+    isCurrent: boolean
+    total: number
+    periodStatus: IAdminPeriodStatus | null
+    runId: string | null
+    runStatus: IAdminLiquidationStatus | null
+  }>
+  rows: IAdminMonthlyGridRow[]
+  freeRow: IAdminMonthlyGridRow | null   // celda sin proveedor asociado (para gastos ad-hoc)
+  totalByMonth: Record<string, number>
+  activeUnitsCount: number
+  totalAlicuota: number            // suma de alicuotas activas
+  readyToEmit: boolean              // hay al menos 1 gasto en el mes actual
+}
+
 export type IAdminClosingStepId =
   | 'period_open'
   | 'expenses_loaded'
