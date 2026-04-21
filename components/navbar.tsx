@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Briefcase, LogOut, Menu, UserRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,12 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userState, setUserState] = useState<{ fullName: string; role: UserRole } | null>(null)
   const router = useRouter()
+  const pathname = usePathname()
+
+  // No renderizar el navbar en rutas imprimibles o publicas
+  if (pathname?.startsWith('/print') || pathname?.startsWith('/l/')) {
+    return null
+  }
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()

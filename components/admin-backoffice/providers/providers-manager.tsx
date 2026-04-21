@@ -22,6 +22,9 @@ const emptyDraft = {
   email: '',
   phone: '',
   notes: '',
+  isRecurring: false,
+  recurringAmount: '',
+  recurringKind: 'ordinaria' as 'ordinaria' | 'extraordinaria',
 }
 
 type Draft = typeof emptyDraft
@@ -46,6 +49,9 @@ export function ProvidersManager({ administrationId, providers, canManage }: Pro
       email: provider.email ?? '',
       phone: provider.phone ?? '',
       notes: provider.notes ?? '',
+      isRecurring: provider.isRecurring,
+      recurringAmount: provider.recurringAmount !== null ? String(provider.recurringAmount) : '',
+      recurringKind: provider.recurringKind,
     })
     setEditingId(provider.id)
     setCreating(false)
@@ -58,29 +64,28 @@ export function ProvidersManager({ administrationId, providers, canManage }: Pro
       return
     }
 
+    const recurringAmount = draft.isRecurring && draft.recurringAmount.trim()
+      ? Number(draft.recurringAmount.replace(',', '.'))
+      : null
+    const payload = {
+      name: draft.name,
+      taxId: draft.taxId || null,
+      category: draft.category || null,
+      email: draft.email || null,
+      phone: draft.phone || null,
+      notes: draft.notes || null,
+      isRecurring: draft.isRecurring,
+      recurringAmount,
+      recurringKind: draft.recurringKind,
+    }
+
     startTransition(async () => {
       try {
         if (editingId) {
-          await updateProvider({
-            providerId: editingId,
-            name: draft.name,
-            taxId: draft.taxId || null,
-            category: draft.category || null,
-            email: draft.email || null,
-            phone: draft.phone || null,
-            notes: draft.notes || null,
-          })
+          await updateProvider({ providerId: editingId, ...payload })
           toast.success('Proveedor actualizado')
         } else {
-          await createProvider({
-            administrationId,
-            name: draft.name,
-            taxId: draft.taxId || null,
-            category: draft.category || null,
-            email: draft.email || null,
-            phone: draft.phone || null,
-            notes: draft.notes || null,
-          })
+          await createProvider({ administrationId, ...payload })
           toast.success('Proveedor creado')
         }
         resetDraft()
@@ -146,6 +151,39 @@ export function ProvidersManager({ administrationId, providers, canManage }: Pro
               <Fld label="Notas" span>
                 <Textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
               </Fld>
+            </div>
+
+            <div className="rounded-lg border border-border/40 p-3 space-y-3 bg-muted/20">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.isRecurring}
+                  onChange={(e) => setDraft({ ...draft, isRecurring: e.target.checked })}
+                />
+                Proveedor recurrente (se clona cada mes desde el dashboard del consorcio)
+              </label>
+              {draft.isRecurring ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Fld label="Monto tipico (fallback si no hay historia)">
+                    <Input
+                      inputMode="decimal"
+                      value={draft.recurringAmount}
+                      onChange={(e) => setDraft({ ...draft, recurringAmount: e.target.value })}
+                      placeholder="Opcional"
+                    />
+                  </Fld>
+                  <Fld label="Tipo de expensa">
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={draft.recurringKind}
+                      onChange={(e) => setDraft({ ...draft, recurringKind: e.target.value as 'ordinaria' | 'extraordinaria' })}
+                    >
+                      <option value="ordinaria">Ordinaria</option>
+                      <option value="extraordinaria">Extraordinaria</option>
+                    </select>
+                  </Fld>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex justify-end gap-2">

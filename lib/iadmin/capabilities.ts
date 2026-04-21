@@ -28,6 +28,10 @@ export const IADMIN_CAPABILITIES: readonly IAdminCapability[] = [
   'cash_accounts.manage',
   'collections.register',
   'collections.void',
+  'liquidations.share',
+  'expenses.recurring.manage',
+  'reminders.generate',
+  'reminders.send',
 ] as const
 
 export const IADMIN_CAPABILITY_LABELS: Record<IAdminCapability, string> = {
@@ -58,6 +62,10 @@ export const IADMIN_CAPABILITY_LABELS: Record<IAdminCapability, string> = {
   'cash_accounts.manage': 'Gestionar cuentas bancarias',
   'collections.register': 'Registrar pagos de vecinos',
   'collections.void': 'Anular pagos',
+  'liquidations.share': 'Compartir liquidación con vecinos (link público)',
+  'expenses.recurring.manage': 'Gestionar facturas recurrentes',
+  'reminders.generate': 'Generar recordatorios automaticos',
+  'reminders.send': 'Enviar/marcar recordatorios',
 }
 
 export const IADMIN_OPERATIONAL_ROLES: readonly IAdminOperationalRole[] = [
@@ -101,6 +109,10 @@ export const IADMIN_ROLE_PRESETS: Record<IAdminOperationalRole, IAdminCapability
     'cash_accounts.manage',
     'collections.register',
     'collections.void',
+    'liquidations.share',
+    'expenses.recurring.manage',
+    'reminders.generate',
+    'reminders.send',
   ],
   asistente: [
     'portfolio.view',

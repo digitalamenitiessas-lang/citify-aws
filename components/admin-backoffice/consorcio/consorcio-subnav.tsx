@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Settings, Wallet } from 'lucide-react'
+import { FileSpreadsheet, LayoutDashboard, Scale, Settings, Wallet } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 type SubNavItem = {
@@ -36,6 +36,20 @@ const ITEMS: SubNavItem[] = [
     label: 'Cuentas',
     icon: Wallet,
     need: 'cash_accounts.view',
+  },
+  {
+    key: 'importar',
+    href: (id) => `/iadmin/consorcios/${id}/importar`,
+    label: 'Importar',
+    icon: FileSpreadsheet,
+    need: 'units.manage',
+  },
+  {
+    key: 'conciliacion',
+    href: (id) => `/iadmin/consorcios/${id}/conciliacion`,
+    label: 'Conciliacion',
+    icon: Scale,
+    need: 'collections.register',
   },
 ]
 

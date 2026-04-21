@@ -30,6 +30,9 @@ import type {
   IAdminCashAccountWithBalance,
   IAdminCashMovement,
   IAdminCashStatement,
+  IAdminClosingChecklist,
+  IAdminClosingStep,
+  IAdminClosingStepId,
   IAdminConsorcioDashboard,
   IAdminDashboardCashSnapshot,
   IAdminDueDate,
@@ -40,10 +43,14 @@ import type {
   IAdminLiquidationRunDetail,
   IAdminManagedProperty,
   IAdminPayment,
+  IAdminReminder,
+  IAdminReminderStatus,
   IAdminPeriodCollections,
   IAdminAccountPayable,
   IAdminOverdueBucket,
   IAdminPortfolio,
+  IAdminPortfolioOverview,
+  IAdminPortfolioPropertyRow,
   IAdminProvider,
   IAdminUnit,
   IAdminUnitHolder,
@@ -1280,6 +1287,9 @@ function mapProvider(row: any): IAdminProvider {
     notes: row.notes ?? null,
     defaultCategory: row.default_category ?? null,
     defaultDescription: row.default_description ?? null,
+    isRecurring: Boolean(row.is_recurring),
+    recurringAmount: row.recurring_amount !== null && row.recurring_amount !== undefined ? Number(row.recurring_amount) : null,
+    recurringKind: (row.recurring_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
   }
@@ -1846,6 +1856,13 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
   const pendingDocuments = pendingDocsRes.count ?? 0
   const activeUnitsCount = (unitsRes.data ?? []).length
 
+  const { count: recurringCount } = await supabase
+    .from('iadmin_providers')
+    .select('id', { count: 'exact', head: true })
+    .eq('administration_id', administrationId)
+    .eq('is_recurring', true)
+    .eq('is_active', true)
+
   void periodRes // reservado para futura integracion con periodo actual
 
   return {
@@ -1861,6 +1878,325 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
     pendingExpenses,
     pendingDocuments,
     activeUnitsCount,
+    recurringProvidersCount: recurringCount ?? 0,
+  }
+}
+
+export async function getIAdminReminders(
+  administrationId: string,
+  options: { status?: IAdminReminderStatus | 'all'; limit?: number } = {},
+): Promise<IAdminReminder[]> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return []
+
+  let query = supabase
+    .from('iadmin_reminders')
+    .select(`
+      *,
+      iadmin_managed_properties(display_name, buildings(name)),
+      iadmin_liquidation_items!inner(
+        iadmin_units(code, iadmin_unit_holders(full_name, phone, email, is_active)),
+        iadmin_liquidation_runs(id)
+      ),
+      iadmin_item_share_tokens(token)
+    `)
+    .eq('administration_id', administrationId)
+    .order('generated_at', { ascending: false })
+    .limit(options.limit ?? 200)
+
+  if (options.status && options.status !== 'all') {
+    query = query.eq('status', options.status)
+  }
+
+  const { data } = await query
+
+  return (data ?? []).map((row: any): IAdminReminder => {
+    const property = Array.isArray(row.iadmin_managed_properties) ? row.iadmin_managed_properties[0] : row.iadmin_managed_properties
+    const building = property?.buildings
+      ? Array.isArray(property.buildings)
+        ? property.buildings[0]
+        : property.buildings
+      : null
+    const item = Array.isArray(row.iadmin_liquidation_items) ? row.iadmin_liquidation_items[0] : row.iadmin_liquidation_items
+    const unit = item?.iadmin_units ? (Array.isArray(item.iadmin_units) ? item.iadmin_units[0] : item.iadmin_units) : null
+    const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
+    const holder = holders.find((h: any) => h?.is_active) ?? holders[0] ?? null
+    const tokens = Array.isArray(row.iadmin_item_share_tokens) ? row.iadmin_item_share_tokens : []
+    const firstToken = tokens[0]?.token ?? null
+    const base = process.env.NEXT_PUBLIC_APP_BASE_URL ?? ''
+    const shareUrl = firstToken ? `${base}/l/${firstToken}` : null
+
+    return {
+      id: row.id,
+      administrationId: row.administration_id,
+      managedPropertyId: row.managed_property_id ?? null,
+      propertyName: property?.display_name ?? building?.name ?? null,
+      liquidationItemId: row.liquidation_item_id,
+      unitCode: unit?.code ?? '—',
+      holderName: holder?.full_name ?? null,
+      holderPhone: holder?.phone ?? null,
+      holderEmail: holder?.email ?? null,
+      reminderKind: row.reminder_kind,
+      status: row.status,
+      messageBody: row.message_body ?? null,
+      amountDue: row.amount_due !== null && row.amount_due !== undefined ? Number(row.amount_due) : null,
+      dueLabel: row.due_label ?? null,
+      dueDate: row.due_date ?? null,
+      generatedAt: row.generated_at,
+      sentAt: row.sent_at ?? null,
+      dismissedAt: row.dismissed_at ?? null,
+      shareUrl,
+    }
+  })
+}
+
+export async function getIAdminPortfolioOverview(administrationId: string): Promise<IAdminPortfolioOverview | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: admin } = await supabase
+    .from('iadmin_administrations')
+    .select('*')
+    .eq('id', administrationId)
+    .maybeSingle()
+  if (!admin) return null
+
+  const { data: propsData } = await supabase
+    .from('iadmin_managed_properties')
+    .select('*, buildings(id, name, address, total_units)')
+    .eq('administration_id', administrationId)
+    .eq('is_active', true)
+    .order('created_at')
+
+  const properties = (propsData ?? []).map(mapManagedProperty)
+  const propertyIds = properties.map((p) => p.id)
+  if (propertyIds.length === 0) {
+    return {
+      administration: {
+        id: admin.id,
+        name: admin.name,
+        legalName: admin.legal_name ?? null,
+        taxId: admin.tax_id ?? null,
+        contactEmail: admin.contact_email ?? null,
+        contactPhone: admin.contact_phone ?? null,
+        isActive: Boolean(admin.is_active),
+        legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
+        createdAt: admin.created_at,
+      },
+      rows: [],
+      totals: {
+        totalBalance: 0,
+        totalOverdue: 0,
+        totalPayable: 0,
+        totalLiquidatedMonth: 0,
+        totalCollectedMonth: 0,
+        pendingExpenses: 0,
+      },
+    }
+  }
+
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  // ---- Saldos por cuenta ----
+  const { data: accounts } = await supabase
+    .from('iadmin_cash_accounts')
+    .select('id, managed_property_id, is_active')
+    .in('managed_property_id', propertyIds)
+    .eq('is_active', true)
+  const activeAccountIds = (accounts ?? []).map((a: any) => a.id)
+  const accountProperty = new Map<string, string>()
+  for (const a of accounts ?? []) accountProperty.set(a.id, a.managed_property_id)
+
+  const balanceByProperty = new Map<string, number>()
+  if (activeAccountIds.length > 0) {
+    const { data: moves } = await supabase
+      .from('iadmin_bank_movements')
+      .select('cash_account_id, amount')
+      .in('cash_account_id', activeAccountIds)
+    for (const m of moves ?? []) {
+      const pid = accountProperty.get(m.cash_account_id)
+      if (!pid) continue
+      balanceByProperty.set(pid, (balanceByProperty.get(pid) ?? 0) + Number(m.amount))
+    }
+  }
+
+  // ---- Gastos por property: pendientes + approved (deuda a proveedor) ----
+  const { data: expensesRows } = await supabase
+    .from('iadmin_expenses')
+    .select('id, managed_property_id, status, amount')
+    .in('managed_property_id', propertyIds)
+
+  const paidExpenseIds = new Set<string>()
+  if ((expensesRows ?? []).length > 0) {
+    const { data: payRows } = await supabase
+      .from('iadmin_bank_movements')
+      .select('expense_id')
+      .eq('movement_kind', 'expense_payment')
+      .in('expense_id', (expensesRows ?? []).map((e: any) => e.id))
+    for (const r of payRows ?? []) {
+      if (r.expense_id) paidExpenseIds.add(r.expense_id as string)
+    }
+  }
+
+  const pendingByProperty = new Map<string, number>()
+  const payableByProperty = new Map<string, number>()
+  for (const e of expensesRows ?? []) {
+    if (e.status === 'pending_review' || e.status === 'needs_doc') {
+      pendingByProperty.set(e.managed_property_id, (pendingByProperty.get(e.managed_property_id) ?? 0) + 1)
+    }
+    if ((e.status === 'approved' || e.status === 'imputed') && !paidExpenseIds.has(e.id)) {
+      payableByProperty.set(
+        e.managed_property_id,
+        (payableByProperty.get(e.managed_property_id) ?? 0) + Number(e.amount),
+      )
+    }
+  }
+
+  // ---- Liquidations + pagos ----
+  const { data: runs } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select(`
+      id, managed_property_id, status, ordinary_total, extraordinary_total,
+      iadmin_accounting_periods(period_year, period_month),
+      iadmin_liquidation_items(id, ordinary_amount, extraordinary_amount, previous_balance)
+    `)
+    .in('managed_property_id', propertyIds)
+    .in('status', ['calculated', 'issued', 'closed'])
+
+  const runsByProperty = new Map<string, any[]>()
+  for (const r of runs ?? []) {
+    const arr = runsByProperty.get(r.managed_property_id) ?? []
+    arr.push(r)
+    runsByProperty.set(r.managed_property_id, arr)
+  }
+
+  // Payments vivos por run
+  const runIds = (runs ?? []).map((r: any) => r.id)
+  const paymentsByRun = new Map<string, number>()
+  const paymentsByItem = new Map<string, number>()
+  if (runIds.length > 0) {
+    const { data: payments } = await supabase
+      .from('iadmin_payments')
+      .select('liquidation_run_id, liquidation_item_id, amount')
+      .in('liquidation_run_id', runIds)
+      .eq('is_void', false)
+    for (const p of payments ?? []) {
+      if (p.liquidation_run_id) {
+        paymentsByRun.set(p.liquidation_run_id, (paymentsByRun.get(p.liquidation_run_id) ?? 0) + Number(p.amount))
+      }
+      if (p.liquidation_item_id) {
+        paymentsByItem.set(p.liquidation_item_id, (paymentsByItem.get(p.liquidation_item_id) ?? 0) + Number(p.amount))
+      }
+    }
+  }
+
+  // ---- Periodos abiertos ----
+  const { data: openPeriods } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('managed_property_id, period_year, period_month, status')
+    .in('managed_property_id', propertyIds)
+    .eq('period_year', currentYear)
+    .eq('period_month', currentMonth)
+  const openPeriodByProperty = new Set(
+    (openPeriods ?? []).filter((p: any) => p.status === 'open').map((p: any) => p.managed_property_id),
+  )
+
+  // Armar filas
+  const rows: IAdminPortfolioPropertyRow[] = properties.map((property) => {
+    const runsOfProperty = runsByProperty.get(property.id) ?? []
+    const currentRun = runsOfProperty.find((r) => {
+      const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+      return p?.period_year === currentYear && p?.period_month === currentMonth
+    })
+    const historicalRuns = runsOfProperty.filter((r) => {
+      if (r.status === 'calculated') return false
+      const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+      return !(p?.period_year === currentYear && p?.period_month === currentMonth)
+    })
+
+    // overdueAmount: suma (subtotal - cobrado) por item de runs historicas issued/closed
+    let overdue = 0
+    for (const r of historicalRuns) {
+      const items = Array.isArray(r.iadmin_liquidation_items) ? r.iadmin_liquidation_items : []
+      for (const it of items) {
+        const subtotal =
+          Number(it.ordinary_amount ?? 0) + Number(it.extraordinary_amount ?? 0) + Number(it.previous_balance ?? 0)
+        const paid = paymentsByItem.get(it.id) ?? 0
+        overdue += Math.max(0, subtotal - paid)
+      }
+    }
+
+    const liquidated = currentRun
+      ? Number(currentRun.ordinary_total ?? 0) + Number(currentRun.extraordinary_total ?? 0)
+      : 0
+    const collected = currentRun ? paymentsByRun.get(currentRun.id) ?? 0 : 0
+    const rate = liquidated > 0 ? Math.round((collected / liquidated) * 100) : null
+
+    const alerts: string[] = []
+    if (!openPeriodByProperty.has(property.id) && !currentRun) {
+      alerts.push('Sin período abierto')
+    }
+    if (pendingByProperty.get(property.id) ?? 0 > 0) {
+      alerts.push(`${pendingByProperty.get(property.id)} gastos a revisar`)
+    }
+    if (rate !== null && rate < 50) {
+      alerts.push(`Cobranza baja (${rate}%)`)
+    }
+    if ((balanceByProperty.get(property.id) ?? 0) < 0) {
+      alerts.push('Saldo negativo')
+    }
+
+    return {
+      property,
+      totalBalance: Math.round((balanceByProperty.get(property.id) ?? 0) * 100) / 100,
+      pendingExpenses: pendingByProperty.get(property.id) ?? 0,
+      accountsPayableTotal: Math.round((payableByProperty.get(property.id) ?? 0) * 100) / 100,
+      overdueAmount: Math.round(overdue * 100) / 100,
+      currentMonthLiquidated: Math.round(liquidated * 100) / 100,
+      currentMonthCollected: Math.round(collected * 100) / 100,
+      collectionRatePct: rate,
+      hasOpenPeriod: openPeriodByProperty.has(property.id),
+      runStatusThisMonth: currentRun?.status ?? null,
+      alerts,
+    }
+  })
+
+  const totals = {
+    totalBalance: rows.reduce((s, r) => s + r.totalBalance, 0),
+    totalOverdue: rows.reduce((s, r) => s + r.overdueAmount, 0),
+    totalPayable: rows.reduce((s, r) => s + r.accountsPayableTotal, 0),
+    totalLiquidatedMonth: rows.reduce((s, r) => s + r.currentMonthLiquidated, 0),
+    totalCollectedMonth: rows.reduce((s, r) => s + r.currentMonthCollected, 0),
+    pendingExpenses: rows.reduce((s, r) => s + r.pendingExpenses, 0),
+  }
+
+  return {
+    administration: {
+      id: admin.id,
+      name: admin.name,
+      legalName: admin.legal_name ?? null,
+      taxId: admin.tax_id ?? null,
+      contactEmail: admin.contact_email ?? null,
+      contactPhone: admin.contact_phone ?? null,
+      isActive: Boolean(admin.is_active),
+      legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
+      createdAt: admin.created_at,
+    },
+    rows: rows.map((r) => ({
+      ...r,
+      totalBalance: Math.round(r.totalBalance * 100) / 100,
+      overdueAmount: Math.round(r.overdueAmount * 100) / 100,
+    })),
+    totals: {
+      totalBalance: Math.round(totals.totalBalance * 100) / 100,
+      totalOverdue: Math.round(totals.totalOverdue * 100) / 100,
+      totalPayable: Math.round(totals.totalPayable * 100) / 100,
+      totalLiquidatedMonth: Math.round(totals.totalLiquidatedMonth * 100) / 100,
+      totalCollectedMonth: Math.round(totals.totalCollectedMonth * 100) / 100,
+      pendingExpenses: totals.pendingExpenses,
+    },
   }
 }
 
@@ -1972,6 +2308,223 @@ export async function getIAdminCashMovements(
       createdAt: row.created_at,
     }
   })
+}
+
+export async function getIAdminClosingChecklist(
+  propertyId: string,
+  options: { year?: number; month?: number } = {},
+): Promise<IAdminClosingChecklist | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: property } = await supabase
+    .from('iadmin_managed_properties')
+    .select('id, administration_id')
+    .eq('id', propertyId)
+    .maybeSingle()
+  if (!property) return null
+
+  const now = new Date()
+  const year = options.year ?? now.getFullYear()
+  const month = options.month ?? now.getMonth() + 1
+  const periodLabel = `${String(month).padStart(2, '0')}/${year}`
+
+  // Periodo del mes
+  const { data: period } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id, status, period_year, period_month')
+    .eq('managed_property_id', propertyId)
+    .eq('period_year', year)
+    .eq('period_month', month)
+    .maybeSingle()
+
+  const periodId = period?.id ?? null
+  const periodStatus = (period?.status ?? null) as IAdminClosingChecklist['periodStatus']
+
+  // Gastos del periodo
+  let expensesCount = 0
+  let pendingReviewCount = 0
+  if (periodId) {
+    const { data: expenses } = await supabase
+      .from('iadmin_expenses')
+      .select('id, status')
+      .eq('managed_property_id', propertyId)
+      .eq('accounting_period_id', periodId)
+    for (const e of expenses ?? []) {
+      expensesCount += 1
+      if (e.status === 'pending_review' || e.status === 'needs_doc') pendingReviewCount += 1
+    }
+  }
+
+  // Run de esta liquidacion
+  let liquidationRunId: string | null = null
+  let runStatus: string | null = null
+  if (periodId) {
+    const { data: run } = await supabase
+      .from('iadmin_liquidation_runs')
+      .select('id, status')
+      .eq('managed_property_id', propertyId)
+      .eq('accounting_period_id', periodId)
+      .maybeSingle()
+    liquidationRunId = run?.id ?? null
+    runStatus = run?.status ?? null
+  }
+
+  // Recordatorios generados hoy para esta property
+  const todayStr = now.toISOString().slice(0, 10)
+  const { count: remindersTodayCount } = await supabase
+    .from('iadmin_reminders')
+    .select('id', { count: 'exact', head: true })
+    .eq('managed_property_id', propertyId)
+    .gte('generated_at', `${todayStr}T00:00:00Z`)
+
+  const hasReminders = (remindersTodayCount ?? 0) > 0
+
+  // Comunicado: no tenemos tabla dedicada todavia. Tomamos notifications enviados este mes como proxy
+  const firstOfMonth = new Date(year, month - 1, 1).toISOString()
+  const { count: notificationsCount } = await supabase
+    .from('iadmin_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('administration_id', property.administration_id)
+    .gte('created_at', firstOfMonth)
+
+  const hasAnnouncement = (notificationsCount ?? 0) > 0
+
+  // Armar steps
+  const steps: IAdminClosingStep[] = []
+
+  steps.push({
+    id: 'period_open',
+    label: 'Período abierto',
+    helper: 'Abrí el período contable del mes para poder cargar gastos.',
+    done: Boolean(periodStatus),
+    ctaHref: periodStatus ? undefined : `/iadmin/consorcios/${propertyId}`,
+    ctaLabel: periodStatus ? undefined : 'Abrir período',
+  })
+
+  steps.push({
+    id: 'expenses_loaded',
+    label: 'Gastos del mes cargados',
+    helper:
+      expensesCount > 0
+        ? `${expensesCount} gastos cargados${pendingReviewCount > 0 ? ` · ${pendingReviewCount} sin revisar` : ''}`
+        : 'Cargá facturas manualmente o clonà recurrentes desde el dashboard.',
+    done: expensesCount > 0,
+    blockedReason: !periodStatus ? 'Abrí el período primero' : undefined,
+    ctaHref: '/iadmin/gastos',
+    ctaLabel: expensesCount > 0 ? 'Ver gastos' : 'Cargar gastos',
+  })
+
+  steps.push({
+    id: 'expenses_reviewed',
+    label: 'Gastos pendientes revisados',
+    helper:
+      pendingReviewCount === 0
+        ? expensesCount > 0
+          ? 'Sin gastos pendientes'
+          : 'Aún no hay gastos cargados'
+        : `${pendingReviewCount} gasto${pendingReviewCount === 1 ? '' : 's'} esperando revisión o documento`,
+    done: expensesCount > 0 && pendingReviewCount === 0,
+    ctaHref: '/iadmin/gastos',
+    ctaLabel: pendingReviewCount > 0 ? `Revisar ${pendingReviewCount}` : undefined,
+  })
+
+  steps.push({
+    id: 'period_locked',
+    label: 'Período bloqueado (cierre provisorio)',
+    helper:
+      periodStatus === 'open'
+        ? 'Bloqueá el período antes de liquidar para evitar nuevos gastos'
+        : periodStatus === 'locked'
+          ? 'Bloqueado · listo para liquidar'
+          : periodStatus === 'closed'
+            ? 'El período ya está cerrado'
+            : 'Abrí el período primero',
+    done: periodStatus === 'locked' || periodStatus === 'closed',
+    blockedReason: !periodStatus ? 'Abrí el período primero' : undefined,
+    ctaHref: periodStatus === 'open' ? `/iadmin/consorcios/${propertyId}` : undefined,
+    ctaLabel: periodStatus === 'open' ? 'Bloquear período' : undefined,
+  })
+
+  steps.push({
+    id: 'liquidation_generated',
+    label: 'Liquidación generada',
+    helper: liquidationRunId
+      ? `Run existente en estado "${runStatus}"`
+      : 'Generá la liquidación desde el dashboard',
+    done: Boolean(liquidationRunId),
+    blockedReason: !periodId ? 'Abrí el período primero' : undefined,
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : `/iadmin/consorcios/${propertyId}`,
+    ctaLabel: liquidationRunId ? 'Ver liquidación' : 'Generar ahora',
+  })
+
+  steps.push({
+    id: 'liquidation_issued',
+    label: 'Liquidación emitida',
+    helper:
+      runStatus === 'issued' || runStatus === 'closed'
+        ? 'Emitida · ya podés mandar comunicado y recordatorios'
+        : liquidationRunId
+          ? 'La liquidación está calculada pero no emitida'
+          : 'Generá la liquidación primero',
+    done: runStatus === 'issued' || runStatus === 'closed',
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : undefined,
+    ctaLabel: liquidationRunId && runStatus !== 'issued' && runStatus !== 'closed' ? 'Emitir' : undefined,
+  })
+
+  steps.push({
+    id: 'announcement_sent',
+    label: 'Comunicado enviado a vecinos',
+    helper: hasAnnouncement
+      ? 'Tenés un comunicado registrado este mes'
+      : 'Generá un comunicado con IA y mandalo por email/WhatsApp',
+    done: hasAnnouncement,
+    skipped: !hasAnnouncement,
+    ctaHref: '/iadmin/comunicaciones',
+    ctaLabel: 'Redactar con IA',
+  })
+
+  steps.push({
+    id: 'reminders_generated',
+    label: 'Recordatorios de hoy generados',
+    helper: hasReminders
+      ? 'Recordatorios listos en la bandeja'
+      : 'Generá recordatorios según vencimientos y estado de pago',
+    done: hasReminders,
+    skipped: !hasReminders,
+    ctaHref: '/iadmin/recordatorios',
+    ctaLabel: 'Bandeja de recordatorios',
+  })
+
+  steps.push({
+    id: 'period_closed',
+    label: 'Período cerrado',
+    helper:
+      periodStatus === 'closed'
+        ? 'Período cerrado definitivamente'
+        : 'Una vez que liquidaste y mandaste el comunicado, cerrá el período',
+    done: periodStatus === 'closed',
+    blockedReason: runStatus !== 'issued' && runStatus !== 'closed' ? 'Emití la liquidación primero' : undefined,
+    ctaHref: liquidationRunId ? `/iadmin/liquidaciones/${liquidationRunId}` : undefined,
+    ctaLabel: runStatus === 'issued' ? 'Cerrar' : undefined,
+  })
+
+  const completedCount = steps.filter((s) => s.done).length
+  const totalCount = steps.length
+  const progressPct = Math.round((completedCount / totalCount) * 100)
+  const nextStep = steps.find((s) => !s.done && !s.blockedReason) ?? null
+
+  return {
+    periodYear: year,
+    periodMonth: month,
+    periodLabel,
+    periodStatus,
+    steps,
+    completedCount,
+    totalCount,
+    progressPct,
+    nextStep,
+  }
 }
 
 export function getCategoryOptions(promotions: Promotion[]) {

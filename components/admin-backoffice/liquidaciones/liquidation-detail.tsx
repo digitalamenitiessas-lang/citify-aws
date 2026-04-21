@@ -2,13 +2,14 @@
 
 import { Fragment, useState } from 'react'
 import Link from 'next/link'
-import { Building2, Calendar, CalendarClock, CheckCircle2, FileText, Info, ReceiptText, Scale } from 'lucide-react'
+import { Building2, Calendar, CalendarClock, CheckCircle2, FileText, Info, Printer, ReceiptText, Scale } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { IAdminCapability, IAdminLiquidationItem, IAdminLiquidationRunDetail, IAdminLiquidationStatus } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { LiquidationStatusActions } from '@/components/admin-backoffice/liquidaciones/liquidation-status-actions'
 import { QuickPayButton } from '@/components/admin-backoffice/cobranzas/quick-pay-button'
 import { RegisterCollectionForm } from '@/components/admin-backoffice/cobranzas/register-collection-form'
+import { ShareLinkButton } from '@/components/admin-backoffice/cobranzas/share-link-button'
 import { VoidPaymentButton } from '@/components/admin-backoffice/cobranzas/void-payment-button'
 
 const STATUS_LABELS: Record<IAdminLiquidationStatus, string> = {
@@ -42,8 +43,10 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
   const caps = new Set(userCapabilities)
   const canCollect = caps.has('collections.register') && run.status !== 'draft'
   const canVoid = caps.has('collections.void')
+  const canShare = caps.has('liquidations.share') && run.status !== 'draft'
   const [collectingItem, setCollectingItem] = useState<IAdminLiquidationItem | null>(null)
   const defaultCashAccount = run.cashAccounts.find((a) => a.isActive) ?? null
+  const periodLabel = `${String(run.periodMonth).padStart(2, '0')}/${run.periodYear}`
 
   return (
     <div className="space-y-6">
@@ -116,7 +119,18 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
 
       {/* ----- Acciones ----- */}
       <section className="glass-card rounded-2xl p-5 space-y-3">
-        <h2 className="font-serif text-lg font-semibold text-foreground">Acciones</h2>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="font-serif text-lg font-semibold text-foreground">Acciones</h2>
+          <Link
+            href={`/print/liquidaciones/${run.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Vista imprimible / PDF
+          </Link>
+        </div>
         <LiquidationStatusActions
           runId={run.id}
           propertyId={run.managedPropertyId}
@@ -309,14 +323,29 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
                         ))}
                         {canCollect ? (
                           <td className="px-2 py-2.5">
-                            {item.balanceRemaining > 0.01 ? (
-                              <QuickPayButton
-                                itemId={item.id}
-                                balanceRemaining={item.balanceRemaining}
-                                defaultAccount={defaultCashAccount}
-                                onEditClick={() => setCollectingItem(item)}
-                              />
-                            ) : null}
+                            <div className="flex flex-col gap-1 items-end">
+                              {item.balanceRemaining > 0.01 ? (
+                                <QuickPayButton
+                                  itemId={item.id}
+                                  unitCode={item.unitCode}
+                                  holderName={item.activeHolderName}
+                                  periodLabel={periodLabel}
+                                  balanceRemaining={item.balanceRemaining}
+                                  canShare={canShare}
+                                  defaultAccount={defaultCashAccount}
+                                  onEditClick={() => setCollectingItem(item)}
+                                />
+                              ) : null}
+                              {canShare && item.subtotal > 0 ? (
+                                <ShareLinkButton
+                                  itemId={item.id}
+                                  unitCode={item.unitCode}
+                                  holderName={item.activeHolderName}
+                                  amountToPay={item.balanceRemaining}
+                                  periodLabel={periodLabel}
+                                />
+                              ) : null}
+                            </div>
                           </td>
                         ) : null}
                       </tr>

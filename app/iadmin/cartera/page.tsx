@@ -1,6 +1,6 @@
 import { PortfolioOverview } from '@/components/admin-backoffice/cartera/portfolio-overview'
 import { requireIAdmin } from '@/lib/auth'
-import { getIAdminPortfolio } from '@/lib/data'
+import { getIAdminPortfolio, getIAdminPortfolioOverview } from '@/lib/data'
 
 export default async function CarteraPage() {
   const { context } = await requireIAdmin({ capability: 'portfolio.view' })
@@ -14,7 +14,11 @@ export default async function CarteraPage() {
     )
   }
 
-  const portfolio = await getIAdminPortfolio(administrationId)
+  const [portfolio, overview] = await Promise.all([
+    getIAdminPortfolio(administrationId),
+    getIAdminPortfolioOverview(administrationId),
+  ])
+
   if (!portfolio) {
     return (
       <div className="glass-card rounded-2xl p-8 text-sm text-muted-foreground">
@@ -23,5 +27,5 @@ export default async function CarteraPage() {
     )
   }
 
-  return <PortfolioOverview portfolio={portfolio} />
+  return <PortfolioOverview portfolio={portfolio} overview={overview} />
 }

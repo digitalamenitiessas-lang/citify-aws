@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Banknote, Bell, Building2, FileSpreadsheet, FileText, Megaphone, PieChart, Truck, Wallet } from 'lucide-react'
+import { Banknote, Bell, BellRing, Building2, FileSpreadsheet, FileText, Megaphone, PieChart, Truck, Wallet } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -17,6 +17,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { href: '/iadmin/proveedores', label: 'Proveedores', icon: Truck, need: 'expenses.view', matchPrefix: '/iadmin/proveedores' },
   { href: '/iadmin/liquidaciones', label: 'Liquidaciones', icon: FileSpreadsheet, need: 'liquidations.view', matchPrefix: '/iadmin/liquidaciones' },
   { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
+  { href: '/iadmin/recordatorios', label: 'Recordatorios', icon: BellRing, need: 'reminders.generate', matchPrefix: '/iadmin/recordatorios' },
   { href: '/iadmin/comunicaciones', label: 'Comunicaciones', icon: Megaphone, need: 'communications.send', matchPrefix: '/iadmin/comunicaciones' },
   { href: '/iadmin/reportes', label: 'Reportes', icon: PieChart, need: 'reports.view', matchPrefix: '/iadmin/reportes' },
 ]
