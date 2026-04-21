@@ -431,6 +431,10 @@ export type IAdminCapability =
   | 'cash_accounts.manage'
   | 'collections.register'
   | 'collections.void'
+  | 'liquidations.share'
+  | 'expenses.recurring.manage'
+  | 'reminders.generate'
+  | 'reminders.send'
 
 export interface IAdminLegalInfoBank {
   name?: string
@@ -518,6 +522,33 @@ export interface IAdminPortfolio {
   administration: IAdminAdministration
   properties: IAdminManagedProperty[]
   stats: IAdminPortfolioStats
+}
+
+export interface IAdminPortfolioPropertyRow {
+  property: IAdminManagedProperty
+  totalBalance: number                    // suma saldos cuentas activas
+  pendingExpenses: number                 // gastos sin imputar (approved/pending_review/needs_doc)
+  accountsPayableTotal: number            // deuda a proveedores
+  overdueAmount: number                   // deuda acumulada de vecinos (runs emitidas)
+  currentMonthLiquidated: number          // total liquidado del mes en curso
+  currentMonthCollected: number           // cobrado del mes en curso
+  collectionRatePct: number | null
+  hasOpenPeriod: boolean
+  runStatusThisMonth: IAdminLiquidationStatus | null
+  alerts: string[]
+}
+
+export interface IAdminPortfolioOverview {
+  administration: IAdminAdministration
+  rows: IAdminPortfolioPropertyRow[]
+  totals: {
+    totalBalance: number
+    totalOverdue: number
+    totalPayable: number
+    totalLiquidatedMonth: number
+    totalCollectedMonth: number
+    pendingExpenses: number
+  }
 }
 
 export interface IAdminUnit {
@@ -621,8 +652,36 @@ export interface IAdminProvider {
   notes: string | null
   defaultCategory: string | null
   defaultDescription: string | null
+  isRecurring: boolean
+  recurringAmount: number | null
+  recurringKind: IAdminExpenseKind
   isActive: boolean
   createdAt: string
+}
+
+export type IAdminReminderKind = 'pre_due' | 'overdue_first' | 'overdue_second' | 'overdue_heavy'
+export type IAdminReminderStatus = 'pending' | 'sent' | 'dismissed'
+
+export interface IAdminReminder {
+  id: string
+  administrationId: string
+  managedPropertyId: string | null
+  propertyName: string | null
+  liquidationItemId: string
+  unitCode: string
+  holderName: string | null
+  holderPhone: string | null
+  holderEmail: string | null
+  reminderKind: IAdminReminderKind
+  status: IAdminReminderStatus
+  messageBody: string | null
+  amountDue: number | null
+  dueLabel: string | null
+  dueDate: string | null
+  generatedAt: string
+  sentAt: string | null
+  dismissedAt: string | null
+  shareUrl: string | null
 }
 
 export interface IAdminUnitWithHolders extends IAdminUnit {
@@ -712,6 +771,40 @@ export interface IAdminOverdueBucket {
   totalAmount: number
 }
 
+export type IAdminClosingStepId =
+  | 'period_open'
+  | 'expenses_loaded'
+  | 'expenses_reviewed'
+  | 'period_locked'
+  | 'liquidation_generated'
+  | 'liquidation_issued'
+  | 'announcement_sent'
+  | 'reminders_generated'
+  | 'period_closed'
+
+export interface IAdminClosingStep {
+  id: IAdminClosingStepId
+  label: string
+  helper: string
+  done: boolean
+  skipped?: boolean
+  ctaHref?: string
+  ctaLabel?: string
+  blockedReason?: string
+}
+
+export interface IAdminClosingChecklist {
+  periodYear: number
+  periodMonth: number
+  periodLabel: string
+  periodStatus: IAdminPeriodStatus | null
+  steps: IAdminClosingStep[]
+  completedCount: number
+  totalCount: number
+  progressPct: number
+  nextStep: IAdminClosingStep | null
+}
+
 export interface IAdminConsorcioDashboard {
   property: IAdminManagedProperty
   balances: IAdminDashboardCashSnapshot[]
@@ -725,6 +818,7 @@ export interface IAdminConsorcioDashboard {
   pendingExpenses: number       // gastos pending_review + needs_doc
   pendingDocuments: number      // extracciones pending/suggested
   activeUnitsCount: number
+  recurringProvidersCount: number
 }
 
 export interface IAdminLiquidationRunSummary {

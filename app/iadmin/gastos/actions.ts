@@ -24,6 +24,18 @@ const createExpenseSchema = z.object({
   // Default: true. Si el user tiene expenses.approve, el gasto se crea imputado al
   // periodo abierto. Sino, queda en pending_review.
   autoImpute: z.boolean().optional().default(true),
+  // Documento adjunto: si se subio un archivo con IA y el usuario lo confirmo,
+  // lo pasamos aca para asociarlo al gasto junto con la extraccion ya validada.
+  // El server sube el archivo al bucket y crea doc + extraction en una transaccion.
+  draftDocument: z.object({
+    fileBase64: z.string().min(100),
+    fileName: z.string().min(1),
+    mimeType: z.string().min(1),
+    sizeBytes: z.number().int().nonnegative().optional(),
+    aiSuggestedFields: z.record(z.unknown()).optional(),
+    aiConfidence: z.number().min(0).max(100).optional(),
+    aiProvider: z.string().optional(),
+  }).optional(),
 })
 
 export type CreateExpenseInput = z.input<typeof createExpenseSchema>
@@ -153,13 +165,84 @@ export async function createExpense(input: CreateExpenseInput) {
     throw new Error(error.message)
   }
 
+  // Si vino documento draft, subimos el archivo al bucket, creamos el registro
+  // y guardamos la extraccion IA como VALIDADA (el admin la verifico visualmente
+  // al cargar el form con los sugeridos).
+  if (parsed.draftDocument) {
+    try {
+      const randomId = globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const safeName = parsed.draftDocument.fileName
+        .normalize('NFKD')
+        .replace(/[^\w.\-]+/g, '_')
+        .replace(/_+/g, '_')
+        .slice(0, 120)
+      const storagePath = `${parsed.administrationId}/${data.id}/${randomId}-${safeName}`
+
+      // decodificar base64 a Uint8Array
+      const base64 = parsed.draftDocument.fileBase64.replace(/^data:[^;]+;base64,/, '')
+      const bin = Buffer.from(base64, 'base64')
+
+      const { error: uploadError } = await supabase.storage
+        .from('iadmin-expense-documents')
+        .upload(storagePath, bin, {
+          contentType: parsed.draftDocument.mimeType,
+          upsert: false,
+        })
+
+      if (uploadError) throw new Error(uploadError.message)
+
+      const { data: docRow, error: docError } = await supabase
+        .from('iadmin_expense_documents')
+        .insert({
+          expense_id: data.id,
+          storage_path: storagePath,
+          file_name: parsed.draftDocument.fileName,
+          mime_type: parsed.draftDocument.mimeType,
+          size_bytes: parsed.draftDocument.sizeBytes ?? bin.length,
+          uploaded_by: profile.id,
+        })
+        .select('id')
+        .single()
+
+      if (!docError && docRow) {
+        await supabase.from('iadmin_ai_document_extractions').insert({
+          document_id: docRow.id,
+          status: 'validated',
+          provider: parsed.draftDocument.aiProvider ?? 'openrouter',
+          suggested_fields: parsed.draftDocument.aiSuggestedFields ?? {},
+          confidence: parsed.draftDocument.aiConfidence ?? null,
+          validated_by: profile.id,
+          validated_at: new Date().toISOString(),
+        })
+      }
+    } catch (docErr) {
+      // El gasto ya se creó; dejamos un audit y seguimos. El admin puede resubir
+      // el documento manualmente desde el detalle.
+      await supabase.from('iadmin_audit_logs').insert({
+        administration_id: parsed.administrationId,
+        actor_profile_id: profile.id,
+        entity_type: 'iadmin_expenses',
+        entity_id: data.id,
+        action: 'expense.doc_upload_failed',
+        metadata: { error: docErr instanceof Error ? docErr.message : String(docErr) },
+      })
+    }
+  }
+
   await supabase.from('iadmin_audit_logs').insert({
     administration_id: parsed.administrationId,
     actor_profile_id: profile.id,
     entity_type: 'iadmin_expenses',
     entity_id: data.id,
     action: initialStatus === 'imputed' ? 'expense.created_and_imputed' : 'expense.created',
-    metadata: { amount: parsed.amount, currency: parsed.currency, status: initialStatus },
+    metadata: {
+      amount: parsed.amount,
+      currency: parsed.currency,
+      status: initialStatus,
+      has_ai_doc: Boolean(parsed.draftDocument),
+    },
   })
 
   revalidatePath('/iadmin/gastos')
