@@ -1,30 +1,39 @@
 'use client'
 
+import { useId } from 'react'
+
 type Props = {
   values: Array<number | null>
   width?: number
   height?: number
   strokeClass?: string
-  fillClass?: string
+  fillStartClass?: string
+  fillEndClass?: string
   dotLastClass?: string
+  glowLastClass?: string
   ariaLabel?: string
 }
 
 /**
- * Mini-gráfico de línea SVG, sin dependencias.
- * Los `null` se dibujan como gaps. El último punto se resalta si no es null.
+ * Sparkline SVG premium: gradient fill bajo la curva, glow suave en el último punto,
+ * gaps para meses vacíos, sin dependencias.
  */
 export function Sparkline({
   values,
   width = 72,
   height = 18,
   strokeClass = 'stroke-primary',
-  fillClass = 'fill-primary/10',
+  fillStartClass = 'text-primary/30',
+  fillEndClass = 'text-primary/0',
   dotLastClass = 'fill-primary',
+  glowLastClass = 'fill-primary/40',
   ariaLabel,
 }: Props) {
+  const gradientId = useId()
+
   const numeric = values.map((v) => (v === null || !Number.isFinite(v) ? null : v))
   const nonNull = numeric.filter((v): v is number => v !== null)
+
   if (nonNull.length < 2) {
     return (
       <svg
@@ -39,7 +48,7 @@ export function Sparkline({
           y1={height / 2}
           x2={width}
           y2={height / 2}
-          className="stroke-muted-foreground/30"
+          className="stroke-muted-foreground/25"
           strokeDasharray="2 3"
           strokeWidth={1}
         />
@@ -51,7 +60,7 @@ export function Sparkline({
   const max = Math.max(...nonNull)
   const range = max - min || 1
   const stepX = values.length > 1 ? width / (values.length - 1) : 0
-  const padding = 2
+  const padding = 2.5
 
   const points: Array<{ x: number; y: number } | null> = numeric.map((v, i) => {
     if (v === null) return null
@@ -60,7 +69,6 @@ export function Sparkline({
     return { x, y }
   })
 
-  // Segmentos continuos (saltamos null)
   const segments: string[] = []
   let current: Array<{ x: number; y: number }> = []
   for (const p of points) {
@@ -73,7 +81,6 @@ export function Sparkline({
   }
   if (current.length >= 2) segments.push(pathFrom(current))
 
-  // Fill (área bajo la curva) del ÚLTIMO segmento sólo, para no ensuciar
   const last = current.length >= 2 ? current : null
   const fillPath = last
     ? `${pathFrom(last)} L ${last[last.length - 1].x} ${height} L ${last[0].x} ${height} Z`
@@ -86,14 +93,33 @@ export function Sparkline({
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
-      className="shrink-0"
+      className="shrink-0 overflow-visible"
       aria-label={ariaLabel}
     >
-      {fillPath ? <path d={fillPath} className={fillClass} /> : null}
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" className={fillStartClass} />
+          <stop offset="100%" stopColor="currentColor" className={fillEndClass} />
+        </linearGradient>
+      </defs>
+      {fillPath ? <path d={fillPath} fill={`url(#${gradientId})`} /> : null}
       {segments.map((d, i) => (
-        <path key={i} d={d} className={strokeClass} fill="none" strokeWidth={1.25} strokeLinejoin="round" strokeLinecap="round" />
+        <path
+          key={i}
+          d={d}
+          className={strokeClass}
+          fill="none"
+          strokeWidth={1.4}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
       ))}
-      {lastPoint ? <circle cx={lastPoint.x} cy={lastPoint.y} r={1.8} className={dotLastClass} /> : null}
+      {lastPoint ? (
+        <>
+          <circle cx={lastPoint.x} cy={lastPoint.y} r={3.5} className={glowLastClass} />
+          <circle cx={lastPoint.x} cy={lastPoint.y} r={1.8} className={dotLastClass} />
+        </>
+      ) : null}
     </svg>
   )
 }

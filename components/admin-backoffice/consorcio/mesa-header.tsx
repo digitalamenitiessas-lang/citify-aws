@@ -12,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
+import { AnimatedNumber } from '@/components/admin-backoffice/shared/animated-number'
 import type { IAdminMesaState, IAdminMonthlyGrid } from '@/lib/types'
 
 type Props = {
@@ -43,28 +44,32 @@ function monthName(month: number, year: number): string {
   return `${names[month - 1]} ${year}`
 }
 
-type MonthStatus =
-  | { kind: 'pristine'; label: 'Sin cargar'; icon: typeof Clock3; tone: 'muted' }
-  | { kind: 'draft'; label: 'Borrador'; icon: typeof Clock3; tone: 'neutral' }
-  | { kind: 'calculated'; label: 'Calculada'; icon: typeof FileCheck2; tone: 'info' }
-  | { kind: 'issued'; label: 'Emitida'; icon: typeof CheckCircle2; tone: 'success' }
-  | { kind: 'closed'; label: 'Cerrada'; icon: typeof Lock; tone: 'locked' }
+type MonthStatusKind = 'pristine' | 'draft' | 'calculated' | 'issued' | 'closed'
+type StatusTone = 'muted' | 'neutral' | 'info' | 'success' | 'locked'
+
+type MonthStatus = {
+  kind: MonthStatusKind
+  label: string
+  icon: typeof Clock3
+  tone: StatusTone
+  live: boolean // true → pulsa el dot ("mes en curso")
+}
 
 function resolveStatus(grid: IAdminMonthlyGrid, state: IAdminMesaState): MonthStatus {
   const current = grid.months[grid.months.length - 1]
-  if (state.runStatus === 'issued') return { kind: 'issued', label: 'Emitida', icon: CheckCircle2, tone: 'success' }
-  if (state.runStatus === 'closed') return { kind: 'closed', label: 'Cerrada', icon: Lock, tone: 'locked' }
-  if (state.runStatus === 'calculated') return { kind: 'calculated', label: 'Calculada', icon: FileCheck2, tone: 'info' }
-  if (current.total > 0 || grid.readyToEmit) return { kind: 'draft', label: 'Borrador', icon: Clock3, tone: 'neutral' }
-  return { kind: 'pristine', label: 'Sin cargar', icon: Clock3, tone: 'muted' }
+  if (state.runStatus === 'issued') return { kind: 'issued', label: 'Emitida', icon: CheckCircle2, tone: 'success', live: false }
+  if (state.runStatus === 'closed') return { kind: 'closed', label: 'Cerrada', icon: Lock, tone: 'locked', live: false }
+  if (state.runStatus === 'calculated') return { kind: 'calculated', label: 'Calculada', icon: FileCheck2, tone: 'info', live: true }
+  if (current.total > 0 || grid.readyToEmit) return { kind: 'draft', label: 'En curso', icon: Clock3, tone: 'neutral', live: true }
+  return { kind: 'pristine', label: 'Sin cargar', icon: Clock3, tone: 'muted', live: false }
 }
 
-const TONE_CLASSES: Record<MonthStatus['tone'], string> = {
-  muted: 'bg-muted text-muted-foreground border-border',
-  neutral: 'bg-amber-50 text-amber-900 border-amber-200',
-  info: 'bg-sky-50 text-sky-900 border-sky-200',
-  success: 'bg-emerald-50 text-emerald-900 border-emerald-200',
-  locked: 'bg-slate-100 text-slate-700 border-slate-300',
+const TONE_CLASSES: Record<StatusTone, { chip: string; dot: string }> = {
+  muted:   { chip: 'bg-muted text-muted-foreground border-border',            dot: 'text-muted-foreground' },
+  neutral: { chip: 'bg-amber-50 text-amber-900 border-amber-200',            dot: 'text-amber-500' },
+  info:    { chip: 'bg-sky-50 text-sky-900 border-sky-200',                  dot: 'text-sky-500' },
+  success: { chip: 'bg-emerald-50 text-emerald-900 border-emerald-200',      dot: 'text-emerald-500' },
+  locked:  { chip: 'bg-slate-100 text-slate-700 border-slate-300',           dot: 'text-slate-500' },
 }
 
 export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) {
@@ -77,31 +82,37 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
     previousTotal > 0 ? Math.round(((currentTotal - previousTotal) / previousTotal) * 1000) / 10 : null
 
   const status = resolveStatus(grid, state)
-  const toneClass = TONE_CLASSES[status.tone]
+  const tone = TONE_CLASSES[status.tone]
   const StatusIcon = status.icon
 
   const unitsWithBalance = state.units.filter((u) => u.balance > 0.01).length
   const unitsPaid = state.units.filter((u) => u.subtotal > 0 && u.balance < 0.01).length
   const unitsTotal = state.units.length
+  const paidPct = unitsTotal > 0 ? Math.round((unitsPaid / unitsTotal) * 100) : 0
 
-  // Serie de totales por mes para el sparkline (ordenado del más viejo al más nuevo)
-  const totalsSeries = grid.months.map((m) => (m.total ?? 0) > 0 ? m.total : null)
+  const totalsSeries = grid.months.map((m) => ((m.total ?? 0) > 0 ? m.total : null))
 
   return (
-    <section className="glass-card rounded-2xl overflow-hidden">
-      <header className="px-5 py-4 border-b border-border/40 flex items-start justify-between gap-4 flex-wrap">
+    <section className="mesa-card overflow-hidden">
+      <header className="px-6 py-5 flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground font-medium">
             Mesa del mes
           </p>
-          <h1 className="font-serif text-2xl font-bold text-foreground capitalize leading-tight">
+          <h1 className="font-serif text-3xl font-bold text-foreground capitalize leading-[1.05] mt-0.5">
             {monthName(current.month, current.year)}
           </h1>
-          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${toneClass}`}
+              className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium ${tone.chip}`}
             >
-              <StatusIcon className="w-3 h-3" />
+              <span className={tone.dot}>
+                {status.live ? (
+                  <span className="live-dot inline-block align-middle" aria-hidden />
+                ) : (
+                  <StatusIcon className="w-3 h-3" />
+                )}
+              </span>
               {status.label}
             </span>
             {current.periodStatus === 'locked' || current.periodStatus === 'closed' ? (
@@ -118,16 +129,14 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
           </div>
         </div>
 
-        <div className="flex items-center gap-1 rounded-full border border-border/50 bg-background p-0.5 text-xs">
+        <div className="seg" role="group" aria-label="Rango de meses visible">
           {([3, 6, 12] as const).map((n) => (
             <button
               key={n}
               type="button"
+              aria-pressed={visibleRange === n}
               onClick={() => onChangeRange(n)}
-              className={`rounded-full px-2.5 py-1 transition-colors ${
-                visibleRange === n ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title={`Ver últimos ${n} meses`}
+              title={`Últimos ${n} meses`}
             >
               {n}m
             </button>
@@ -135,30 +144,23 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
         </div>
       </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40">
+      <div className="divider-soft" />
+
+      <div className="grid grid-cols-2 md:grid-cols-4">
         <KpiCard
           icon={Wallet}
           label="Total del mes"
-          value={currentTotal > 0 ? `$ ${formatARS(currentTotal)}` : '—'}
-          hint={
-            deltaPct === null
-              ? previousTotal === 0
-                ? 'sin referencia previa'
-                : ''
-              : `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}% vs ${previous?.label ?? ''}`
-          }
-          hintIcon={deltaPct !== null ? (deltaPct >= 0 ? TrendingUp : TrendingDown) : undefined}
-          hintTone={deltaPct === null ? 'muted' : deltaPct >= 0 ? 'warning' : 'success'}
-          sparkline={<Sparkline values={totalsSeries} width={80} height={22} />}
+          value={currentTotal}
+          format={(n) => (n > 0 ? `$ ${formatARS(n)}` : '—')}
+          deltaPct={deltaPct}
+          previousLabel={previous?.label}
+          sparkline={<Sparkline values={totalsSeries} width={82} height={24} />}
         />
         <KpiCard
           icon={CheckCircle2}
           label="Cobrado del mes"
-          value={
-            state.hasRun
-              ? `${state.collectionRatePct ?? 0}%`
-              : '—'
-          }
+          value={state.hasRun ? (state.collectionRatePct ?? 0) : 0}
+          format={(n) => (state.hasRun ? `${Math.round(n)}%` : '—')}
           hint={
             state.hasRun
               ? `$ ${formatARS(state.totalCollected)} / $ ${formatARS(
@@ -166,12 +168,12 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
                 )}`
               : 'Pendiente de emitir'
           }
-          hintTone="muted"
         />
         <KpiCard
           icon={AlertTriangle}
           label="Saldo pendiente"
-          value={state.totalPending > 0 ? `$ ${formatARS(state.totalPending)}` : '—'}
+          value={state.totalPending}
+          format={(n) => (n > 0 ? `$ ${formatARS(n)}` : '—')}
           hint={
             unitsWithBalance > 0
               ? `${unitsWithBalance} ${unitsWithBalance === 1 ? 'unidad debe' : 'unidades deben'}`
@@ -184,13 +186,9 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
         <KpiCard
           icon={Users2}
           label="Unidades al día"
-          value={unitsTotal > 0 ? `${unitsPaid} / ${unitsTotal}` : '—'}
-          hint={
-            unitsTotal > 0
-              ? `${Math.round((unitsPaid / Math.max(unitsTotal, 1)) * 100)}% del padrón`
-              : 'Sin unidades activas'
-          }
-          hintTone="muted"
+          value={unitsPaid}
+          format={() => (unitsTotal > 0 ? `${unitsPaid} / ${unitsTotal}` : '—')}
+          hint={unitsTotal > 0 ? `${paidPct}% del padrón` : 'Sin unidades activas'}
         />
       </div>
     </section>
@@ -203,17 +201,21 @@ function KpiCard({
   icon: Icon,
   label,
   value,
+  format,
   hint,
-  hintIcon: HintIcon,
   hintTone = 'muted',
+  deltaPct,
+  previousLabel,
   sparkline,
 }: {
   icon: typeof Wallet
   label: string
-  value: string
+  value: number
+  format: (n: number) => string
   hint?: string
-  hintIcon?: typeof TrendingUp
   hintTone?: HintTone
+  deltaPct?: number | null
+  previousLabel?: string
   sparkline?: React.ReactNode
 }) {
   const hintColor =
@@ -223,24 +225,46 @@ function KpiCard({
         ? 'text-amber-800'
         : 'text-muted-foreground'
 
+  const deltaTone: 'up' | 'down' | 'flat' | null =
+    deltaPct === null || deltaPct === undefined
+      ? null
+      : Math.abs(deltaPct) < 0.1
+        ? 'flat'
+        : deltaPct > 0
+          ? 'up'
+          : 'down'
+
   return (
-    <div className="px-5 py-4 flex items-start gap-3">
-      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
-        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+    <div className="kpi-cell px-5 py-4 flex items-start gap-3 border-r border-border/30 last:border-r-0 md:[&:nth-child(2n)]:border-r-0 md:[&:nth-child(n)]:border-r">
+      <div className="w-9 h-9 rounded-xl kpi-icon-disc flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
           {label}
         </p>
-        <p className="font-serif text-xl font-semibold text-foreground tabular-nums leading-tight mt-0.5 truncate">
-          {value}
+        <p className="stat-value font-serif text-[22px] font-semibold text-foreground leading-tight mt-0.5 truncate">
+          <AnimatedNumber value={value} format={format} />
         </p>
-        <div className={`text-[11px] ${hintColor} mt-0.5 flex items-center gap-1`}>
-          {HintIcon ? <HintIcon className="w-3 h-3" /> : null}
-          <span className="truncate">{hint}</span>
+        <div className={`text-[11px] ${hintColor} mt-1 flex items-center gap-1.5 flex-wrap`}>
+          {deltaTone ? (
+            <span className="delta-pill" data-tone={deltaTone}>
+              {deltaTone === 'up' ? (
+                <TrendingUp className="w-2.5 h-2.5" />
+              ) : deltaTone === 'down' ? (
+                <TrendingDown className="w-2.5 h-2.5" />
+              ) : null}
+              {deltaPct! >= 0 ? '+' : ''}
+              {deltaPct!.toFixed(1)}%
+            </span>
+          ) : null}
+          {deltaTone && previousLabel ? (
+            <span className="text-muted-foreground">vs {previousLabel}</span>
+          ) : null}
+          {hint ? <span className="truncate">{hint}</span> : null}
         </div>
       </div>
-      {sparkline ? <div className="shrink-0 pt-1">{sparkline}</div> : null}
+      {sparkline ? <div className="shrink-0 pt-1 -mr-1">{sparkline}</div> : null}
     </div>
   )
 }

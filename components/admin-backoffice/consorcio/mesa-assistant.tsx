@@ -147,8 +147,8 @@ export function MesaAssistant({
   }
 
   return (
-    <aside className="glass-card rounded-2xl overflow-hidden border-primary/30">
-      <header className="px-5 py-3 border-b border-border/40 flex items-center justify-between bg-primary/5">
+    <aside className="mesa-card overflow-hidden mesa-fade-in">
+      <header className="px-5 py-3 border-b border-border/30 flex items-center justify-between bg-gradient-to-r from-primary/8 to-primary/0">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
           <h3 className="font-serif text-base font-semibold text-foreground">Asistente</h3>

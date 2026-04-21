@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { Check, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -272,12 +272,12 @@ export function MonthlyPlanilla({
         </div>
       ) : null}
 
-      <section className="glass-card rounded-2xl overflow-hidden">
-        <header className="px-5 py-3 border-b border-border/40 flex items-center justify-between gap-3 flex-wrap">
+      <section className="mesa-card overflow-hidden">
+        <header className="px-6 py-4 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="font-serif text-lg font-semibold text-foreground">Gastos del mes</h2>
-            <p className="text-xs text-muted-foreground">
-              Cargá los montos. Cada celda se guarda sola. La evolución a la derecha del rubro es la tendencia real.
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Cargá los montos. Cada celda se guarda sola. La mini-curva a la derecha es la tendencia del rubro.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -299,8 +299,10 @@ export function MonthlyPlanilla({
           </div>
         </header>
 
+        <div className="divider-soft" />
+
         {showRubroForm ? (
-          <form onSubmit={handleAddRubro} className="px-5 py-3 border-b border-border/30 bg-muted/20 flex items-end gap-2">
+          <form onSubmit={handleAddRubro} className="px-6 py-3 bg-muted/20 flex items-end gap-2 mesa-fade-in">
             <div className="flex-1 space-y-1">
               <Label className="text-xs">Nombre del rubro</Label>
               <Input
@@ -318,7 +320,7 @@ export function MonthlyPlanilla({
         ) : null}
 
         {hasPredictions ? (
-          <div className="px-5 py-2 border-b border-border/30 bg-primary/5 text-xs text-foreground flex items-center justify-between gap-3 flex-wrap">
+          <div className="px-6 py-2 bg-primary/5 text-xs text-foreground flex items-center justify-between gap-3 flex-wrap mesa-fade-in">
             <span>{predictions.size} montos sugeridos aplicados en la columna {currentMonth.label}. Revisá cada uno.</span>
             <button onClick={() => setPredictions(new Map())} className="text-muted-foreground hover:text-foreground text-xs">
               Descartar todos
@@ -326,20 +328,22 @@ export function MonthlyPlanilla({
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
+        <ScrollableTable>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium sticky left-0 bg-muted/30 z-10 min-w-[220px]">
+              <tr className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] border-b border-border/40 bg-muted/25">
+                <th className="text-left px-4 py-3 font-medium sticky left-0 bg-muted/25 z-10 min-w-[240px] sticky-shadow-right relative">
                   Rubro
                 </th>
                 {visibleMonths.map((m) => (
                   <th
                     key={`${m.year}-${m.month}`}
-                    className={`text-right px-4 py-3 font-medium min-w-[110px] ${m.isCurrent ? 'bg-primary/10 text-primary' : ''}`}
+                    className={`text-right px-4 py-3 font-medium min-w-[108px] ${m.isCurrent ? 'th-current-month' : ''}`}
                   >
-                    {m.label}
-                    {m.isCurrent ? <span className="ml-1 text-[9px]">(actual)</span> : null}
+                    <span className="inline-flex items-center gap-1.5">
+                      {m.isCurrent ? <span className="live-dot inline-block text-primary" aria-hidden /> : null}
+                      {m.label}
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -347,26 +351,25 @@ export function MonthlyPlanilla({
             <tbody>
               {allRows.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleMonths.length + 1} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={visibleMonths.length + 1} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Sin rubros. Agregá con <b>+ Rubro</b> arriba.
                   </td>
                 </tr>
               ) : (
                 allRows.map((row) => {
-                  // Serie completa (12m) para la sparkline del rubro
-                  const fullSeries = grid.months.map((m) => {
-                    const val = getDisplayAmount(row, m.year, m.month)
-                    return val
-                  })
+                  const fullSeries = grid.months.map((m) => getDisplayAmount(row, m.year, m.month))
                   return (
-                    <tr key={row.providerId || 'free'} className="border-b border-border/20 last:border-0">
-                      <td className="px-4 py-2 sticky left-0 bg-background">
-                        <div className="flex items-center gap-2 min-w-0">
+                    <tr
+                      key={row.providerId || 'free'}
+                      className="planilla-row border-b border-border/15 last:border-0 transition-colors"
+                    >
+                      <td className="px-4 py-2 sticky left-0 bg-background sticky-shadow-right relative">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-foreground truncate flex items-center gap-1.5">
                               {row.providerName}
                               {row.expenseKind === 'extraordinaria' ? (
-                                <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px]">
+                                <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px] font-medium">
                                   EXT
                                 </span>
                               ) : null}
@@ -374,8 +377,8 @@ export function MonthlyPlanilla({
                           </div>
                           <Sparkline
                             values={fullSeries}
-                            width={68}
-                            height={18}
+                            width={72}
+                            height={20}
                             ariaLabel={`Tendencia de ${row.providerName}`}
                           />
                         </div>
@@ -411,8 +414,10 @@ export function MonthlyPlanilla({
               )}
             </tbody>
             <tfoot>
-              <tr className="bg-muted/40 font-serif font-bold text-[15px]">
-                <td className="px-4 py-3 sticky left-0 bg-muted/40">TOTAL</td>
+              <tr className="bg-gradient-to-b from-muted/40 to-muted/60 font-serif font-bold text-[15px]">
+                <td className="px-4 py-3 sticky left-0 bg-muted/50 sticky-shadow-right relative tracking-wide text-foreground">
+                  TOTAL
+                </td>
                 {visibleMonths.map((m) => {
                   let total = 0
                   for (const row of allRows) {
@@ -426,7 +431,7 @@ export function MonthlyPlanilla({
                   return (
                     <td
                       key={`tot-${m.year}-${m.month}`}
-                      className={`px-4 py-3 text-right tabular-nums ${m.isCurrent ? 'bg-primary/20 text-primary' : ''}`}
+                      className={`px-4 py-3 text-right tabular-nums stat-value ${m.isCurrent ? 'th-current-month' : ''}`}
                     >
                       {total > 0 ? `$ ${formatARSShort(total)}` : '—'}
                     </td>
@@ -435,7 +440,7 @@ export function MonthlyPlanilla({
               </tr>
             </tfoot>
           </table>
-        </div>
+        </ScrollableTable>
       </section>
 
       <MesaDistribution state={state} />
@@ -447,7 +452,7 @@ export function MonthlyPlanilla({
         onPayQuick={handleQuickPay}
       />
 
-      <section className="glass-card rounded-2xl p-5">
+      <section className="mesa-card p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="font-serif text-lg font-semibold text-foreground">
@@ -500,6 +505,42 @@ export function MonthlyPlanilla({
   )
 }
 
+/**
+ * Wrapper que detecta el scroll horizontal de la tabla y agrega la clase
+ * `is-scrolled` al contenedor, para que la columna sticky muestre su sombra
+ * lateral. 100% CSS, sin JS en cada frame gracias al throttle de rAF.
+ */
+function ScrollableTable({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let raf = 0
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        if (!ref.current) return
+        ref.current.classList.toggle('is-scrolled', ref.current.scrollLeft > 4)
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    // Estado inicial
+    onScroll()
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
+
+  return (
+    <div ref={ref} className="overflow-x-auto">
+      {children}
+    </div>
+  )
+}
+
 function EditableCell({
   year,
   month,
@@ -535,7 +576,7 @@ function EditableCell({
 
   if (editing && isEditable) {
     return (
-      <td className={`px-1 py-1 ${isCurrent ? 'bg-primary/10' : ''}`}>
+      <td className={`px-1 py-1 ${isCurrent ? 'th-current-month' : ''}`}>
         <input
           autoFocus
           type="text"
@@ -557,7 +598,7 @@ function EditableCell({
               onCancel()
             }
           }}
-          className="w-full text-right tabular-nums text-sm bg-background border border-primary rounded px-2 py-1 outline-none"
+          className="w-full text-right tabular-nums text-sm bg-background border border-primary/70 rounded-md px-2 py-1 outline-none shadow-[0_0_0_3px_rgba(184,92,56,0.12)] transition-shadow"
         />
       </td>
     )
@@ -565,22 +606,34 @@ function EditableCell({
 
   if (prediction && amount === null && isEditable) {
     return (
-      <td className={`px-2 py-2 ${isCurrent ? 'bg-primary/5' : ''}`}>
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-muted-foreground italic tabular-nums">{formatARSShort(prediction.suggestedAmount)}</span>
-          <div className="flex gap-0.5">
+      <td className={`px-2 py-2 ${isCurrent ? 'th-current-month' : ''}`}>
+        <div className="flex flex-col items-end gap-1 mesa-fade-in">
+          <span className="text-muted-foreground italic tabular-nums text-xs">
+            ~ {formatARSShort(prediction.suggestedAmount)}
+          </span>
+          <div className="flex gap-1">
             <button
               type="button"
               onClick={onAcceptPrediction}
-              className="rounded bg-foreground text-background px-1.5 py-0.5 text-[10px]"
+              className="rounded-md bg-foreground text-background px-1.5 py-0.5 text-[10px] hover:opacity-90 transition-opacity"
               title={prediction.reason}
             >
               <Check className="w-3 h-3" />
             </button>
-            <button type="button" onClick={onStartEdit} className="rounded border border-input px-1.5 py-0.5 text-[10px]">
+            <button
+              type="button"
+              onClick={onStartEdit}
+              className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] hover:border-primary/40 transition-colors"
+              title="Editar"
+            >
               ✎
             </button>
-            <button type="button" onClick={onDismissPrediction} className="rounded border border-input px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <button
+              type="button"
+              onClick={onDismissPrediction}
+              className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              title="Descartar"
+            >
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -592,14 +645,16 @@ function EditableCell({
   return (
     <td
       onClick={isEditable ? onStartEdit : undefined}
-      className={`px-4 py-2 text-right tabular-nums ${isCurrent ? 'bg-primary/5' : ''} ${
+      className={`px-4 py-2 text-right tabular-nums transition-colors ${
+        isCurrent ? 'th-current-month font-medium' : ''
+      } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
-      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground'}`}
+      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'}`}
       title={isEditable ? 'Click para editar' : 'Período cerrado'}
     >
-      <div className="flex items-center justify-end gap-1">
-        {pending ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : null}
-        {amount !== null ? formatARSShort(amount) : <span className="text-muted-foreground">—</span>}
+      <div className="flex items-center justify-end gap-1.5 stat-value">
+        {pending ? <Loader2 className="w-3 h-3 animate-spin text-primary" /> : null}
+        {amount !== null ? formatARSShort(amount) : <span className="text-muted-foreground/60">—</span>}
       </div>
     </td>
   )

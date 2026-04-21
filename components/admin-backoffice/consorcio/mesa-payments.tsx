@@ -45,21 +45,22 @@ export function MesaPayments({ state, cashAccounts, onPayQuick, canRegister }: P
   }
 
   return (
-    <section className="glass-card rounded-2xl overflow-hidden">
+    <section className="mesa-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-5 py-4 border-b border-border/40 flex items-center justify-between hover:bg-muted/30"
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-muted/20 transition-colors"
+        aria-expanded={open}
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
-            <Wallet className="w-4 h-4 text-primary" />
+          <div className="w-10 h-10 rounded-xl kpi-icon-disc flex items-center justify-center shrink-0">
+            <Wallet className="w-4 h-4" />
           </div>
           <div className="text-left">
             <h3 className="font-serif text-lg font-semibold text-foreground">Control de pagos</h3>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {state.collectionRatePct !== null
-                ? `Cobrado ${state.collectionRatePct}% · ${state.totalCollected.toLocaleString('es-AR')} / ${(state.totalToDistribute + state.previousBalanceTotal).toLocaleString('es-AR')}`
+                ? `Cobrado ${state.collectionRatePct}% · $ ${state.totalCollected.toLocaleString('es-AR')} / $ ${(state.totalToDistribute + state.previousBalanceTotal).toLocaleString('es-AR')}`
                 : 'Sin liquidación para cobrar todavía'}
             </p>
           </div>
@@ -69,15 +70,16 @@ export function MesaPayments({ state, cashAccounts, onPayQuick, canRegister }: P
 
       {open ? (
         <>
-          <div className="px-5 py-3 border-b border-border/40 flex items-center gap-2 flex-wrap">
+          <div className="divider-soft" />
+          <div className="px-6 py-3 flex items-center gap-2 flex-wrap">
             {(['all', 'pending', 'paid'] as const).map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1 rounded-full text-xs transition-colors ${
+                className={`px-3 py-1 rounded-full text-xs transition-all ${
                   filter === f
-                    ? 'bg-primary text-primary-foreground font-medium'
+                    ? 'bg-primary text-primary-foreground font-medium shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >

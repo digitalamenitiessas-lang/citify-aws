@@ -11,21 +11,22 @@ export function MesaDistribution({ state }: { state: IAdminMesaState }) {
   const hasData = state.totalToDistribute > 0 || state.units.some((u) => u.subtotal > 0)
 
   return (
-    <section className="glass-card rounded-2xl overflow-hidden">
+    <section className="mesa-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-5 py-4 border-b border-border/40 flex items-center justify-between hover:bg-muted/30"
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-muted/20 transition-colors"
+        aria-expanded={open}
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
-            <ListTree className="w-4 h-4 text-primary" />
+          <div className="w-10 h-10 rounded-xl kpi-icon-disc flex items-center justify-center shrink-0">
+            <ListTree className="w-4 h-4" />
           </div>
           <div className="text-left">
             <h3 className="font-serif text-lg font-semibold text-foreground">Distribución por unidad</h3>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {hasData
-                ? `${state.units.length} unidades · total a distribuir ${state.totalToDistribute.toLocaleString('es-AR')}`
+                ? `${state.units.length} unidades · a distribuir $ ${state.totalToDistribute.toLocaleString('es-AR')}`
                 : 'Cargá gastos en la planilla para ver la distribución'}
             </p>
           </div>
@@ -35,6 +36,7 @@ export function MesaDistribution({ state }: { state: IAdminMesaState }) {
 
       {open ? (
         <>
+          <div className="divider-soft" />
           {!state.coverageOk ? (
             <div className="mx-5 mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               ⚠ Las alícuotas suman {(state.alicuotaSum * 100).toFixed(2)}% en lugar de 100%. Revisá la configuración de unidades.
