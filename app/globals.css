@@ -152,6 +152,231 @@
   box-shadow: 0 4px 20px rgba(184, 92, 56, 0.3);
 }
 
+/* ============================================================
+   IADMIN MESA — Premium visual layer
+   Inspirado en Linear / Mercury / Ramp, sobre paleta CITIFY.
+   ============================================================ */
+
+/* Card con borde degradado y capa de sombra sutil; sensación "lifted" */
+.mesa-card {
+  position: relative;
+  background: linear-gradient(180deg, rgba(251, 246, 238, 0.92), rgba(247, 240, 228, 0.82));
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  border: 1px solid rgba(180, 120, 70, 0.12);
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 0 0 1px rgba(180, 120, 70, 0.04),
+    0 6px 24px -12px rgba(92, 58, 30, 0.12);
+}
+
+.mesa-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(212, 168, 130, 0.4), rgba(184, 92, 56, 0) 45%, rgba(184, 92, 56, 0) 55%, rgba(212, 168, 130, 0.3));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* KPI con hover lifted */
+.kpi-cell {
+  transition: background-color 220ms ease, transform 220ms ease;
+  position: relative;
+}
+.kpi-cell:hover {
+  background-color: rgba(180, 120, 70, 0.04);
+}
+.kpi-cell::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.kpi-cell:hover::after {
+  opacity: 0.5;
+}
+
+/* Disco con degradado para los iconos de KPI — reemplaza bg-muted flat */
+.kpi-icon-disc {
+  background:
+    radial-gradient(120% 120% at 30% 20%, rgba(212, 168, 130, 0.9), rgba(212, 168, 130, 0.5) 45%, rgba(180, 120, 70, 0.25) 90%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(92, 58, 30, 0.05),
+    0 1px 2px rgba(92, 58, 30, 0.06);
+  color: var(--citify-brown);
+}
+
+/* Punto "vivo" — pulsa para estados en curso */
+.live-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.3;
+  animation: live-ping 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes live-ping {
+  0%, 100% { transform: scale(1); opacity: 0.35; }
+  50% { transform: scale(2); opacity: 0; }
+}
+
+/* Shadow de la columna sticky cuando hay scroll horizontal */
+.sticky-shadow-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -12px;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg, rgba(92, 58, 30, 0.07), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.is-scrolled .sticky-shadow-right::after {
+  opacity: 1;
+}
+
+/* Segmented control premium (tipo Linear) */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9999px;
+  background: rgba(180, 120, 70, 0.08);
+  border: 1px solid rgba(180, 120, 70, 0.14);
+  box-shadow: inset 0 1px 2px rgba(92, 58, 30, 0.04);
+}
+.seg button {
+  position: relative;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--citify-brown-light);
+  transition: color 160ms ease;
+}
+.seg button:hover {
+  color: var(--foreground);
+}
+.seg button[aria-pressed='true'] {
+  background: white;
+  color: var(--foreground);
+  box-shadow:
+    0 1px 2px rgba(92, 58, 30, 0.08),
+    0 0 0 1px rgba(180, 120, 70, 0.1);
+}
+
+/* Header celda "mes actual" con gradient terracota suave */
+.th-current-month {
+  background: linear-gradient(180deg, rgba(184, 92, 56, 0.14), rgba(184, 92, 56, 0.06));
+  color: var(--primary);
+}
+
+/* Hover rows en la planilla — terracota muy sutil */
+.planilla-row:hover {
+  background-color: rgba(184, 92, 56, 0.03);
+}
+
+/* Divider horizontal degradado — reemplaza border-b duro */
+.divider-soft {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(180, 120, 70, 0.18), transparent);
+}
+
+/* Delta pill (variación vs mes anterior) */
+.delta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.delta-pill[data-tone='up'] {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+}
+.delta-pill[data-tone='down'] {
+  background: rgba(16, 185, 129, 0.12);
+  color: #065f46;
+}
+.delta-pill[data-tone='flat'] {
+  background: rgba(139, 107, 82, 0.1);
+  color: var(--citify-brown-light);
+}
+
+/* Valor numérico grande: letter-spacing y peso consistente */
+.stat-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  font-feature-settings: 'tnum', 'ss01';
+}
+
+/* Fade-in entry (para secciones colapsables al abrir) */
+@keyframes mesa-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mesa-fade-in {
+  animation: mesa-fade-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Pulse verde cuando una celda termina de guardarse */
+@keyframes cell-saved-pulse {
+  0%   { background-color: rgba(16, 185, 129, 0.22); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.35); }
+  100% { background-color: transparent;              box-shadow: inset 0 0 0 0 rgba(16, 185, 129, 0);    }
+}
+.cell-saved {
+  animation: cell-saved-pulse 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Zebra rows sutil en la planilla */
+.planilla-row:nth-child(even):not(:hover) {
+  background-color: rgba(180, 120, 70, 0.015);
+}
+
+/* Pointer feedback para links de ayuda */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(180, 120, 70, 0.22);
+  background: rgba(251, 246, 238, 0.6);
+  color: var(--citify-brown-light);
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--font-mono), monospace;
+}
+
 /* Scrollbar — warm toned */
 ::-webkit-scrollbar {
   width: 6px;
