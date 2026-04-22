@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Check, ChevronRight, Info, Loader2, Plus, Search, Send, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -27,10 +28,15 @@ import {
 import { PublishDialog } from '@/components/admin-backoffice/consorcio/publish-dialog'
 import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-distribution'
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
-import { MesaAssistant } from '@/components/admin-backoffice/consorcio/mesa-assistant'
+import { MesaAssistant, type MesaAssistantTab } from '@/components/admin-backoffice/consorcio/mesa-assistant'
 import { MesaHeader } from '@/components/admin-backoffice/consorcio/mesa-header'
 import { CellHistoryPopover } from '@/components/admin-backoffice/consorcio/cell-history-popover'
+import { MesaCommandPalette } from '@/components/admin-backoffice/consorcio/mesa-command-palette'
+import { MesaHelpOverlay } from '@/components/admin-backoffice/consorcio/mesa-help-overlay'
+import { MesaDropZone } from '@/components/admin-backoffice/consorcio/mesa-drop-zone'
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
+import { useHotkeys } from '@/components/admin-backoffice/shared/use-hotkeys'
+import { useLocalPref } from '@/components/admin-backoffice/shared/use-local-pref'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -59,9 +65,12 @@ export function MonthlyPlanilla({
   canManageRubros,
   canRegisterPayments,
 }: Props) {
+  const router = useRouter()
+
   const [editingCell, setEditingCell] = useState<string | null>(null)
   const [localValues, setLocalValues] = useState<Record<string, number | null>>({})
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set())
+  const [savedCells, setSavedCells] = useState<Set<string>>(new Set())
   const [_, startTransition] = useTransition()
 
   const [showRubroForm, setShowRubroForm] = useState(false)
@@ -71,12 +80,16 @@ export function MonthlyPlanilla({
   const [publishing, setPublishing] = useState(false)
 
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantTab, setAssistantTab] = useState<MesaAssistantTab>('menu')
+  const [assistantDraggedFile, setAssistantDraggedFile] = useState<File | null>(null)
   const [predictions, setPredictions] = useState<Map<string, MonthPrediction>>(new Map())
 
-  // Rango visible (client-side). El grid ya vino con hasta 12 meses.
-  const initialRange: VisibleRange =
-    grid.months.length >= 12 ? 3 : grid.months.length >= 6 ? 3 : 3
-  const [visibleRange, setVisibleRange] = useState<VisibleRange>(initialRange)
+  // Command palette + help overlay
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // Rango visible persistido (3 / 6 / 12)
+  const [visibleRange, setVisibleRange] = useLocalPref<VisibleRange>('mesa.visibleRange', 3)
 
   // Matrix de refs para navegación por teclado
   const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map())
@@ -86,10 +99,12 @@ export function MonthlyPlanilla({
     else cellRefs.current.delete(k)
   }
 
-  // Búsqueda + agrupación
+  // Búsqueda + agrupación (groupBy + rango persistidos)
   const [search, setSearch] = useState('')
-  const [groupBy, setGroupBy] = useState<'none' | 'category'>('none')
+  const [groupBy, setGroupBy] = useLocalPref<'none' | 'category'>('mesa.groupBy', 'none')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const visibleMonths = useMemo(() => {
     const take = Math.min(visibleRange, grid.months.length)
@@ -128,6 +143,17 @@ export function MonthlyPlanilla({
           amount: nextAmount,
           expenseKind: row.expenseKind,
         })
+        // Feedback sutil: pulse verde breve
+        setSavedCells((prev) => new Set(prev).add(key))
+        setTimeout(() => {
+          setSavedCells((prev) => {
+            const next = new Set(prev)
+            next.delete(key)
+            return next
+          })
+        }, 900)
+        // Refrescar server state sin recargar
+        router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error al guardar')
         setLocalValues((prev) => {
@@ -154,10 +180,10 @@ export function MonthlyPlanilla({
     }
     try {
       await addRecurringRubro({ administrationId: grid.administrationId, name })
-      toast.success('Rubro agregado — recargando')
+      toast.success('Rubro agregado')
       setNewRubroName('')
       setShowRubroForm(false)
-      if (typeof window !== 'undefined') window.location.reload()
+      router.refresh()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Error')
     }
@@ -270,6 +296,93 @@ export function MonthlyPlanilla({
 
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
   const hasPredictions = predictions.size > 0
+
+  // --------------------------------------------------------------------------
+  // Acciones rápidas (para command palette + hotkeys)
+  // --------------------------------------------------------------------------
+  const openAssistantTab = useCallback((tab: MesaAssistantTab) => {
+    setAssistantOpen(true)
+    setAssistantTab(tab)
+  }, [])
+
+  const focusSearch = useCallback(() => {
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  }, [])
+
+  const handleAddRubroTrigger = useCallback(() => {
+    if (!canManageRubros) return
+    setShowRubroForm(true)
+    // Delay para esperar el render del form
+    setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>('[data-rubro-name-input]')
+      el?.focus()
+    }, 50)
+  }, [canManageRubros])
+
+  const handleToggleChart = useCallback(() => {
+    // MesaHeader expone el toggle internamente; emitimos un evento que el header escucha
+    window.dispatchEvent(new CustomEvent('mesa:toggle-chart'))
+  }, [])
+
+  const handleJumpToProvider = useCallback((providerId: string) => {
+    // Scroll + flash visual sobre la row del rubro
+    const row = document.querySelector<HTMLTableRowElement>(`[data-provider-id="${providerId}"]`)
+    if (!row) return
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    row.classList.add('mesa-fade-in')
+    setTimeout(() => row.classList.remove('mesa-fade-in'), 600)
+  }, [])
+
+  const handleOpenUnit = useCallback((unitId: string) => {
+    // Emitimos un evento que MesaPayments puede escuchar para abrir el drawer
+    window.dispatchEvent(new CustomEvent('mesa:open-unit', { detail: { unitId } }))
+  }, [])
+
+  const handleDropFile = useCallback((file: File) => {
+    setAssistantDraggedFile(file)
+    openAssistantTab('extract')
+  }, [openAssistantTab])
+
+  // --------------------------------------------------------------------------
+  // Hotkeys globales
+  // --------------------------------------------------------------------------
+  useHotkeys({
+    'mod+k': (e) => {
+      e.preventDefault()
+      setCommandOpen(true)
+    },
+    '?': (e) => {
+      e.preventDefault()
+      setHelpOpen(true)
+    },
+    '/': (e) => {
+      e.preventDefault()
+      focusSearch()
+    },
+    a: (e) => {
+      e.preventDefault()
+      setAssistantOpen((v) => !v)
+      if (!assistantOpen) setAssistantTab('menu')
+    },
+    n: (e) => {
+      if (!canManageRubros) return
+      e.preventDefault()
+      handleAddRubroTrigger()
+    },
+    e: (e) => {
+      if (!canEmit || (!grid.readyToEmit && !hasPredictions)) return
+      e.preventDefault()
+      // Scroll al botón emitir para feedback visual
+      document.querySelector('[data-emit-button]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      ;(document.querySelector<HTMLButtonElement>('[data-emit-button]'))?.focus()
+    },
+    escape: () => {
+      if (commandOpen) setCommandOpen(false)
+      else if (helpOpen) setHelpOpen(false)
+      else if (assistantOpen) setAssistantOpen(false)
+    },
+  })
 
   // Filtro por search (por nombre de rubro o categoría)
   const filteredRows = useMemo(() => {
@@ -384,6 +497,16 @@ export function MonthlyPlanilla({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              className="hidden md:inline-flex items-center gap-2 rounded-full border border-border/50 bg-background px-3 py-1 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+              title="Acciones rápidas"
+            >
+              <Search className="w-3 h-3" />
+              Buscar
+              <span className="kbd-hint">⌘K</span>
+            </button>
             {canManageRubros && !showRubroForm ? (
               <Button size="sm" variant="outline" onClick={() => setShowRubroForm(true)}>
                 <Plus className="w-3.5 h-3.5 mr-1" />
@@ -393,12 +516,24 @@ export function MonthlyPlanilla({
             <Button
               size="sm"
               variant={assistantOpen ? 'default' : 'ghost'}
-              onClick={() => setAssistantOpen((v) => !v)}
+              onClick={() => {
+                setAssistantOpen((v) => !v)
+                if (!assistantOpen) setAssistantTab('menu')
+              }}
               className={assistantOpen ? '' : 'text-muted-foreground'}
             >
               <Sparkles className="w-3.5 h-3.5 mr-1.5" />
               Asistente
             </Button>
+            <button
+              type="button"
+              onClick={() => setHelpOpen(true)}
+              className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Atajos de teclado"
+              title="Atajos (?)"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
           </div>
         </header>
 
@@ -409,8 +544,9 @@ export function MonthlyPlanilla({
             <div className="relative flex-1 min-w-[180px] max-w-sm">
               <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="Buscar rubro…"
+                placeholder="Buscar rubro… (/)"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -461,6 +597,7 @@ export function MonthlyPlanilla({
             <div className="flex-1 space-y-1">
               <Label className="text-xs">Nombre del rubro</Label>
               <Input
+                data-rubro-name-input
                 value={newRubroName}
                 onChange={(e) => setNewRubroName(e.target.value)}
                 placeholder="Ej. Fondo de obra"
@@ -570,6 +707,7 @@ export function MonthlyPlanilla({
                       fragments.push(
                         <tr
                           key={row.providerId || 'free'}
+                          data-provider-id={row.providerId || undefined}
                           className="planilla-row border-b border-border/15 last:border-0 transition-colors"
                         >
                           <td className="px-4 py-2 sticky left-0 bg-background sticky-shadow-right relative">
@@ -606,6 +744,7 @@ export function MonthlyPlanilla({
                                 cellData={cellData}
                                 editing={editingCell === cellKey(row.providerId, m.year, m.month)}
                                 pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
+                                saved={savedCells.has(cellKey(row.providerId, m.year, m.month))}
                                 amount={displayedAmount}
                                 prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
@@ -687,6 +826,7 @@ export function MonthlyPlanilla({
             </p>
           </div>
           <Button
+            data-emit-button
             size="lg"
             disabled={!canEmit || (!grid.readyToEmit && !hasPredictions) || publishing || grid.activeUnitsCount === 0}
             onClick={hasPredictions ? handleAcceptAllAndEmit : handleEmit}
@@ -717,10 +857,43 @@ export function MonthlyPlanilla({
           year={currentMonth.year}
           month={currentMonth.month}
           hasPredictions={hasPredictions}
+          initialTab={assistantTab}
+          draggedFile={assistantDraggedFile}
+          onDraggedFileConsumed={() => setAssistantDraggedFile(null)}
           onRequestPredictions={handleRequestPredictions}
-          onClose={() => setAssistantOpen(false)}
+          onClose={() => {
+            setAssistantOpen(false)
+            setAssistantDraggedFile(null)
+          }}
         />
       ) : null}
+
+      <MesaCommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        grid={grid}
+        state={state}
+        canEmit={canEmit}
+        canManageRubros={canManageRubros}
+        onOpenAssistant={() => openAssistantTab('menu')}
+        onOpenAssistantExtract={() => openAssistantTab('extract')}
+        onOpenAssistantAnnounce={() => openAssistantTab('announce')}
+        onToggleChart={handleToggleChart}
+        onFocusSearch={focusSearch}
+        onAddRubro={handleAddRubroTrigger}
+        onEmit={() => {
+          document.querySelector('[data-emit-button]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          ;(document.querySelector<HTMLButtonElement>('[data-emit-button]'))?.focus()
+        }}
+        onOpenUnit={handleOpenUnit}
+        onJumpToProvider={handleJumpToProvider}
+        onOpenConfiguracion={() => router.push(`/iadmin/consorcios/${grid.propertyId}/configuracion`)}
+        onOpenHelp={() => setHelpOpen(true)}
+      />
+
+      <MesaHelpOverlay open={helpOpen} onOpenChange={setHelpOpen} />
+
+      <MesaDropZone onFile={handleDropFile} />
     </div>
   )
 }
@@ -769,6 +942,7 @@ type EditableCellProps = {
   cellData: IAdminMonthlyGridRow['cells'][number] | undefined
   editing: boolean
   pending: boolean
+  saved: boolean
   amount: number | null
   prediction?: MonthPrediction
   isCurrent: boolean
@@ -789,6 +963,7 @@ function EditableCell({
   cellData,
   editing,
   pending,
+  saved,
   amount,
   prediction,
   isCurrent,
@@ -918,7 +1093,7 @@ function EditableCell({
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
-      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'}`}
+      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'} ${saved ? 'cell-saved' : ''}`}
       title={isEditable ? 'Enter edita · ↑↓←→ mueve · i ve historial' : 'Período cerrado'}
     >
       {contents}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Loader2, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,21 @@ export function MesaPayments({
   const [drawerUnit, setDrawerUnit] = useState<IAdminMesaUnitLine | null>(null)
 
   const activeAccount = cashAccounts.find((a) => a.isActive)
+
+  // Escuchar evento mesa:open-unit para abrir drawer desde command palette
+  useEffect(() => {
+    function onOpenUnit(e: Event) {
+      const detail = (e as CustomEvent<{ unitId: string }>).detail
+      if (!detail?.unitId) return
+      const unit = state.units.find((u) => u.unitId === detail.unitId)
+      if (unit) {
+        setDrawerUnit(unit)
+        setOpen(true)
+      }
+    }
+    window.addEventListener('mesa:open-unit', onOpenUnit)
+    return () => window.removeEventListener('mesa:open-unit', onOpenUnit)
+  }, [state.units])
 
   const filtered = useMemo(() => {
     switch (filter) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   BarChart3,
@@ -79,6 +79,15 @@ const TONE_CLASSES: Record<StatusTone, { chip: string; dot: string }> = {
 
 export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) {
   const [chartOpen, setChartOpen] = useState(false)
+
+  // Permitir toggle externo del chart vía evento (desde command palette)
+  useEffect(() => {
+    function onToggle() {
+      setChartOpen((v) => !v)
+    }
+    window.addEventListener('mesa:toggle-chart', onToggle)
+    return () => window.removeEventListener('mesa:toggle-chart', onToggle)
+  }, [])
 
   const current = grid.months[grid.months.length - 1]
   const previous = grid.months[grid.months.length - 2] ?? null

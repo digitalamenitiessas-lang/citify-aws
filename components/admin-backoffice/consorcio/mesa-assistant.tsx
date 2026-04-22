@@ -35,17 +35,22 @@ import {
   type ProviderMatchResult,
 } from '@/app/iadmin/consorcios/[id]/planilla/import-actions'
 
+export type MesaAssistantTab = 'menu' | 'extract' | 'predict' | 'announce'
+
 type Props = {
   propertyId: string
   administrationId: string
   year: number
   month: number
   hasPredictions: boolean
+  initialTab?: MesaAssistantTab
+  draggedFile?: File | null
+  onDraggedFileConsumed?: () => void
   onRequestPredictions: () => Promise<void>
   onClose: () => void
 }
 
-type Tab = 'menu' | 'extract' | 'predict' | 'announce'
+type Tab = MesaAssistantTab
 
 function formatARSCompact(n: number): string {
   return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n)
@@ -74,10 +79,13 @@ export function MesaAssistant({
   year,
   month,
   hasPredictions,
+  initialTab = 'menu',
+  draggedFile,
+  onDraggedFileConsumed,
   onRequestPredictions,
   onClose,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('menu')
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [pending, startTransition] = useTransition()
 
   // Extracción de factura
@@ -104,6 +112,61 @@ export function MesaAssistant({
   const [announceDraft, setAnnounceDraft] = useState<AnnouncementDraft | null>(null)
 
   const monthLabel = `${MONTH_LABELS_ES[month - 1]} ${year}`
+
+  // Sincronizar tab cuando el padre cambia initialTab (e.g. via command palette)
+  useEffect(() => {
+    setTab(initialTab)
+  }, [initialTab])
+
+  // Auto-procesar archivo arrastrado por drag&drop
+  useEffect(() => {
+    if (!draggedFile) return
+    setExtractError(null)
+    setExtractResult(null)
+    setExtractFile(null)
+    setImported(null)
+    setTab('extract')
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string') {
+        setExtractError('No se pudo leer el archivo')
+        onDraggedFileConsumed?.()
+        return
+      }
+      const base64 = result.split(',')[1] ?? ''
+      if (!base64) {
+        setExtractError('Archivo vacío')
+        onDraggedFileConsumed?.()
+        return
+      }
+      const mimeType = draggedFile.type || 'application/pdf'
+      setExtractFile({ base64, fileName: draggedFile.name, mimeType, sizeBytes: draggedFile.size })
+      startTransition(async () => {
+        try {
+          const r = await extractExpenseFromFile({
+            administrationId,
+            managedPropertyId: propertyId,
+            fileBase64: base64,
+            mimeType,
+            fileName: draggedFile.name,
+          })
+          setExtractResult(r)
+        } catch (error) {
+          setExtractError(error instanceof Error ? error.message : 'Error al extraer')
+        } finally {
+          onDraggedFileConsumed?.()
+        }
+      })
+    }
+    reader.onerror = () => {
+      setExtractError('Error leyendo el archivo')
+      onDraggedFileConsumed?.()
+    }
+    reader.readAsDataURL(draggedFile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggedFile])
 
   // Cuando aparece un extractResult, inicializamos edición + buscamos match
   useEffect(() => {
