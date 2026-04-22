@@ -37,6 +37,8 @@ import { MesaDropZone } from '@/components/admin-backoffice/consorcio/mesa-drop-
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 import { useHotkeys } from '@/components/admin-backoffice/shared/use-hotkeys'
 import { useLocalPref } from '@/components/admin-backoffice/shared/use-local-pref'
+import { SavedIndicator } from '@/components/admin-backoffice/shared/saved-indicator'
+import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -71,6 +73,7 @@ export function MonthlyPlanilla({
   const [localValues, setLocalValues] = useState<Record<string, number | null>>({})
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set())
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set())
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const [_, startTransition] = useTransition()
 
   const [showRubroForm, setShowRubroForm] = useState(false)
@@ -143,8 +146,9 @@ export function MonthlyPlanilla({
           amount: nextAmount,
           expenseKind: row.expenseKind,
         })
-        // Feedback sutil: pulse verde breve
+        // Feedback sutil: pulse verde breve + timestamp global
         setSavedCells((prev) => new Set(prev).add(key))
+        setLastSavedAt(new Date())
         setTimeout(() => {
           setSavedCells((prev) => {
             const next = new Set(prev)
@@ -490,11 +494,16 @@ export function MonthlyPlanilla({
 
       <section className="mesa-card overflow-hidden">
         <header className="px-6 py-4 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="font-serif text-lg font-semibold text-foreground">Gastos del mes</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Cargá los montos. Cada celda se guarda sola. La mini-curva a la derecha es la tendencia del rubro.
-            </p>
+          <div className="flex items-start gap-4 flex-wrap min-w-0 flex-1">
+            <div className="min-w-0">
+              <h2 className="font-serif text-lg font-semibold text-foreground">Gastos del mes</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Cargá los montos. Cada celda se guarda sola. La mini-curva a la derecha es la tendencia del rubro.
+              </p>
+            </div>
+            <div className="pt-1">
+              <SavedIndicator lastSavedAt={lastSavedAt} pendingCount={pendingCells.size} />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -734,6 +743,9 @@ export function MonthlyPlanilla({
                             const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
                             const displayedAmount = getDisplayAmount(row, m.year, m.month)
                             const cellData = row.cells.find((c) => c.year === m.year && c.month === m.month)
+                            // Anomaly sólo si NO estamos editando esa celda (para no distraer)
+                            const isEditingThis = editingCell === cellKey(row.providerId, m.year, m.month)
+                            const anomaly = isEditingThis ? null : detectCellAnomaly(row, m.year, m.month, displayedAmount)
                             return (
                               <EditableCell
                                 key={`${row.providerId}-${m.year}-${m.month}`}
@@ -742,9 +754,10 @@ export function MonthlyPlanilla({
                                 registerRef={registerCellRef}
                                 providerName={row.providerName}
                                 cellData={cellData}
-                                editing={editingCell === cellKey(row.providerId, m.year, m.month)}
+                                editing={isEditingThis}
                                 pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
                                 saved={savedCells.has(cellKey(row.providerId, m.year, m.month))}
+                                anomaly={anomaly}
                                 amount={displayedAmount}
                                 prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
@@ -943,6 +956,7 @@ type EditableCellProps = {
   editing: boolean
   pending: boolean
   saved: boolean
+  anomaly: CellAnomaly | null
   amount: number | null
   prediction?: MonthPrediction
   isCurrent: boolean
@@ -964,6 +978,7 @@ function EditableCell({
   editing,
   pending,
   saved,
+  anomaly,
   amount,
   prediction,
   isCurrent,
@@ -1063,11 +1078,28 @@ function EditableCell({
   }
 
   const hasHistory = Boolean(cellData?.expenseId)
+  const anomalyColor =
+    !anomaly
+      ? ''
+      : anomaly.severity === 'hard'
+        ? anomaly.kind === 'spike'
+          ? 'bg-rose-500'
+          : 'bg-emerald-500'
+        : anomaly.kind === 'spike'
+          ? 'bg-amber-400'
+          : 'bg-emerald-400'
   const contents = (
     <div className="flex items-center justify-end gap-1.5 stat-value group/cell relative">
       {pending ? <Loader2 className="w-3 h-3 animate-spin text-primary" /> : null}
+      {anomaly && amount !== null ? (
+        <span
+          className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${anomalyColor}`}
+          title={anomaly.message}
+          aria-label={anomaly.message}
+        />
+      ) : null}
       {hasHistory && cellData ? (
-        <CellHistoryPopover cell={cellData} providerName={providerName}>
+        <CellHistoryPopover cell={cellData} providerName={providerName} anomaly={anomaly}>
           <button
             type="button"
             onClick={(e) => e.stopPropagation()}

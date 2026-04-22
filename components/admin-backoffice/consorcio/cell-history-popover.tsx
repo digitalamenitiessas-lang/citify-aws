@@ -1,14 +1,23 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { CalendarDays, CheckCircle2, FileText, Info, Loader2, UserCircle2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { useState } from 'react'
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  FileText,
+  Info,
+  TrendingDown,
+  TrendingUp,
+  UserCircle2,
+} from 'lucide-react'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { getExpenseDocumentSignedUrl } from '@/app/iadmin/consorcios/[id]/planilla/actions'
+import { ExpensePreviewDialog } from '@/components/admin-backoffice/consorcio/expense-preview-dialog'
+import type { CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 import type { IAdminExpenseStatus, IAdminMonthlyGridRow } from '@/lib/types'
 
 type Cell = IAdminMonthlyGridRow['cells'][number]
@@ -16,6 +25,7 @@ type Cell = IAdminMonthlyGridRow['cells'][number]
 type Props = {
   cell: Cell
   providerName: string
+  anomaly?: CellAnomaly | null
   children: React.ReactNode
 }
 
@@ -57,9 +67,9 @@ function formatDateShort(iso: string | null): string | null {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export function CellHistoryPopover({ cell, providerName, children }: Props) {
+export function CellHistoryPopover({ cell, providerName, anomaly, children }: Props) {
   const [open, setOpen] = useState(false)
-  const [pending, startTransition] = useTransition()
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const createdAt = formatDateLong(cell.createdAt)
   const updatedAt = formatDateLong(cell.updatedAt)
@@ -67,24 +77,12 @@ export function CellHistoryPopover({ cell, providerName, children }: Props) {
   const wasEdited = cell.createdAt && cell.updatedAt && cell.createdAt !== cell.updatedAt
   const hasHistory = Boolean(cell.expenseId)
 
-  function handleOpenDocument() {
-    if (!cell.documentId) return
-    startTransition(async () => {
-      try {
-        const result = await getExpenseDocumentSignedUrl({ documentId: cell.documentId! })
-        window.open(result.url, '_blank', 'noopener,noreferrer')
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'No se pudo abrir el documento')
-      }
-    })
-  }
-
   if (!hasHistory) {
-    // Celda vacía o sin gasto detrás — no vale la pena mostrar popover
     return <>{children}</>
   }
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
@@ -152,28 +150,26 @@ export function CellHistoryPopover({ cell, providerName, children }: Props) {
           ) : null}
         </div>
 
+        {anomaly ? <AnomalyRow anomaly={anomaly} /> : null}
+
         {cell.documentId && cell.documentName ? (
           <>
             <div className="divider-soft mx-4" />
             <div className="px-4 py-3">
               <button
                 type="button"
-                onClick={handleOpenDocument}
-                disabled={pending}
-                className="w-full flex items-center gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-xs hover:border-primary/40 hover:bg-muted/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                onClick={() => {
+                  setOpen(false)
+                  setPreviewOpen(true)
+                }}
+                className="w-full flex items-center gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-xs hover:border-primary/40 hover:bg-muted/30 transition-colors"
               >
-                {pending ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                ) : (
-                  <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
-                )}
+                <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
                 <span className="flex-1 text-left min-w-0">
                   <span className="block font-medium text-foreground truncate">
                     {cell.documentName}
                   </span>
-                  <span className="text-muted-foreground text-[10px]">
-                    {pending ? 'Abriendo…' : 'Abrir comprobante'}
-                  </span>
+                  <span className="text-muted-foreground text-[10px]">Ver comprobante</span>
                 </span>
               </button>
             </div>
@@ -181,6 +177,39 @@ export function CellHistoryPopover({ cell, providerName, children }: Props) {
         ) : null}
       </PopoverContent>
     </Popover>
+
+    <ExpensePreviewDialog
+      open={previewOpen}
+      onOpenChange={setPreviewOpen}
+      documentId={cell.documentId}
+      fileName={cell.documentName}
+      providerName={providerName}
+      amount={cell.amount}
+      issuedAt={cell.issuedAt}
+    />
+    </>
+  )
+}
+
+function AnomalyRow({ anomaly }: { anomaly: CellAnomaly }) {
+  const toneBg =
+    anomaly.severity === 'hard'
+      ? anomaly.kind === 'spike'
+        ? 'bg-rose-50 border-rose-200 text-rose-900'
+        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+      : anomaly.kind === 'spike'
+        ? 'bg-amber-50 border-amber-200 text-amber-900'
+        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+  const Icon = anomaly.kind === 'spike' ? TrendingUp : TrendingDown
+  return (
+    <div className={`mx-4 mb-3 rounded-lg border px-3 py-2 text-xs flex items-start gap-2 ${toneBg}`}>
+      {anomaly.kind === 'first' ? (
+        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      ) : (
+        <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      )}
+      <span>{anomaly.message}</span>
+    </div>
   )
 }
 
