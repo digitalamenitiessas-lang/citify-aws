@@ -35,6 +35,11 @@ import { CellHistoryPopover } from '@/components/admin-backoffice/consorcio/cell
 import { MesaCommandPalette } from '@/components/admin-backoffice/consorcio/mesa-command-palette'
 import { MesaHelpOverlay } from '@/components/admin-backoffice/consorcio/mesa-help-overlay'
 import { MesaDropZone } from '@/components/admin-backoffice/consorcio/mesa-drop-zone'
+import {
+  MesaBatchBar,
+  applyDeltaToAmount,
+  type DeltaModifier,
+} from '@/components/admin-backoffice/consorcio/mesa-batch-bar'
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 import { useHotkeys } from '@/components/admin-backoffice/shared/use-hotkeys'
 import { useLocalPref } from '@/components/admin-backoffice/shared/use-local-pref'
@@ -106,6 +111,29 @@ export function MonthlyPlanilla({
     const k = `${rowIdx}-${monthIdx}`
     if (el) cellRefs.current.set(k, el)
     else cellRefs.current.delete(k)
+  }
+
+  // Selección múltiple: Set de `${rowIdx}-${monthIdx}` + anchor para shift-extend
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [selectionAnchor, setSelectionAnchor] = useState<{ r: number; m: number } | null>(null)
+
+  function rectSelection(a: { r: number; m: number }, b: { r: number; m: number }): Set<string> {
+    const r0 = Math.min(a.r, b.r)
+    const r1 = Math.max(a.r, b.r)
+    const m0 = Math.min(a.m, b.m)
+    const m1 = Math.max(a.m, b.m)
+    const out = new Set<string>()
+    for (let r = r0; r <= r1; r++) {
+      for (let m = m0; m <= m1; m++) {
+        out.add(`${r}-${m}`)
+      }
+    }
+    return out
+  }
+
+  function clearSelection() {
+    setSelection(new Set())
+    setSelectionAnchor(null)
   }
 
   // Búsqueda + agrupación (groupBy + rango persistidos)
@@ -391,6 +419,7 @@ export function MonthlyPlanilla({
       if (commandOpen) setCommandOpen(false)
       else if (helpOpen) setHelpOpen(false)
       else if (assistantOpen) setAssistantOpen(false)
+      else if (selection.size > 0) clearSelection()
     },
   })
 
@@ -450,7 +479,14 @@ export function MonthlyPlanilla({
       else next.add(key)
       return next
     })
+    clearSelection()
   }
+
+  // Reset de selección cuando cambia el layout (filtro / agrupación / rango)
+  useEffect(() => {
+    clearSelection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, groupBy, visibleRange])
 
   function subtotalForGroup(g: RowGroup, year: number, month: number): number {
     let total = 0
@@ -459,6 +495,133 @@ export function MonthlyPlanilla({
       if (val !== null) total += val
     }
     return total
+  }
+
+  // --------------------------------------------------------------------------
+  // Acciones batch (selección múltiple)
+  // --------------------------------------------------------------------------
+  function handleSelectRange(target: { r: number; m: number }) {
+    const anchor = selectionAnchor ?? target
+    setSelectionAnchor(anchor)
+    setSelection(rectSelection(anchor, target))
+  }
+
+  function handleToggleSelect(cell: { r: number; m: number }) {
+    const k = `${cell.r}-${cell.m}`
+    setSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+    setSelectionAnchor(cell)
+  }
+
+  async function clearSelectedCells() {
+    const keys = Array.from(selection)
+    if (keys.length === 0) return
+    let cleared = 0
+    for (const k of keys) {
+      const [rStr, mStr] = k.split('-')
+      const r = Number(rStr)
+      const m = Number(mStr)
+      const row = visibleRows[r]
+      const month = visibleMonths[m]
+      if (!row || !month) continue
+      const cell = row.cells.find((c) => c.year === month.year && c.month === month.month)
+      if (!cell?.isEditable) continue
+      const current = getDisplayAmount(row, month.year, month.month)
+      if (current === null) continue
+      await commitCell(row, month.year, month.month, null)
+      cleared += 1
+    }
+    toast.success(`${cleared} ${cleared === 1 ? 'celda limpiada' : 'celdas limpiadas'}`)
+    clearSelection()
+  }
+
+  async function applyDeltaToSelection(mod: DeltaModifier) {
+    const keys = Array.from(selection)
+    if (keys.length === 0) return
+    let applied = 0
+    let skipped = 0
+    for (const k of keys) {
+      const [rStr, mStr] = k.split('-')
+      const r = Number(rStr)
+      const m = Number(mStr)
+      const row = visibleRows[r]
+      const month = visibleMonths[m]
+      if (!row || !month) continue
+      const cellMeta = row.cells.find((c) => c.year === month.year && c.month === month.month)
+      if (!cellMeta?.isEditable) {
+        skipped += 1
+        continue
+      }
+      const current = getDisplayAmount(row, month.year, month.month)
+      const next = applyDeltaToAmount(current, mod)
+      if (next === null) {
+        skipped += 1
+        continue
+      }
+      if (current !== null && Math.abs(next - current) < 0.005) continue // no-op
+      const normalized = next === 0 ? null : Math.round(next * 100) / 100
+      await commitCell(row, month.year, month.month, normalized)
+      applied += 1
+    }
+    if (applied > 0) {
+      toast.success(
+        `${applied} ${applied === 1 ? 'celda actualizada' : 'celdas actualizadas'}${
+          skipped > 0 ? ` · ${skipped} saltadas` : ''
+        }`,
+      )
+    } else if (skipped > 0) {
+      toast.info('No se aplicó nada: las celdas están vacías o cerradas')
+    }
+  }
+
+  /**
+   * Distribuye un valor o matriz de valores a las celdas seleccionadas.
+   * Acepta "text/plain" con \t (columnas) y \n (filas), estilo Excel.
+   * Si no hay selección múltiple, devuelve false y el caller decide qué hacer.
+   */
+  async function pasteDistributed(anchor: { r: number; m: number }, text: string): Promise<boolean> {
+    const rows = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .filter((r) => r.length > 0)
+    if (rows.length === 0) return false
+
+    const grid = rows.map((r) => r.split('\t'))
+    const maxCols = Math.max(...grid.map((r) => r.length))
+
+    // Single-cell paste → que el caller lo maneje
+    if (grid.length === 1 && maxCols === 1) return false
+
+    let committed = 0
+    for (let dr = 0; dr < grid.length; dr++) {
+      const rowIdx = anchor.r + dr
+      const targetRow = visibleRows[rowIdx]
+      if (!targetRow) continue
+      for (let dm = 0; dm < maxCols; dm++) {
+        const monthIdx = anchor.m + dm
+        const targetMonth = visibleMonths[monthIdx]
+        if (!targetMonth) continue
+        const raw = grid[dr][dm]
+        if (raw === undefined) continue
+        const cell = targetRow.cells.find((c) => c.year === targetMonth.year && c.month === targetMonth.month)
+        if (!cell?.isEditable) continue
+        const n = parseNumericString(raw)
+        if (n === null) continue
+        await commitCell(targetRow, targetMonth.year, targetMonth.month, n === 0 ? null : n)
+        committed += 1
+      }
+    }
+    if (committed > 0) {
+      toast.success(
+        `${committed} ${committed === 1 ? 'celda pegada' : 'celdas pegadas'} desde el portapapeles`,
+      )
+    }
+    return true
   }
 
   // Movimiento entre celdas. `edit: true` abre edit mode directamente.
@@ -781,6 +944,10 @@ export function MonthlyPlanilla({
                             // Anomaly sólo si NO estamos editando esa celda (para no distraer)
                             const isEditingThis = editingCell === cellKey(row.providerId, m.year, m.month)
                             const anomaly = isEditingThis ? null : detectCellAnomaly(row, m.year, m.month, displayedAmount)
+                            const selKey = `${rowIdx}-${monthIdx}`
+                            const isSelected = selection.has(selKey)
+                            const isAnchor =
+                              selectionAnchor?.r === rowIdx && selectionAnchor?.m === monthIdx
                             return (
                               <EditableCell
                                 key={`${row.providerId}-${m.year}-${m.month}`}
@@ -797,10 +964,15 @@ export function MonthlyPlanilla({
                                 prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
                                 isEditable={cellData?.isEditable ?? true}
+                                isSelected={isSelected}
+                                isAnchor={isAnchor}
+                                selectionSize={selection.size}
                                 editSeed={isEditingThis ? editSeed : null}
                                 onStartEdit={(seed?: string) => {
                                   setEditSeed(seed ?? null)
                                   setEditingCell(cellKey(row.providerId, m.year, m.month))
+                                  setSelection(new Set([selKey]))
+                                  setSelectionAnchor({ r: rowIdx, m: monthIdx })
                                 }}
                                 onCommit={(val) => {
                                   setEditingCell(null)
@@ -812,13 +984,67 @@ export function MonthlyPlanilla({
                                   setEditSeed(null)
                                 }}
                                 onClear={() => {
+                                  if (selection.size > 1) {
+                                    void clearSelectedCells()
+                                    return
+                                  }
                                   if (displayedAmount === null) return
                                   void commitCell(row, m.year, m.month, null)
                                 }}
                                 onPasteAmount={(val) => {
+                                  if (selection.size > 1) {
+                                    // Multi-cell paste: aplicar el mismo valor a todas las selected
+                                    void (async () => {
+                                      let count = 0
+                                      for (const k of selection) {
+                                        const [rStr, mStr] = k.split('-')
+                                        const rr = Number(rStr)
+                                        const mm = Number(mStr)
+                                        const targetRow = visibleRows[rr]
+                                        const targetMonth = visibleMonths[mm]
+                                        if (!targetRow || !targetMonth) continue
+                                        const tCell = targetRow.cells.find(
+                                          (c) => c.year === targetMonth.year && c.month === targetMonth.month,
+                                        )
+                                        if (!tCell?.isEditable) continue
+                                        await commitCell(targetRow, targetMonth.year, targetMonth.month, val)
+                                        count += 1
+                                      }
+                                      toast.success(
+                                        `${count} ${count === 1 ? 'celda' : 'celdas'} con el mismo valor`,
+                                      )
+                                    })()
+                                    return
+                                  }
                                   void commitCell(row, m.year, m.month, val)
                                 }}
-                                onMove={moveFocus}
+                                onPasteRaw={async (text) => {
+                                  const handled = await pasteDistributed({ r: rowIdx, m: monthIdx }, text)
+                                  return handled
+                                }}
+                                onSelectRange={() => handleSelectRange({ r: rowIdx, m: monthIdx })}
+                                onToggleSelect={() => handleToggleSelect({ r: rowIdx, m: monthIdx })}
+                                onMove={(r, c, edit, opts) => {
+                                  if (opts?.extendSelection) {
+                                    const anchor = selectionAnchor ?? { r: rowIdx, m: monthIdx }
+                                    setSelectionAnchor(anchor)
+                                    setSelection(rectSelection(anchor, { r, m: c }))
+                                    // mover foco pero sin editar
+                                    setEditingCell(null)
+                                    queueMicrotask(() => {
+                                      const totalRows = visibleRows.length
+                                      const totalMonths = visibleMonths.length
+                                      const rr = Math.max(0, Math.min(totalRows - 1, r))
+                                      const mm = Math.max(0, Math.min(totalMonths - 1, c))
+                                      cellRefs.current.get(`${rr}-${mm}`)?.focus()
+                                    })
+                                    return
+                                  }
+                                  // Arrow normal → limpia selección y mueve
+                                  setSelection(new Set())
+                                  setSelectionAnchor(null)
+                                  moveFocus(r, c, edit)
+                                }}
                                 onAcceptPrediction={() => acceptPrediction(row.providerId)}
                                 onDismissPrediction={() => dismissPrediction(row.providerId)}
                               />
@@ -957,6 +1183,15 @@ export function MonthlyPlanilla({
       <MesaHelpOverlay open={helpOpen} onOpenChange={setHelpOpen} />
 
       <MesaDropZone onFile={handleDropFile} />
+
+      {selection.size > 1 ? (
+        <MesaBatchBar
+          count={selection.size}
+          onClear={clearSelection}
+          onApplyDelta={applyDeltaToSelection}
+          onClearValues={clearSelectedCells}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1012,12 +1247,23 @@ type EditableCellProps = {
   isCurrent: boolean
   isEditable: boolean
   editSeed?: string | null
+  isSelected?: boolean
+  isAnchor?: boolean
+  selectionSize?: number
   onStartEdit: (seed?: string) => void
   onCommit: (val: number | null) => void
   onCancel: () => void
   onClear?: () => void
   onPasteAmount?: (val: number) => void
-  onMove: (rowIdx: number, monthIdx: number, edit?: boolean) => void
+  onPasteRaw?: (text: string) => Promise<boolean>
+  onSelectRange?: () => void
+  onToggleSelect?: () => void
+  onMove: (
+    rowIdx: number,
+    monthIdx: number,
+    edit?: boolean,
+    opts?: { extendSelection?: boolean },
+  ) => void
   onAcceptPrediction?: () => void
   onDismissPrediction?: () => void
 }
@@ -1044,11 +1290,17 @@ function EditableCell({
   isCurrent,
   isEditable,
   editSeed,
+  isSelected,
+  isAnchor,
+  selectionSize = 0,
   onStartEdit,
   onCommit,
   onCancel,
   onClear,
   onPasteAmount,
+  onPasteRaw,
+  onSelectRange,
+  onToggleSelect,
   onMove,
   onAcceptPrediction,
   onDismissPrediction,
@@ -1182,11 +1434,30 @@ function EditableCell({
     </div>
   )
 
+  const selectionClass = isSelected
+    ? isAnchor && selectionSize > 1
+      ? 'bg-primary/15 shadow-[inset_0_0_0_2px_rgba(184,92,56,0.55)]'
+      : 'bg-primary/10 shadow-[inset_0_0_0_1px_rgba(184,92,56,0.35)]'
+    : ''
+
   return (
     <td
       ref={(el) => registerRef(rowIdx, monthIdx, el)}
       tabIndex={isEditable ? 0 : -1}
-      onClick={isEditable ? () => onStartEdit() : undefined}
+      onClick={(e) => {
+        if (!isEditable) return
+        if (e.shiftKey) {
+          e.preventDefault()
+          onSelectRange?.()
+          return
+        }
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault()
+          onToggleSelect?.()
+          return
+        }
+        onStartEdit()
+      }}
       onKeyDown={(e) =>
         handleNavKeys(e, {
           rowIdx,
@@ -1198,8 +1469,16 @@ function EditableCell({
       }
       onPaste={(e) => {
         if (!isEditable) return
-        const text = e.clipboardData.getData('text').trim()
+        const text = e.clipboardData.getData('text')
         if (!text) return
+        // Si el texto tiene múltiples filas/columnas, dejamos que el handler
+        // del padre lo distribuya. Si no, caemos al single-cell.
+        const isMulti = /\n|\t/.test(text.trim())
+        if (isMulti && onPasteRaw) {
+          e.preventDefault()
+          void onPasteRaw(text)
+          return
+        }
         const n = parseNumericString(text)
         if (n !== null && Number.isFinite(n)) {
           e.preventDefault()
@@ -1210,8 +1489,12 @@ function EditableCell({
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
-      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'} ${saved ? 'cell-saved' : ''}`}
-      title={isEditable ? 'Enter edita · Del limpia · tipá para escribir · pegá desde Excel' : 'Período cerrado'}
+      } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'} ${saved ? 'cell-saved' : ''} ${selectionClass}`}
+      title={
+        isEditable
+          ? 'Enter edita · Del limpia · Shift+click selecciona rango · Ctrl/Cmd+click toggle'
+          : 'Período cerrado'
+      }
     >
       {contents}
     </td>
@@ -1223,7 +1506,7 @@ function handleNavKeys(
   args: {
     rowIdx: number
     monthIdx: number
-    onMove: (r: number, c: number, edit?: boolean) => void
+    onMove: (r: number, c: number, edit?: boolean, opts?: { extendSelection?: boolean }) => void
     onStartEdit: (seed?: string) => void
     onClear?: () => void
   },
@@ -1232,24 +1515,26 @@ function handleNavKeys(
   // Ignoramos combos con ⌘ / Ctrl para dejar pasar paste (maneja onPaste)
   if (e.metaKey || e.ctrlKey) return
 
+  const extend = e.shiftKey
+
   if (e.key === 'ArrowRight') {
     e.preventDefault()
-    onMove(rowIdx, monthIdx + 1)
+    onMove(rowIdx, monthIdx + 1, false, { extendSelection: extend })
     return
   }
   if (e.key === 'ArrowLeft') {
     e.preventDefault()
-    onMove(rowIdx, monthIdx - 1)
+    onMove(rowIdx, monthIdx - 1, false, { extendSelection: extend })
     return
   }
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    onMove(rowIdx + 1, monthIdx)
+    onMove(rowIdx + 1, monthIdx, false, { extendSelection: extend })
     return
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault()
-    onMove(rowIdx - 1, monthIdx)
+    onMove(rowIdx - 1, monthIdx, false, { extendSelection: extend })
     return
   }
   if (e.key === 'Enter' || e.key === 'F2') {
