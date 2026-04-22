@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { Check, Info, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
+import { Check, ChevronRight, Info, Loader2, Plus, Search, Send, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -85,6 +85,11 @@ export function MonthlyPlanilla({
     if (el) cellRefs.current.set(k, el)
     else cellRefs.current.delete(k)
   }
+
+  // Búsqueda + agrupación
+  const [search, setSearch] = useState('')
+  const [groupBy, setGroupBy] = useState<'none' | 'category'>('none')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
   const visibleMonths = useMemo(() => {
     const take = Math.min(visibleRange, grid.months.length)
@@ -266,14 +271,81 @@ export function MonthlyPlanilla({
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
   const hasPredictions = predictions.size > 0
 
+  // Filtro por search (por nombre de rubro o categoría)
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return allRows
+    return allRows.filter(
+      (r) =>
+        r.providerName.toLowerCase().includes(q) ||
+        (r.category ?? '').toLowerCase().includes(q),
+    )
+  }, [allRows, search])
+
+  // Agrupación: si groupBy = 'category', armamos grupos. Extraordinarias siempre
+  // forman su propio grupo al final. Si hay búsqueda activa, no agrupamos.
+  type RowGroup = { key: string; label: string; rows: IAdminMonthlyGridRow[]; isExtra: boolean }
+  const groups: RowGroup[] = useMemo(() => {
+    if (groupBy === 'none' || search.trim()) {
+      return [{ key: '__all__', label: '', rows: filteredRows, isExtra: false }]
+    }
+    const byKey = new Map<string, RowGroup>()
+    for (const row of filteredRows) {
+      if (row.expenseKind === 'extraordinaria') {
+        const g = byKey.get('__ext__') ?? { key: '__ext__', label: 'Extraordinarias', rows: [], isExtra: true }
+        g.rows.push(row)
+        byKey.set('__ext__', g)
+        continue
+      }
+      const cat = (row.category ?? '').trim() || 'Sin categoría'
+      const k = `cat:${cat.toLowerCase()}`
+      const g = byKey.get(k) ?? { key: k, label: cat, rows: [], isExtra: false }
+      g.rows.push(row)
+      byKey.set(k, g)
+    }
+    // Ordenar: primero las categorías alfabéticamente, extraordinarias al final
+    const list = Array.from(byKey.values()).filter((g) => !g.isExtra).sort((a, b) => a.label.localeCompare(b.label))
+    const extra = Array.from(byKey.values()).find((g) => g.isExtra)
+    return extra ? [...list, extra] : list
+  }, [filteredRows, groupBy, search])
+
+  // Lista plana de filas visibles (respeta grupos colapsados). Es la que usa kbd-nav.
+  const visibleRows: IAdminMonthlyGridRow[] = useMemo(() => {
+    if (groupBy === 'none' || search.trim()) return filteredRows
+    const out: IAdminMonthlyGridRow[] = []
+    for (const g of groups) {
+      if (collapsedGroups.has(g.key)) continue
+      for (const r of g.rows) out.push(r)
+    }
+    return out
+  }, [groups, groupBy, search, collapsedGroups, filteredRows])
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function subtotalForGroup(g: RowGroup, year: number, month: number): number {
+    let total = 0
+    for (const row of g.rows) {
+      const val = getDisplayAmount(row, year, month)
+      if (val !== null) total += val
+    }
+    return total
+  }
+
   // Movimiento entre celdas. `edit: true` abre edit mode directamente.
   function moveFocus(targetRow: number, targetMonth: number, edit = false) {
-    if (allRows.length === 0) return
-    const totalRows = allRows.length
+    if (visibleRows.length === 0) return
+    const totalRows = visibleRows.length
     const totalMonths = visibleMonths.length
     const r = Math.max(0, Math.min(totalRows - 1, targetRow))
     const m = Math.max(0, Math.min(totalMonths - 1, targetMonth))
-    const row = allRows[r]
+    const row = visibleRows[r]
     const month = visibleMonths[m]
     const cell = row.cells.find((c) => c.year === month.year && c.month === month.month)
     const isEditable = cell?.isEditable ?? false
@@ -282,7 +354,6 @@ export function MonthlyPlanilla({
       setEditingCell(cellKey(row.providerId, month.year, month.month))
     } else {
       setEditingCell(null)
-      // Focus via microtask para dejar que React resetee el DOM
       queueMicrotask(() => {
         cellRefs.current.get(`${r}-${m}`)?.focus()
       })
@@ -332,6 +403,58 @@ export function MonthlyPlanilla({
         </header>
 
         <div className="divider-soft" />
+
+        {allRows.length > 3 ? (
+          <div className="px-6 py-2.5 flex items-center gap-2 flex-wrap bg-muted/10">
+            <div className="relative flex-1 min-w-[180px] max-w-sm">
+              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar rubro…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearch('')
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
+                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow"
+              />
+              {search ? (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              ) : null}
+            </div>
+            <div className="flex-1" />
+            <div className="seg" role="group" aria-label="Agrupar rubros">
+              <button
+                type="button"
+                aria-pressed={groupBy === 'none'}
+                onClick={() => setGroupBy('none')}
+              >
+                Sin agrupar
+              </button>
+              <button
+                type="button"
+                aria-pressed={groupBy === 'category'}
+                onClick={() => setGroupBy('category')}
+              >
+                Por categoría
+              </button>
+            </div>
+            {filteredRows.length !== allRows.length ? (
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {filteredRows.length} / {allRows.length}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         {showRubroForm ? (
           <form onSubmit={handleAddRubro} className="px-6 py-3 bg-muted/20 flex items-end gap-2 mesa-fade-in">
@@ -387,77 +510,134 @@ export function MonthlyPlanilla({
                     Sin rubros. Agregá con <b>+ Rubro</b> arriba.
                   </td>
                 </tr>
+              ) : visibleRows.length === 0 ? (
+                <tr>
+                  <td colSpan={visibleMonths.length + 1} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    No hay rubros que coincidan con “{search}”.
+                  </td>
+                </tr>
               ) : (
-                allRows.map((row, rowIdx) => {
-                  const fullSeries = grid.months.map((m) => getDisplayAmount(row, m.year, m.month))
-                  return (
-                    <tr
-                      key={row.providerId || 'free'}
-                      className="planilla-row border-b border-border/15 last:border-0 transition-colors"
-                    >
-                      <td className="px-4 py-2 sticky left-0 bg-background sticky-shadow-right relative">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-foreground truncate flex items-center gap-1.5">
-                              {row.providerName}
-                              {row.expenseKind === 'extraordinaria' ? (
-                                <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px] font-medium">
-                                  EXT
-                                </span>
-                              ) : null}
+                (() => {
+                  // Render agrupado o flat — usamos un contador global para rowIdx
+                  // de navegación por teclado (sobre `visibleRows`, que excluye grupos colapsados)
+                  let visibleIdx = 0
+                  const fragments: React.ReactNode[] = []
+                  const isGrouped = groupBy === 'category' && !search.trim()
+
+                  for (const g of groups) {
+                    if (isGrouped && g.label) {
+                      const collapsed = collapsedGroups.has(g.key)
+                      fragments.push(
+                        <tr
+                          key={`grp-${g.key}`}
+                          className="bg-muted/20 border-b border-border/20 text-xs"
+                        >
+                          <td className="px-4 py-1.5 sticky left-0 bg-muted/25 sticky-shadow-right relative">
+                            <button
+                              type="button"
+                              onClick={() => toggleGroup(g.key)}
+                              className="flex items-center gap-1.5 text-foreground font-medium uppercase tracking-[0.08em] text-[10px] hover:text-primary transition-colors"
+                              aria-expanded={!collapsed}
+                            >
+                              <ChevronRight
+                                className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                              />
+                              {g.label}
+                              <span className="text-muted-foreground font-normal normal-case tracking-normal">
+                                · {g.rows.length}
+                              </span>
+                            </button>
+                          </td>
+                          {visibleMonths.map((m) => {
+                            const subtotal = subtotalForGroup(g, m.year, m.month)
+                            return (
+                              <td
+                                key={`grp-${g.key}-${m.year}-${m.month}`}
+                                className={`px-4 py-1.5 text-right tabular-nums text-[11px] text-muted-foreground stat-value ${m.isCurrent ? 'th-current-month' : ''}`}
+                              >
+                                {subtotal > 0 ? `$ ${formatARSShort(subtotal)}` : '—'}
+                              </td>
+                            )
+                          })}
+                        </tr>,
+                      )
+                      if (collapsed) continue
+                    }
+                    for (const row of g.rows) {
+                      const rowIdx = visibleIdx
+                      visibleIdx += 1
+                      const fullSeries = grid.months.map((m) => getDisplayAmount(row, m.year, m.month))
+                      fragments.push(
+                        <tr
+                          key={row.providerId || 'free'}
+                          className="planilla-row border-b border-border/15 last:border-0 transition-colors"
+                        >
+                          <td className="px-4 py-2 sticky left-0 bg-background sticky-shadow-right relative">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-foreground truncate flex items-center gap-1.5">
+                                  {row.providerName}
+                                  {row.expenseKind === 'extraordinaria' ? (
+                                    <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-1.5 py-0 text-[9px] font-medium">
+                                      EXT
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <Sparkline
+                                values={fullSeries}
+                                width={72}
+                                height={20}
+                                ariaLabel={`Tendencia de ${row.providerName}`}
+                              />
                             </div>
-                          </div>
-                          <Sparkline
-                            values={fullSeries}
-                            width={72}
-                            height={20}
-                            ariaLabel={`Tendencia de ${row.providerName}`}
-                          />
-                        </div>
-                      </td>
-                      {visibleMonths.map((m, monthIdx) => {
-                        const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
-                        const displayedAmount = getDisplayAmount(row, m.year, m.month)
-                        const cellData = row.cells.find((c) => c.year === m.year && c.month === m.month)
-                        return (
-                          <EditableCell
-                            key={`${row.providerId}-${m.year}-${m.month}`}
-                            rowIdx={rowIdx}
-                            monthIdx={monthIdx}
-                            registerRef={registerCellRef}
-                            providerName={row.providerName}
-                            cellData={cellData}
-                            editing={editingCell === cellKey(row.providerId, m.year, m.month)}
-                            pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
-                            amount={displayedAmount}
-                            prediction={displayedAmount === null ? prediction : undefined}
-                            isCurrent={m.isCurrent}
-                            isEditable={cellData?.isEditable ?? true}
-                            onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
-                            onCommit={(val) => {
-                              setEditingCell(null)
-                              void commitCell(row, m.year, m.month, val)
-                            }}
-                            onCancel={() => setEditingCell(null)}
-                            onMove={moveFocus}
-                            onAcceptPrediction={() => acceptPrediction(row.providerId)}
-                            onDismissPrediction={() => dismissPrediction(row.providerId)}
-                          />
-                        )
-                      })}
-                    </tr>
-                  )
-                })
+                          </td>
+                          {visibleMonths.map((m, monthIdx) => {
+                            const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
+                            const displayedAmount = getDisplayAmount(row, m.year, m.month)
+                            const cellData = row.cells.find((c) => c.year === m.year && c.month === m.month)
+                            return (
+                              <EditableCell
+                                key={`${row.providerId}-${m.year}-${m.month}`}
+                                rowIdx={rowIdx}
+                                monthIdx={monthIdx}
+                                registerRef={registerCellRef}
+                                providerName={row.providerName}
+                                cellData={cellData}
+                                editing={editingCell === cellKey(row.providerId, m.year, m.month)}
+                                pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
+                                amount={displayedAmount}
+                                prediction={displayedAmount === null ? prediction : undefined}
+                                isCurrent={m.isCurrent}
+                                isEditable={cellData?.isEditable ?? true}
+                                onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
+                                onCommit={(val) => {
+                                  setEditingCell(null)
+                                  void commitCell(row, m.year, m.month, val)
+                                }}
+                                onCancel={() => setEditingCell(null)}
+                                onMove={moveFocus}
+                                onAcceptPrediction={() => acceptPrediction(row.providerId)}
+                                onDismissPrediction={() => dismissPrediction(row.providerId)}
+                              />
+                            )
+                          })}
+                        </tr>,
+                      )
+                    }
+                  }
+                  return fragments
+                })()
               )}
             </tbody>
             <tfoot>
               <tr className="bg-gradient-to-b from-muted/40 to-muted/60 font-serif font-bold text-[15px]">
                 <td className="px-4 py-3 sticky left-0 bg-muted/50 sticky-shadow-right relative tracking-wide text-foreground">
-                  TOTAL
+                  {search.trim() ? 'SUBTOTAL' : 'TOTAL'}
                 </td>
                 {visibleMonths.map((m) => {
                   let total = 0
-                  for (const row of allRows) {
+                  for (const row of filteredRows) {
                     const val = getDisplayAmount(row, m.year, m.month)
                     if (val !== null) total += val
                     else if (m.isCurrent && row.providerId) {

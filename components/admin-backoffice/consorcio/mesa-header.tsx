@@ -1,8 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   FileCheck2,
   Lock,
@@ -13,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 import { AnimatedNumber } from '@/components/admin-backoffice/shared/animated-number'
+import { MesaEvolutionChart } from '@/components/admin-backoffice/consorcio/mesa-evolution-chart'
 import type { IAdminMesaState, IAdminMonthlyGrid } from '@/lib/types'
 
 type Props = {
@@ -73,6 +78,8 @@ const TONE_CLASSES: Record<StatusTone, { chip: string; dot: string }> = {
 }
 
 export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) {
+  const [chartOpen, setChartOpen] = useState(false)
+
   const current = grid.months[grid.months.length - 1]
   const previous = grid.months[grid.months.length - 2] ?? null
 
@@ -155,6 +162,9 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
           deltaPct={deltaPct}
           previousLabel={previous?.label}
           sparkline={<Sparkline values={totalsSeries} width={82} height={24} />}
+          onClick={() => setChartOpen((v) => !v)}
+          expandIcon={chartOpen ? ChevronUp : BarChart3}
+          expanded={chartOpen}
         />
         <KpiCard
           icon={CheckCircle2}
@@ -191,6 +201,13 @@ export function MesaHeader({ grid, state, visibleRange, onChangeRange }: Props) 
           hint={unitsTotal > 0 ? `${paidPct}% del padrón` : 'Sin unidades activas'}
         />
       </div>
+
+      {chartOpen ? (
+        <>
+          <div className="divider-soft" />
+          <MesaEvolutionChart months={grid.months} />
+        </>
+      ) : null}
     </section>
   )
 }
@@ -207,6 +224,9 @@ function KpiCard({
   deltaPct,
   previousLabel,
   sparkline,
+  onClick,
+  expandIcon: ExpandIcon,
+  expanded,
 }: {
   icon: typeof Wallet
   label: string
@@ -217,6 +237,9 @@ function KpiCard({
   deltaPct?: number | null
   previousLabel?: string
   sparkline?: React.ReactNode
+  onClick?: () => void
+  expandIcon?: typeof Wallet
+  expanded?: boolean
 }) {
   const hintColor =
     hintTone === 'success'
@@ -234,14 +257,21 @@ function KpiCard({
           ? 'up'
           : 'down'
 
-  return (
-    <div className="kpi-cell px-5 py-4 flex items-start gap-3 border-r border-border/30 last:border-r-0 md:[&:nth-child(2n)]:border-r-0 md:[&:nth-child(n)]:border-r">
+  const interactive = typeof onClick === 'function'
+
+  const body = (
+    <>
       <div className="w-9 h-9 rounded-xl kpi-icon-disc flex items-center justify-center shrink-0">
         <Icon className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium flex items-center gap-1.5">
           {label}
+          {interactive && ExpandIcon ? (
+            <ExpandIcon
+              className={`w-3 h-3 transition-colors ${expanded ? 'text-primary' : 'text-muted-foreground/50'}`}
+            />
+          ) : null}
         </p>
         <p className="stat-value font-serif text-[22px] font-semibold text-foreground leading-tight mt-0.5 truncate">
           <AnimatedNumber value={value} format={format} />
@@ -262,9 +292,33 @@ function KpiCard({
             <span className="text-muted-foreground">vs {previousLabel}</span>
           ) : null}
           {hint ? <span className="truncate">{hint}</span> : null}
+          {interactive ? (
+            <span className="text-[10px] text-primary/80 underline-offset-2 hover:underline">
+              {expanded ? 'ocultar gráfico' : 'ver gráfico'}
+            </span>
+          ) : null}
         </div>
       </div>
       {sparkline ? <div className="shrink-0 pt-1 -mr-1">{sparkline}</div> : null}
+    </>
+  )
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-expanded={expanded}
+        className="kpi-cell px-5 py-4 flex items-start gap-3 border-r border-border/30 last:border-r-0 md:[&:nth-child(2n)]:border-r-0 md:[&:nth-child(n)]:border-r text-left w-full cursor-pointer"
+      >
+        {body}
+      </button>
+    )
+  }
+
+  return (
+    <div className="kpi-cell px-5 py-4 flex items-start gap-3 border-r border-border/30 last:border-r-0 md:[&:nth-child(2n)]:border-r-0 md:[&:nth-child(n)]:border-r">
+      {body}
     </div>
   )
 }
