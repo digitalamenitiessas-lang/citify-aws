@@ -1,18 +1,22 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
   Copy,
   FileUp,
   Loader2,
   MessageSquare,
   Sparkles,
   TrendingUp,
+  UserPlus,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -23,6 +27,13 @@ import {
   generateAnnouncement,
   type AnnouncementDraft,
 } from '@/app/iadmin/comunicaciones/actions'
+import {
+  importExpenseFromExtraction,
+  suggestProviderMatch,
+  type ImportExpenseResult,
+  type ProviderMatchCandidate,
+  type ProviderMatchResult,
+} from '@/app/iadmin/consorcios/[id]/planilla/import-actions'
 
 type Props = {
   propertyId: string
@@ -35,6 +46,12 @@ type Props = {
 }
 
 type Tab = 'menu' | 'extract' | 'predict' | 'announce'
+
+function formatARSCompact(n: number): string {
+  return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n)
+}
+
+const MONTH_LABELS_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
 const MONTH_LABELS_ES = [
   'enero',
@@ -63,13 +80,131 @@ export function MesaAssistant({
   const [tab, setTab] = useState<Tab>('menu')
   const [pending, startTransition] = useTransition()
 
+  // Extracción de factura
+  type DraftFile = { base64: string; fileName: string; mimeType: string; sizeBytes: number }
+  const [extractFile, setExtractFile] = useState<DraftFile | null>(null)
   const [extractResult, setExtractResult] = useState<ExtractExpenseFromFileResult | null>(null)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [match, setMatch] = useState<ProviderMatchResult | null>(null)
+  const [matchLoading, setMatchLoading] = useState(false)
+  // Selección de proveedor para imputar: existente (id) o nuevo (name)
+  const [providerChoice, setProviderChoice] = useState<
+    | { kind: 'existing'; id: string; name: string }
+    | { kind: 'new'; name: string }
+    | null
+  >(null)
+  const [editAmount, setEditAmount] = useState<string>('')
+  const [editPeriod, setEditPeriod] = useState<{ year: number; month: number }>({ year, month })
+  const [expenseKind, setExpenseKind] = useState<'ordinaria' | 'extraordinaria'>('ordinaria')
+  const [imported, setImported] = useState<ImportExpenseResult | null>(null)
+  const [importing, startImporting] = useTransition()
 
+  // Comunicado
   const [announceTopic, setAnnounceTopic] = useState('')
   const [announceDraft, setAnnounceDraft] = useState<AnnouncementDraft | null>(null)
 
   const monthLabel = `${MONTH_LABELS_ES[month - 1]} ${year}`
+
+  // Cuando aparece un extractResult, inicializamos edición + buscamos match
+  useEffect(() => {
+    if (!extractResult) {
+      setMatch(null)
+      setProviderChoice(null)
+      setEditAmount('')
+      return
+    }
+    setEditAmount(
+      extractResult.suggestion.amount !== undefined && extractResult.suggestion.amount !== null
+        ? String(extractResult.suggestion.amount)
+        : '',
+    )
+    // Período: preferir el del mes actual (si no es futuro), si la factura viene de otro mes lo marcamos igual
+    const issued = extractResult.suggestion.issued_at
+    if (issued && /^\d{4}-\d{2}-\d{2}$/.test(issued)) {
+      const [y, m] = issued.split('-').map((n) => Number(n))
+      setEditPeriod({ year: y, month: m })
+    } else {
+      setEditPeriod({ year, month })
+    }
+    setExpenseKind('ordinaria')
+
+    const providerName = extractResult.suggestion.provider_name?.trim()
+    if (!providerName) {
+      setProviderChoice(null)
+      setMatch(null)
+      return
+    }
+    setMatchLoading(true)
+    suggestProviderMatch({ administrationId, providerName })
+      .then((m) => {
+        setMatch(m)
+        if (m.exact) {
+          setProviderChoice({ kind: 'existing', id: m.exact.id, name: m.exact.name })
+        } else {
+          setProviderChoice({ kind: 'new', name: providerName })
+        }
+      })
+      .catch(() => {
+        setMatch({ exact: null, candidates: [] })
+        setProviderChoice({ kind: 'new', name: providerName })
+      })
+      .finally(() => setMatchLoading(false))
+  }, [extractResult, administrationId, year, month])
+
+  function resetExtract() {
+    setExtractFile(null)
+    setExtractResult(null)
+    setExtractError(null)
+    setMatch(null)
+    setProviderChoice(null)
+    setEditAmount('')
+    setImported(null)
+  }
+
+  function handleImportExpense() {
+    if (!extractResult || !providerChoice) return
+    const amount = Number(editAmount.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''))
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Ingresá un monto válido')
+      return
+    }
+    startImporting(async () => {
+      try {
+        const result = await importExpenseFromExtraction({
+          propertyId,
+          year: editPeriod.year,
+          month: editPeriod.month,
+          providerId: providerChoice.kind === 'existing' ? providerChoice.id : undefined,
+          providerName: providerChoice.kind === 'new' ? providerChoice.name : undefined,
+          createProviderIfMissing: providerChoice.kind === 'new',
+          amount,
+          description: extractResult.suggestion.description ?? undefined,
+          issuedAt: extractResult.suggestion.issued_at ?? undefined,
+          dueAt: extractResult.suggestion.due_at ?? undefined,
+          expenseKind,
+          category: extractResult.suggestion.category ?? undefined,
+          file: extractFile
+            ? {
+                fileBase64: extractFile.base64,
+                fileName: extractFile.fileName,
+                mimeType: extractFile.mimeType,
+                sizeBytes: extractFile.sizeBytes,
+                aiSuggestedFields: extractResult.suggestion as any,
+                aiProvider: 'openrouter',
+              }
+            : undefined,
+        })
+        setImported(result)
+        toast.success(
+          result.imputed
+            ? `Imputado a ${MONTH_LABELS_ES[editPeriod.month - 1]} · $ ${formatARSCompact(amount)}`
+            : 'Gasto enviado a revisión',
+        )
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error al imputar')
+      }
+    })
+  }
 
   function handlePredict() {
     startTransition(async () => {
@@ -86,6 +221,8 @@ export function MesaAssistant({
     if (!file) return
     setExtractError(null)
     setExtractResult(null)
+    setExtractFile(null)
+    setImported(null)
 
     const reader = new FileReader()
     reader.onload = () => {
@@ -99,13 +236,15 @@ export function MesaAssistant({
         setExtractError('Archivo vacío')
         return
       }
+      const mimeType = file.type || 'application/pdf'
+      setExtractFile({ base64, fileName: file.name, mimeType, sizeBytes: file.size })
       startTransition(async () => {
         try {
           const r = await extractExpenseFromFile({
             administrationId,
             managedPropertyId: propertyId,
             fileBase64: base64,
-            mimeType: file.type || 'application/pdf',
+            mimeType,
             fileName: file.name,
           })
           setExtractResult(r)
@@ -203,60 +342,154 @@ export function MesaAssistant({
 
       {tab === 'extract' ? (
         <div className="p-4 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Subí una factura (PDF o imagen). La IA extrae proveedor, monto y fecha. Después copiás los
-            datos en la planilla.
-          </p>
-          <label className="inline-flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground hover:bg-muted/30 w-full justify-center">
-            <FileUp className="w-4 h-4" />
-            {pending ? 'Procesando…' : 'Seleccionar archivo'}
-            <input
-              type="file"
-              accept="application/pdf,image/*"
-              className="hidden"
-              onChange={handleFile}
-              disabled={pending}
+          {imported ? (
+            <ImportSuccess
+              result={imported}
+              periodLabel={`${MONTH_LABELS_ES[editPeriod.month - 1]} ${editPeriod.year}`}
+              amount={Number(editAmount.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''))}
+              onAnother={resetExtract}
+              onClose={onClose}
             />
-          </label>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Subí una factura (PDF o imagen). La IA extrae los datos y vos confirmás la imputación al rubro y al mes.
+              </p>
+              <label className="inline-flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground hover:bg-muted/30 w-full justify-center transition-colors">
+                <FileUp className="w-4 h-4" />
+                {pending && !extractResult ? 'Procesando…' : extractFile ? 'Cambiar archivo' : 'Seleccionar archivo'}
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="hidden"
+                  onChange={handleFile}
+                  disabled={pending}
+                />
+              </label>
+              {extractFile && !pending ? (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  {extractFile.fileName}
+                </p>
+              ) : null}
 
-          {extractError ? (
-            <div className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
-              <AlertTriangle className="w-3.5 h-3.5 mt-0.5" />
-              <span>{extractError}</span>
-            </div>
-          ) : null}
-
-          {extractResult ? (
-            <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-sm space-y-1">
-              <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
-                <span className="text-muted-foreground">Proveedor:</span>
-                <span className="font-medium">{extractResult.suggestion.provider_name ?? '—'}</span>
-                <span className="text-muted-foreground">Monto:</span>
-                <span className="font-medium tabular-nums">
-                  {extractResult.suggestion.amount
-                    ? Number(extractResult.suggestion.amount).toLocaleString('es-AR')
-                    : '—'}
-                </span>
-                <span className="text-muted-foreground">Emisión:</span>
-                <span className="font-medium">{extractResult.suggestion.issued_at ?? '—'}</span>
-                <span className="text-muted-foreground">Vencimiento:</span>
-                <span className="font-medium">{extractResult.suggestion.due_at ?? '—'}</span>
-              </div>
-              {extractResult.anomalies && extractResult.anomalies.length > 0 ? (
-                <div className="mt-2 pt-2 border-t border-border/30 space-y-1">
-                  {extractResult.anomalies.map((a, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-xs text-amber-900">
-                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                      <span>{a.message}</span>
-                    </div>
-                  ))}
+              {extractError ? (
+                <div className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5" />
+                  <span>{extractError}</span>
                 </div>
               ) : null}
-              <p className="text-[10px] text-muted-foreground pt-2">
-                Modelo: {extractResult.model}
-              </p>
-            </div>
-          ) : null}
+
+              {extractResult ? (
+                <>
+                  {/* Fields extraídos */}
+                  <div className="rounded-lg border border-border/40 bg-muted/10 p-3 text-sm space-y-1 mesa-fade-in">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium">
+                      Datos extraídos por la IA
+                    </p>
+                    <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs mt-1">
+                      <span className="text-muted-foreground">Proveedor</span>
+                      <span className="font-medium">{extractResult.suggestion.provider_name ?? '—'}</span>
+                      <span className="text-muted-foreground">Emisión</span>
+                      <span className="font-medium">{extractResult.suggestion.issued_at ?? '—'}</span>
+                      <span className="text-muted-foreground">Vencimiento</span>
+                      <span className="font-medium">{extractResult.suggestion.due_at ?? '—'}</span>
+                    </div>
+                    {extractResult.anomalies && extractResult.anomalies.length > 0 ? (
+                      <div className="mt-2 pt-2 border-t border-border/30 space-y-1">
+                        {extractResult.anomalies.map((a, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-xs text-amber-900">
+                            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                            <span>{a.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Match de proveedor */}
+                  <ProviderMatchCard
+                    extractedName={extractResult.suggestion.provider_name ?? ''}
+                    match={match}
+                    loading={matchLoading}
+                    choice={providerChoice}
+                    onChangeChoice={setProviderChoice}
+                  />
+
+                  {/* Edición de monto + período */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium">
+                        Monto
+                      </Label>
+                      <Input
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(e.target.value)}
+                        placeholder="0"
+                        inputMode="decimal"
+                        className="text-right tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium">
+                        Imputar al mes
+                      </Label>
+                      <MonthPicker
+                        year={editPeriod.year}
+                        month={editPeriod.month}
+                        onChange={(y, m) => setEditPeriod({ year: y, month: m })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tipo de gasto */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium">
+                      Tipo
+                    </span>
+                    <div className="seg" role="group" aria-label="Tipo de gasto">
+                      <button
+                        type="button"
+                        aria-pressed={expenseKind === 'ordinaria'}
+                        onClick={() => setExpenseKind('ordinaria')}
+                      >
+                        Ordinaria
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={expenseKind === 'extraordinaria'}
+                        onClick={() => setExpenseKind('extraordinaria')}
+                      >
+                        Extraordinaria
+                      </button>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={handleImportExpense}
+                    disabled={importing || !providerChoice || !editAmount}
+                  >
+                    {importing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Imputando…
+                      </>
+                    ) : (
+                      <>
+                        <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
+                        Imputar como gasto
+                      </>
+                    )}
+                  </Button>
+
+                  <p className="text-[9px] text-muted-foreground text-center">
+                    Modelo: {extractResult.model}
+                  </p>
+                </>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -375,6 +608,272 @@ function DraftBlock({
       <pre className="text-xs whitespace-pre-wrap font-sans text-foreground max-h-48 overflow-y-auto">
         {body}
       </pre>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// ProviderMatchCard
+// ----------------------------------------------------------------------------
+
+type ProviderChoice =
+  | { kind: 'existing'; id: string; name: string }
+  | { kind: 'new'; name: string }
+
+function ProviderMatchCard({
+  extractedName,
+  match,
+  loading,
+  choice,
+  onChangeChoice,
+}: {
+  extractedName: string
+  match: ProviderMatchResult | null
+  loading: boolean
+  choice: ProviderChoice | null
+  onChangeChoice: (c: ProviderChoice) => void
+}) {
+  if (!extractedName) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        La IA no detectó el nombre del proveedor. Escribilo para continuar:
+        <input
+          type="text"
+          className="mt-1.5 w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-sm"
+          placeholder="Nombre del proveedor"
+          onChange={(e) => onChangeChoice({ kind: 'new', name: e.target.value })}
+          value={choice?.kind === 'new' ? choice.name : ''}
+        />
+      </div>
+    )
+  }
+
+  const tone = match?.exact ? 'success' : 'neutral'
+  const toneClass =
+    tone === 'success'
+      ? 'border-emerald-200 bg-emerald-50'
+      : 'border-border/40 bg-muted/10'
+
+  return (
+    <div className={`rounded-lg border ${toneClass} p-3 space-y-2 text-sm`}>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium">
+        Proveedor
+      </p>
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Buscando en tu catálogo…
+        </div>
+      ) : match?.exact ? (
+        <div className="flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-700 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">
+              {match.exact.name}
+              <span className="ml-1.5 text-[10px] uppercase tracking-[0.08em] text-emerald-700">existente</span>
+            </p>
+            {match.exact.category ? (
+              <p className="text-[11px] text-muted-foreground">{match.exact.category}</p>
+            ) : null}
+            {match.candidates.length > 0 ? (
+              <details className="mt-1">
+                <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground">
+                  o elegir otro existente
+                </summary>
+                <div className="mt-1.5 space-y-1">
+                  {match.candidates.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => onChangeChoice({ kind: 'existing', id: c.id, name: c.name })}
+                      className={`w-full text-left rounded-md border px-2 py-1 text-xs transition-colors ${
+                        choice?.kind === 'existing' && choice.id === c.id
+                          ? 'border-primary/40 bg-primary/5'
+                          : 'border-border/40 bg-background hover:border-primary/30'
+                      }`}
+                    >
+                      <span className="font-medium">{c.name}</span>
+                      {c.category ? (
+                        <span className="ml-1.5 text-muted-foreground">· {c.category}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            <span className="italic">{extractedName}</span> no está en tu catálogo.
+          </p>
+          <div className="space-y-1">
+            {match && match.candidates.length > 0 ? (
+              <>
+                <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium mt-1">
+                  ¿Es uno de estos?
+                </p>
+                {match.candidates.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onChangeChoice({ kind: 'existing', id: c.id, name: c.name })}
+                    className={`w-full text-left rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                      choice?.kind === 'existing' && choice.id === c.id
+                        ? 'border-primary/40 bg-primary/5'
+                        : 'border-border/40 bg-background hover:border-primary/30'
+                    }`}
+                  >
+                    <span className="font-medium">{c.name}</span>
+                    {c.category ? (
+                      <span className="ml-1.5 text-muted-foreground">· {c.category}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onChangeChoice({ kind: 'new', name: extractedName })}
+              className={`w-full text-left rounded-md border px-2 py-1.5 text-xs transition-colors inline-flex items-center gap-1.5 ${
+                choice?.kind === 'new'
+                  ? 'border-primary/40 bg-primary/5'
+                  : 'border-border/40 bg-background hover:border-primary/30'
+              }`}
+            >
+              <UserPlus className="w-3 h-3 shrink-0" />
+              <span className="font-medium">Crear nuevo proveedor:</span>
+              <span className="italic text-muted-foreground truncate">{extractedName}</span>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// MonthPicker: chip con año + select de mes
+// ----------------------------------------------------------------------------
+
+function MonthPicker({
+  year,
+  month,
+  onChange,
+}: {
+  year: number
+  month: number
+  onChange: (year: number, month: number) => void
+}) {
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  // Generamos 24 opciones: 12 meses hacia atrás + mes actual + 6 adelante
+  const options: Array<{ y: number; m: number; label: string; isPast: boolean; isCurrent: boolean }> = []
+  for (let delta = -18; delta <= 3; delta++) {
+    const d = new Date(currentYear, currentMonth - 1 + delta, 1)
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    options.push({
+      y,
+      m,
+      label: `${MONTH_LABELS_SHORT[m - 1]} ${String(y).slice(2)}`,
+      isPast: delta < 0,
+      isCurrent: delta === 0,
+    })
+  }
+  options.reverse() // Más recientes primero
+
+  const value = `${year}-${month}`
+  return (
+    <select
+      value={value}
+      onChange={(e) => {
+        const [y, m] = e.target.value.split('-').map((n) => Number(n))
+        onChange(y, m)
+      }}
+      className="w-full rounded-md border border-border/50 bg-background px-2 py-1.5 text-sm focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow capitalize"
+    >
+      {options.map((o) => (
+        <option key={`${o.y}-${o.m}`} value={`${o.y}-${o.m}`}>
+          {o.label} {o.isCurrent ? '· actual' : ''}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// ImportSuccess
+// ----------------------------------------------------------------------------
+
+function ImportSuccess({
+  result,
+  periodLabel,
+  amount,
+  onAnother,
+  onClose,
+}: {
+  result: ImportExpenseResult
+  periodLabel: string
+  amount: number
+  onAnother: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="mesa-fade-in space-y-3">
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="font-serif text-sm font-semibold text-emerald-900">
+              {result.imputed ? 'Gasto imputado' : 'Gasto en revisión'}
+            </h4>
+            <p className="text-xs text-emerald-900/80 mt-0.5">
+              {result.providerName ? (
+                <>
+                  <span className="font-medium">{result.providerName}</span>
+                  {result.providerCreated ? ' · creado como proveedor nuevo' : ''}
+                </>
+              ) : null}
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <span className="text-emerald-900/60 uppercase tracking-[0.08em] text-[9px] font-medium">
+                  Período
+                </span>
+                <p className="font-medium text-emerald-900 capitalize">{periodLabel}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-emerald-900/60 uppercase tracking-[0.08em] text-[9px] font-medium">
+                  Monto
+                </span>
+                <p className="font-medium text-emerald-900 tabular-nums">
+                  $ {formatARSCompact(amount)}
+                </p>
+              </div>
+            </div>
+            {!result.imputed ? (
+              <p className="mt-2 text-[11px] text-emerald-900/70 italic">
+                Tu rol no puede imputar directamente. El gasto quedó en revisión para un administrador con permiso de aprobación.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={onAnother} className="flex-1">
+          Imputar otra factura
+        </Button>
+        <Button size="sm" onClick={onClose} className="flex-1">
+          Cerrar asistente
+        </Button>
+      </div>
     </div>
   )
 }
