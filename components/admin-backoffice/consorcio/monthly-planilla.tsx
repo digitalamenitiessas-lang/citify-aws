@@ -467,6 +467,13 @@ export function MonthlyPlanilla({
       e.preventDefault()
       void redo()
     },
+    'mod+c': (e) => {
+      // Sólo interceptamos si hay selección múltiple; si no, dejamos pasar
+      // el copy nativo del browser.
+      if (selection.size < 2) return
+      e.preventDefault()
+      void copySelection()
+    },
     '?': (e) => {
       e.preventDefault()
       setHelpOpen(true)
@@ -700,6 +707,61 @@ export function MonthlyPlanilla({
         return `${mod.delta >= 0 ? '+' : ''}${mod.delta} a ${count} ${count === 1 ? 'celda' : 'celdas'}`
       case 'absolute':
         return `= ${mod.value} en ${count} ${count === 1 ? 'celda' : 'celdas'}`
+    }
+  }
+
+  /**
+   * Arma un TSV con los valores de la selección, respetando la bounding box
+   * (celdas no seleccionadas dentro de la box quedan vacías) y el orden
+   * visual (filas de arriba a abajo, meses de izquierda a derecha).
+   * Números en formato AR: punto de miles + coma decimal.
+   */
+  function buildSelectionTSV(): string {
+    const keys = Array.from(selection)
+    if (keys.length === 0) return ''
+    const coords = keys.map((k) => {
+      const [rStr, mStr] = k.split('-')
+      return { r: Number(rStr), m: Number(mStr) }
+    })
+    const r0 = Math.min(...coords.map((c) => c.r))
+    const r1 = Math.max(...coords.map((c) => c.r))
+    const m0 = Math.min(...coords.map((c) => c.m))
+    const m1 = Math.max(...coords.map((c) => c.m))
+    const lines: string[] = []
+    const formatter = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
+    for (let r = r0; r <= r1; r++) {
+      const cells: string[] = []
+      for (let m = m0; m <= m1; m++) {
+        const inSel = selection.has(`${r}-${m}`)
+        if (!inSel) {
+          cells.push('')
+          continue
+        }
+        const row = visibleRows[r]
+        const month = visibleMonths[m]
+        if (!row || !month) {
+          cells.push('')
+          continue
+        }
+        const amount = getDisplayAmount(row, month.year, month.month)
+        cells.push(amount === null ? '' : formatter.format(amount))
+      }
+      lines.push(cells.join('\t'))
+    }
+    return lines.join('\n')
+  }
+
+  async function copySelection() {
+    if (selection.size === 0) return
+    const tsv = buildSelectionTSV()
+    if (!tsv) return
+    try {
+      await navigator.clipboard.writeText(tsv)
+      toast.success(
+        `${selection.size} ${selection.size === 1 ? 'celda' : 'celdas'} copiadas al portapapeles`,
+      )
+    } catch {
+      toast.error('No se pudo copiar al portapapeles')
     }
   }
 
@@ -1384,6 +1446,7 @@ export function MonthlyPlanilla({
           onClear={clearSelection}
           onApplyDelta={applyDeltaToSelection}
           onClearValues={clearSelectedCells}
+          onCopy={copySelection}
         />
       ) : null}
     </div>

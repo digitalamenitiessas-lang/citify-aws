@@ -60,6 +60,7 @@ const SECTIONS: Section[] = [
       { keys: ['Shift', 'click'], label: 'Seleccionar rango desde la celda activa' },
       { keys: ['Shift', '↑↓←→'], label: 'Extender selección con flechas' },
       { keys: ['⌘', 'click'], label: 'Agregar / quitar celda individual' },
+      { keys: ['⌘', 'C'], label: 'Copiar selección al portapapeles (pegá en Excel)' },
       { keys: ['Del'], label: 'Limpiar todas las celdas seleccionadas' },
       { keys: ['Barra'], label: 'Aplicar delta: +10%  ·  *1.05  ·  =50000  ·  +500' },
     ],

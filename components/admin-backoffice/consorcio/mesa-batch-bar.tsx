@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowRight, Check, Eraser, Loader2, X } from 'lucide-react'
+import { ArrowRight, Check, Copy, Eraser, Loader2, X } from 'lucide-react'
 
 type Props = {
   count: number
   onClear: () => void
   onApplyDelta: (modifier: DeltaModifier) => Promise<void>
   onClearValues: () => Promise<void>
+  onCopy?: () => Promise<void> | void
 }
 
 export type DeltaModifier =
@@ -85,10 +86,11 @@ export function applyDeltaToAmount(amount: number | null, mod: DeltaModifier): n
   }
 }
 
-export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues }: Props) {
+export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues, onCopy }: Props) {
   const [input, setInput] = useState('')
   const [applying, setApplying] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [copying, setCopying] = useState(false)
 
   const parsed = input ? parseDelta(input) : null
   const canApply = Boolean(parsed) && !applying && !clearing
@@ -172,6 +174,27 @@ export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues }: Pr
 
         <div className="w-px h-6 bg-border/50 mx-1" />
 
+        {onCopy ? (
+          <button
+            type="button"
+            onClick={async () => {
+              setCopying(true)
+              try {
+                await onCopy()
+              } finally {
+                setCopying(false)
+              }
+            }}
+            disabled={copying || applying || clearing}
+            className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+            title="Copiar al portapapeles como TSV (pegá en Excel)"
+          >
+            {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+            Copiar
+            <span className="kbd-hint">⌘C</span>
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={async () => {
@@ -182,7 +205,7 @@ export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues }: Pr
               setClearing(false)
             }
           }}
-          disabled={clearing || applying}
+          disabled={clearing || applying || copying}
           className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background px-2 py-1 text-xs text-rose-700 hover:border-rose-300 hover:bg-rose-50 transition-colors disabled:opacity-50"
           title="Limpiar valores de las celdas seleccionadas"
         >
