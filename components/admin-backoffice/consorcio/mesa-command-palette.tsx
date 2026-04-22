@@ -8,11 +8,13 @@ import {
   ListTree,
   MessageSquare,
   Plus,
+  Redo2,
   Search,
   Send,
   Settings2,
   Sparkles,
   TrendingUp,
+  Undo2,
   UserCircle2,
   Wallet,
 } from 'lucide-react'
@@ -44,6 +46,10 @@ type Props = {
   state: IAdminMesaState
   canEmit: boolean
   canManageRubros: boolean
+  canUndo?: boolean
+  canRedo?: boolean
+  undoLabel?: string
+  redoLabel?: string
   // Acciones que ejecuta la palette
   onOpenAssistant: () => void
   onOpenAssistantExtract: () => void
@@ -56,6 +62,8 @@ type Props = {
   onJumpToProvider: (providerId: string) => void
   onOpenConfiguracion: () => void
   onOpenHelp: () => void
+  onUndo?: () => void
+  onRedo?: () => void
 }
 
 export function MesaCommandPalette({
@@ -65,6 +73,10 @@ export function MesaCommandPalette({
   state,
   canEmit,
   canManageRubros,
+  canUndo,
+  canRedo,
+  undoLabel,
+  redoLabel,
   onOpenAssistant,
   onOpenAssistantExtract,
   onOpenAssistantAnnounce,
@@ -76,9 +88,44 @@ export function MesaCommandPalette({
   onJumpToProvider,
   onOpenConfiguracion,
   onOpenHelp,
+  onUndo,
+  onRedo,
 }: Props) {
   const actions: Action[] = useMemo(() => {
+    const list: Action[] = [
+      ...(canUndo && onUndo
+        ? [
+            {
+              id: 'undo',
+              label: 'Deshacer última edición',
+              hint: undoLabel,
+              icon: Undo2,
+              shortcut: '⌘Z',
+              run: () => {
+                onUndo()
+                onOpenChange(false)
+              },
+            } satisfies Action,
+          ]
+        : []),
+      ...(canRedo && onRedo
+        ? [
+            {
+              id: 'redo',
+              label: 'Rehacer',
+              hint: redoLabel,
+              icon: Redo2,
+              shortcut: '⌘⇧Z',
+              run: () => {
+                onRedo()
+                onOpenChange(false)
+              },
+            } satisfies Action,
+          ]
+        : []),
+    ]
     return [
+      ...list,
       {
         id: 'assistant-extract',
         label: 'Extraer factura con IA',
@@ -173,6 +220,10 @@ export function MesaCommandPalette({
   }, [
     canEmit,
     canManageRubros,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
     grid.readyToEmit,
     state.runStatus,
     onAddRubro,
@@ -186,6 +237,8 @@ export function MesaCommandPalette({
     onOpenConfiguracion,
     onOpenHelp,
     onToggleChart,
+    onUndo,
+    onRedo,
   ])
 
   const units = state.units

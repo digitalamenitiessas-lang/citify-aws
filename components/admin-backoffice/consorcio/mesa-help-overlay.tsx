@@ -27,6 +27,8 @@ const SECTIONS: Section[] = [
     icon: Command,
     shortcuts: [
       { keys: ['⌘', 'K'], label: 'Paleta de comandos', hint: 'buscar + ejecutar cualquier cosa' },
+      { keys: ['⌘', 'Z'], label: 'Deshacer última edición' },
+      { keys: ['⌘', '⇧', 'Z'], label: 'Rehacer' },
       { keys: ['?'], label: 'Mostrar este panel' },
       { keys: ['/'], label: 'Buscar rubro en la planilla' },
       { keys: ['A'], label: 'Abrir asistente IA' },

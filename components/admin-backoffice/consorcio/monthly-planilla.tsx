@@ -44,6 +44,7 @@ import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 import { useHotkeys } from '@/components/admin-backoffice/shared/use-hotkeys'
 import { useLocalPref } from '@/components/admin-backoffice/shared/use-local-pref'
 import { SavedIndicator } from '@/components/admin-backoffice/shared/saved-indicator'
+import { HistoryIndicator } from '@/components/admin-backoffice/shared/history-indicator'
 import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
 import { FileSpreadsheet, SearchX } from 'lucide-react'
@@ -60,12 +61,44 @@ type Props = {
 
 type VisibleRange = 3 | 6 | 12
 
+const MONTH_SHORT_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
 function formatARSShort(n: number): string {
   return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n)
 }
 
 function cellKey(providerId: string, year: number, month: number) {
   return `${providerId}::${year}-${month}`
+}
+
+// --- Undo/redo model -------------------------------------------------------
+
+type CellChange = {
+  providerId: string
+  providerName: string
+  expenseKind: 'ordinaria' | 'extraordinaria'
+  year: number
+  month: number
+  previous: number | null
+  next: number | null
+}
+
+type HistoryEntry = {
+  id: string
+  label: string
+  at: number
+  changes: CellChange[]
+}
+
+const HISTORY_CAP = 30
+
+function describeChange(changes: CellChange[]): string {
+  if (changes.length === 0) return 'Edición'
+  if (changes.length === 1) {
+    const c = changes[0]
+    return `${c.providerName} · ${MONTH_SHORT_ES[c.month - 1]} ${String(c.year).slice(2)}`
+  }
+  return `${changes.length} celdas`
 }
 
 export function MonthlyPlanilla({
@@ -117,6 +150,10 @@ export function MonthlyPlanilla({
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [selectionAnchor, setSelectionAnchor] = useState<{ r: number; m: number } | null>(null)
 
+  // Undo / Redo
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([])
+
   function rectSelection(a: { r: number; m: number }, b: { r: number; m: number }): Set<string> {
     const r0 = Math.min(a.r, b.r)
     const r1 = Math.max(a.r, b.r)
@@ -157,15 +194,28 @@ export function MonthlyPlanilla({
     return cell?.amount ?? null
   }
 
+  function pushHistory(changes: CellChange[], label: string) {
+    if (changes.length === 0) return
+    const entry: HistoryEntry = {
+      id: Math.random().toString(36).slice(2),
+      label,
+      at: Date.now(),
+      changes,
+    }
+    setHistory((prev) => [...prev, entry].slice(-HISTORY_CAP))
+    setRedoStack([])
+  }
+
   async function commitCell(
     row: IAdminMonthlyGridRow,
     year: number,
     month: number,
     nextAmount: number | null,
+    opts?: { collect?: CellChange[]; skipHistory?: boolean; label?: string },
   ) {
     const key = cellKey(row.providerId, year, month)
-    const cell = row.cells.find((c) => c.year === year && c.month === month)
-    if (cell && cell.amount === nextAmount) return
+    const previous = getDisplayAmount(row, year, month)
+    if (previous === nextAmount) return
 
     setPendingCells((prev) => new Set(prev).add(key))
     setLocalValues((prev) => ({ ...prev, [key]: nextAmount }))
@@ -190,6 +240,21 @@ export function MonthlyPlanilla({
             return next
           })
         }, 900)
+        // Registrar en history (o en collector externo)
+        const change: CellChange = {
+          providerId: row.providerId,
+          providerName: row.providerName,
+          expenseKind: row.expenseKind,
+          year,
+          month,
+          previous,
+          next: nextAmount,
+        }
+        if (opts?.collect) {
+          opts.collect.push(change)
+        } else if (!opts?.skipHistory) {
+          pushHistory([change], opts?.label ?? describeChange([change]))
+        }
         // Refrescar server state sin recargar
         router.refresh()
       } catch (error) {
@@ -390,6 +455,18 @@ export function MonthlyPlanilla({
       e.preventDefault()
       setCommandOpen(true)
     },
+    'mod+z': (e) => {
+      e.preventDefault()
+      void undo()
+    },
+    'mod+shift+z': (e) => {
+      e.preventDefault()
+      void redo()
+    },
+    'mod+y': (e) => {
+      e.preventDefault()
+      void redo()
+    },
     '?': (e) => {
       e.preventDefault()
       setHelpOpen(true)
@@ -498,6 +575,78 @@ export function MonthlyPlanilla({
   }
 
   // --------------------------------------------------------------------------
+  // Undo / Redo
+  // --------------------------------------------------------------------------
+  function findRowByProviderId(providerId: string): IAdminMonthlyGridRow | null {
+    if (!providerId && grid.freeRow) return grid.freeRow
+    return grid.rows.find((r) => r.providerId === providerId) ?? null
+  }
+
+  async function applyChanges(
+    changes: CellChange[],
+    direction: 'forward' | 'back',
+  ): Promise<number> {
+    let applied = 0
+    for (const c of changes) {
+      const row = findRowByProviderId(c.providerId)
+      if (!row) continue
+      const amount = direction === 'forward' ? c.next : c.previous
+      try {
+        await upsertMonthlyCell({
+          propertyId: grid.propertyId,
+          providerId: c.providerId || null,
+          year: c.year,
+          month: c.month,
+          amount,
+          expenseKind: c.expenseKind,
+        })
+        const k = cellKey(c.providerId, c.year, c.month)
+        setLocalValues((prev) => ({ ...prev, [k]: amount }))
+        applied += 1
+      } catch {
+        // no-op: seguimos con las demás
+      }
+    }
+    if (applied > 0) {
+      setLastSavedAt(new Date())
+      router.refresh()
+    }
+    return applied
+  }
+
+  async function undo() {
+    const entry = history[history.length - 1]
+    if (!entry) {
+      toast.info('No hay nada que deshacer')
+      return
+    }
+    const applied = await applyChanges(entry.changes, 'back')
+    if (applied === 0) {
+      toast.error('No se pudo deshacer (¿período cerrado?)')
+      return
+    }
+    setHistory((prev) => prev.slice(0, -1))
+    setRedoStack((prev) => [...prev, entry].slice(-HISTORY_CAP))
+    toast.success(`Deshecho: ${entry.label}`)
+  }
+
+  async function redo() {
+    const entry = redoStack[redoStack.length - 1]
+    if (!entry) {
+      toast.info('No hay nada que rehacer')
+      return
+    }
+    const applied = await applyChanges(entry.changes, 'forward')
+    if (applied === 0) {
+      toast.error('No se pudo rehacer')
+      return
+    }
+    setRedoStack((prev) => prev.slice(0, -1))
+    setHistory((prev) => [...prev, entry].slice(-HISTORY_CAP))
+    toast.success(`Rehecho: ${entry.label}`)
+  }
+
+  // --------------------------------------------------------------------------
   // Acciones batch (selección múltiple)
   // --------------------------------------------------------------------------
   function handleSelectRange(target: { r: number; m: number }) {
@@ -520,7 +669,7 @@ export function MonthlyPlanilla({
   async function clearSelectedCells() {
     const keys = Array.from(selection)
     if (keys.length === 0) return
-    let cleared = 0
+    const collected: CellChange[] = []
     for (const k of keys) {
       const [rStr, mStr] = k.split('-')
       const r = Number(rStr)
@@ -532,17 +681,32 @@ export function MonthlyPlanilla({
       if (!cell?.isEditable) continue
       const current = getDisplayAmount(row, month.year, month.month)
       if (current === null) continue
-      await commitCell(row, month.year, month.month, null)
-      cleared += 1
+      await commitCell(row, month.year, month.month, null, { collect: collected })
     }
-    toast.success(`${cleared} ${cleared === 1 ? 'celda limpiada' : 'celdas limpiadas'}`)
+    if (collected.length > 0) {
+      pushHistory(collected, `Limpiar ${collected.length} ${collected.length === 1 ? 'celda' : 'celdas'}`)
+      toast.success(`${collected.length} ${collected.length === 1 ? 'celda limpiada' : 'celdas limpiadas'}`)
+    }
     clearSelection()
+  }
+
+  function describeDelta(mod: DeltaModifier, count: number): string {
+    switch (mod.kind) {
+      case 'percent':
+        return `${mod.pct >= 0 ? '+' : ''}${mod.pct}% a ${count} ${count === 1 ? 'celda' : 'celdas'}`
+      case 'multiply':
+        return `×${mod.factor} a ${count} ${count === 1 ? 'celda' : 'celdas'}`
+      case 'add':
+        return `${mod.delta >= 0 ? '+' : ''}${mod.delta} a ${count} ${count === 1 ? 'celda' : 'celdas'}`
+      case 'absolute':
+        return `= ${mod.value} en ${count} ${count === 1 ? 'celda' : 'celdas'}`
+    }
   }
 
   async function applyDeltaToSelection(mod: DeltaModifier) {
     const keys = Array.from(selection)
     if (keys.length === 0) return
-    let applied = 0
+    const collected: CellChange[] = []
     let skipped = 0
     for (const k of keys) {
       const [rStr, mStr] = k.split('-')
@@ -564,12 +728,12 @@ export function MonthlyPlanilla({
       }
       if (current !== null && Math.abs(next - current) < 0.005) continue // no-op
       const normalized = next === 0 ? null : Math.round(next * 100) / 100
-      await commitCell(row, month.year, month.month, normalized)
-      applied += 1
+      await commitCell(row, month.year, month.month, normalized, { collect: collected })
     }
-    if (applied > 0) {
+    if (collected.length > 0) {
+      pushHistory(collected, describeDelta(mod, collected.length))
       toast.success(
-        `${applied} ${applied === 1 ? 'celda actualizada' : 'celdas actualizadas'}${
+        `${collected.length} ${collected.length === 1 ? 'celda actualizada' : 'celdas actualizadas'}${
           skipped > 0 ? ` · ${skipped} saltadas` : ''
         }`,
       )
@@ -597,7 +761,7 @@ export function MonthlyPlanilla({
     // Single-cell paste → que el caller lo maneje
     if (grid.length === 1 && maxCols === 1) return false
 
-    let committed = 0
+    const collected: CellChange[] = []
     for (let dr = 0; dr < grid.length; dr++) {
       const rowIdx = anchor.r + dr
       const targetRow = visibleRows[rowIdx]
@@ -612,13 +776,18 @@ export function MonthlyPlanilla({
         if (!cell?.isEditable) continue
         const n = parseNumericString(raw)
         if (n === null) continue
-        await commitCell(targetRow, targetMonth.year, targetMonth.month, n === 0 ? null : n)
-        committed += 1
+        await commitCell(targetRow, targetMonth.year, targetMonth.month, n === 0 ? null : n, {
+          collect: collected,
+        })
       }
     }
-    if (committed > 0) {
+    if (collected.length > 0) {
+      pushHistory(
+        collected,
+        `Pegar en ${collected.length} ${collected.length === 1 ? 'celda' : 'celdas'}`,
+      )
       toast.success(
-        `${committed} ${committed === 1 ? 'celda pegada' : 'celdas pegadas'} desde el portapapeles`,
+        `${collected.length} ${collected.length === 1 ? 'celda pegada' : 'celdas pegadas'} desde el portapapeles`,
       )
     }
     return true
@@ -677,8 +846,16 @@ export function MonthlyPlanilla({
                 Cargá los montos. Cada celda se guarda sola. La mini-curva a la derecha es la tendencia del rubro.
               </p>
             </div>
-            <div className="pt-1">
+            <div className="pt-1 flex items-center gap-3 flex-wrap">
               <SavedIndicator lastSavedAt={lastSavedAt} pendingCount={pendingCells.size} />
+              <HistoryIndicator
+                canUndo={history.length > 0}
+                canRedo={redoStack.length > 0}
+                undoLabel={history[history.length - 1]?.label}
+                redoLabel={redoStack[redoStack.length - 1]?.label}
+                onUndo={() => void undo()}
+                onRedo={() => void redo()}
+              />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -995,7 +1172,7 @@ export function MonthlyPlanilla({
                                   if (selection.size > 1) {
                                     // Multi-cell paste: aplicar el mismo valor a todas las selected
                                     void (async () => {
-                                      let count = 0
+                                      const collected: CellChange[] = []
                                       for (const k of selection) {
                                         const [rStr, mStr] = k.split('-')
                                         const rr = Number(rStr)
@@ -1007,12 +1184,23 @@ export function MonthlyPlanilla({
                                           (c) => c.year === targetMonth.year && c.month === targetMonth.month,
                                         )
                                         if (!tCell?.isEditable) continue
-                                        await commitCell(targetRow, targetMonth.year, targetMonth.month, val)
-                                        count += 1
+                                        await commitCell(
+                                          targetRow,
+                                          targetMonth.year,
+                                          targetMonth.month,
+                                          val,
+                                          { collect: collected },
+                                        )
                                       }
-                                      toast.success(
-                                        `${count} ${count === 1 ? 'celda' : 'celdas'} con el mismo valor`,
-                                      )
+                                      if (collected.length > 0) {
+                                        pushHistory(
+                                          collected,
+                                          `Pegar ${val} en ${collected.length} ${collected.length === 1 ? 'celda' : 'celdas'}`,
+                                        )
+                                        toast.success(
+                                          `${collected.length} ${collected.length === 1 ? 'celda' : 'celdas'} con el mismo valor`,
+                                        )
+                                      }
                                     })()
                                     return
                                   }
@@ -1164,6 +1352,12 @@ export function MonthlyPlanilla({
         state={state}
         canEmit={canEmit}
         canManageRubros={canManageRubros}
+        canUndo={history.length > 0}
+        canRedo={redoStack.length > 0}
+        undoLabel={history[history.length - 1]?.label}
+        redoLabel={redoStack[redoStack.length - 1]?.label}
+        onUndo={() => void undo()}
+        onRedo={() => void redo()}
         onOpenAssistant={() => openAssistantTab('menu')}
         onOpenAssistantExtract={() => openAssistantTab('extract')}
         onOpenAssistantAnnounce={() => openAssistantTab('announce')}
