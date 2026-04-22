@@ -3,8 +3,10 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
+  CheckCircle,
   ChevronRight,
   Home,
   Mail,
@@ -16,6 +18,7 @@ import {
   User,
   Users,
 } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { toast } from 'sonner'
 import { ROLE_LABELS } from '@/lib/constants'
 import { ChatWidget } from '@/components/ai/chat-widget'
@@ -29,6 +32,8 @@ import type {
 } from '@/lib/types'
 
 type TabType = 'overview' | 'buildings' | 'users' | 'businesses' | 'promotions'
+
+const PIE_COLORS = ['#B85C38', '#C4733D', '#8B6B52', '#D4A882'] as const
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon: Icon }: { label: string; value: number; sub: string; icon: typeof Shield }) {
@@ -560,6 +565,148 @@ function PromotionRow({ promotion }: { promotion: SuperAdminPromotionDetail }) {
   )
 }
 
+// ─── Dashboard Stats ──────────────────────────────────────────────────────────
+interface DashboardStats {
+  usersByRole: { role: string; label: string; count: number }[]
+  avgOccupancy: number
+  activePromotions: number
+  expiredPromotions: number
+  totalRedemptions: number
+  buildingsWithoutAdmin: number
+  top5Buildings: { name: string; occupancyRate: number }[]
+  top5Businesses: { name: string; totalRedemptions: number }[]
+}
+
+function computeDashboardStats(data: SuperAdminDashboardData): DashboardStats {
+  const roleCounts = data.users.reduce<Record<string, number>>((acc, u) => {
+    acc[u.role] = (acc[u.role] ?? 0) + 1
+    return acc
+  }, {})
+
+  const usersByRole = (['vecino', 'propietario', 'consorcio_admin', 'negocio_admin'] as const).map((role) => ({
+    role,
+    label: ROLE_LABELS[role],
+    count: roleCounts[role] ?? 0,
+  }))
+
+  const avgOccupancy =
+    data.buildings.length === 0
+      ? 0
+      : Math.round(data.buildings.reduce((sum, b) => sum + b.occupancyRate, 0) / data.buildings.length)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const activePromotions = data.promotions.filter((p) => p.expirationDate >= today).length
+  const expiredPromotions = data.promotions.length - activePromotions
+
+  const totalRedemptions = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
+
+  const buildingsWithoutAdmin = data.buildings.filter((b) => b.admins.length === 0).length
+
+  const top5Buildings = [...data.buildings]
+    .sort((a, b) => b.occupancyRate - a.occupancyRate)
+    .slice(0, 5)
+    .map((b) => ({ name: b.name, occupancyRate: b.occupancyRate }))
+
+  const top5Businesses = [...data.businesses]
+    .sort((a, b) => b.totalRedemptions - a.totalRedemptions)
+    .slice(0, 5)
+    .map((b) => ({ name: b.name, totalRedemptions: b.totalRedemptions }))
+
+  return { usersByRole, avgOccupancy, activePromotions, expiredPromotions, totalRedemptions, buildingsWithoutAdmin, top5Buildings, top5Businesses }
+}
+
+// ─── Platform Health Row ──────────────────────────────────────────────────────
+function PlatformHealthRow({ stats }: { stats: DashboardStats }) {
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <StatCard label="Ocupación promedio" value={stats.avgOccupancy} sub="% promedio plataforma" icon={TrendingUp} />
+      <StatCard label="Promociones activas" value={stats.activePromotions} sub={`${stats.expiredPromotions} vencidas`} icon={Tag} />
+      <StatCard label="Canjes totales" value={stats.totalRedemptions} sub="registros acumulados" icon={CheckCircle} />
+      <StatCard label="Sin administrador" value={stats.buildingsWithoutAdmin} sub="consorcios sin encargado" icon={AlertTriangle} />
+    </div>
+  )
+}
+
+// ─── Users by Role Chart ──────────────────────────────────────────────────────
+function UsersByRoleChart({ data }: { data: DashboardStats['usersByRole'] }) {
+  return (
+    <div className="glass-card rounded-xl p-5">
+      <h3 className="font-semibold text-foreground text-sm mb-4">Usuarios por Rol</h3>
+      <div style={{ height: 200 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={data} dataKey="count" nameKey="label" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3}>
+              {data.map((entry, index) => (
+                <Cell key={entry.role} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value: number, name: string) => [value, name]}
+              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+        {data.map((entry, index) => (
+          <div key={entry.role} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} />
+            <span className="text-xs text-muted-foreground">
+              {entry.label} <span className="font-medium text-foreground">{entry.count}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Top Buildings Chart ──────────────────────────────────────────────────────
+function TopBuildingsChart({ data }: { data: DashboardStats['top5Buildings'] }) {
+  const fmt = (v: string) => (v.length > 14 ? v.slice(0, 13) + '…' : v)
+  return (
+    <div className="glass-card rounded-xl p-5">
+      <h3 className="font-semibold text-foreground text-sm mb-4">Top Consorcios por Ocupación</h3>
+      <div style={{ height: 200 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+            <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: '#8B6B52' }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#5C3A1E' }} axisLine={false} tickLine={false} />
+            <Tooltip
+              formatter={(value: number) => [`${value}%`, 'Ocupación']}
+              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+            />
+            <Bar dataKey="occupancyRate" fill="#B85C38" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ─── Top Businesses Chart ─────────────────────────────────────────────────────
+function TopBusinessesChart({ data }: { data: DashboardStats['top5Businesses'] }) {
+  const fmt = (v: string) => (v.length > 14 ? v.slice(0, 13) + '…' : v)
+  return (
+    <div className="glass-card rounded-xl p-5">
+      <h3 className="font-semibold text-foreground text-sm mb-4">Top Negocios por Canjes</h3>
+      <div style={{ height: 200 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+            <XAxis type="number" tick={{ fontSize: 11, fill: '#8B6B52' }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#5C3A1E' }} axisLine={false} tickLine={false} />
+            <Tooltip
+              formatter={(value: number) => [value, 'Canjes']}
+              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+            />
+            <Bar dataKey="totalRedemptions" fill="#C4733D" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData }) {
   const router = useRouter()
@@ -589,6 +736,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   const [importText, setImportText] = useState('')
 
   const totalUsage = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
+  const stats = computeDashboardStats(data)
 
   const tabs: { key: TabType; label: string; icon: typeof Shield }[] = [
     { key: 'overview', label: 'Resumen', icon: Shield },
@@ -743,6 +891,28 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                 <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </button>
             ))}
+          </div>
+
+          {/* Salud de la Plataforma */}
+          <div className="mt-8">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              Salud de la Plataforma
+            </h3>
+            <PlatformHealthRow stats={stats} />
+          </div>
+
+          {/* Análisis de Plataforma */}
+          <div className="mt-6">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-primary" />
+              Análisis de Plataforma
+            </h3>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <UsersByRoleChart data={stats.usersByRole} />
+              <TopBuildingsChart data={stats.top5Buildings} />
+              <TopBusinessesChart data={stats.top5Businesses} />
+            </div>
           </div>
         </div>
       )}
