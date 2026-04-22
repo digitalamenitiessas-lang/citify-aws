@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
+import { getIAdminUnitAccountStatement } from '@/lib/data'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
-import type { IAdminExpenseStatus } from '@/lib/types'
+import type { IAdminExpenseStatus, IAdminUnitAccountStatement } from '@/lib/types'
 
 // ----------------------------------------------------------------------------
 // upsertMonthlyCell: crear/actualizar/borrar el gasto de 1 celda
@@ -696,4 +697,41 @@ export async function getExpenseDocumentSignedUrl(
     url: signed.signedUrl,
     fileName: (doc.file_name as string) ?? 'documento',
   }
+}
+
+// ----------------------------------------------------------------------------
+// getUnitStatement: estado de cuenta del vecino para el drawer
+// ----------------------------------------------------------------------------
+
+const statementSchema = z.object({
+  propertyId: z.string().uuid(),
+  unitId: z.string().uuid(),
+  monthsCount: z.number().int().min(1).max(24).optional(),
+})
+
+export async function getUnitStatement(
+  input: z.input<typeof statementSchema>,
+): Promise<IAdminUnitAccountStatement> {
+  const parsed = statementSchema.parse(input)
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  // Resolver administrationId para chequear capability
+  const { data: prop } = await supabase
+    .from('iadmin_managed_properties')
+    .select('administration_id')
+    .eq('id', parsed.propertyId)
+    .maybeSingle()
+  if (!prop?.administration_id) throw new Error('Consorcio no encontrado')
+
+  await requireIAdmin({
+    capability: 'collections.view',
+    administrationId: prop.administration_id as string,
+  })
+
+  const statement = await getIAdminUnitAccountStatement(parsed.propertyId, parsed.unitId, {
+    monthsCount: parsed.monthsCount,
+  })
+  if (!statement) throw new Error('Unidad no encontrada')
+  return statement
 }

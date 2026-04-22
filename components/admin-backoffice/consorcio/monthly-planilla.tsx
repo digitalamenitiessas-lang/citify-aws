@@ -667,6 +667,9 @@ export function MonthlyPlanilla({
         cashAccounts={cashAccounts}
         canRegister={canRegisterPayments}
         onPayQuick={handleQuickPay}
+        propertyId={grid.propertyId}
+        currentMonthYear={currentMonth.year}
+        currentMonth={currentMonth.month}
       />
 
       <section className="mesa-card p-5">

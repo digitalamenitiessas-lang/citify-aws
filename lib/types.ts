@@ -742,6 +742,61 @@ export interface IAdminMesaUnitLine {
   dueAmounts: Array<{ label: string; date: string; amount: number }>
 }
 
+export interface IAdminUnitAccountMonth {
+  year: number
+  month: number
+  label: string           // "ENE 25"
+  periodStatus: IAdminPeriodStatus | null
+  runId: string | null
+  runStatus: IAdminLiquidationStatus | null
+  liquidationItemId: string | null
+  // Totales de la unidad en ese mes
+  ordinary: number
+  extraordinary: number
+  previousBalance: number
+  subtotal: number
+  collected: number
+  balance: number         // saldo pendiente
+  isCurrent: boolean
+}
+
+export interface IAdminUnitPaymentReceipt {
+  id: string
+  receiptNumber: string | null
+  amount: number
+  paidAt: string
+  method: string | null
+  reference: string | null
+  dueLabel: string | null
+  surchargeAmount: number
+  isVoid: boolean
+  notes: string | null
+  liquidationRunId: string | null
+  periodLabel: string | null  // "ABR 26"
+}
+
+export interface IAdminUnitAccountStatement {
+  propertyId: string
+  administrationId: string
+  unit: {
+    id: string
+    code: string
+    kind: IAdminUnitKind
+    prorataCoefficient: number
+    holderName: string | null
+    holderPhone: string | null
+    holderEmail: string | null
+  }
+  months: IAdminUnitAccountMonth[]        // del más viejo al más nuevo
+  payments: IAdminUnitPaymentReceipt[]    // descendente por paidAt
+  totals: {
+    billed: number
+    collected: number
+    pending: number
+    collectionRatePct: number | null
+  }
+}
+
 export interface IAdminMesaState {
   runId: string | null
   runStatus: IAdminLiquidationStatus | null

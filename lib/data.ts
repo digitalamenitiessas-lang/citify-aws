@@ -46,6 +46,9 @@ import type {
   IAdminMesaUnitLine,
   IAdminMonthlyGrid,
   IAdminMonthlyGridRow,
+  IAdminUnitAccountMonth,
+  IAdminUnitAccountStatement,
+  IAdminUnitPaymentReceipt,
   IAdminPayment,
   IAdminReminder,
   IAdminReminderStatus,
@@ -2422,6 +2425,226 @@ export async function getIAdminMesaState(
     coverageOk,
     coverageDeltaPct,
     alicuotaSum: Math.round(alicuotaSum * 1000000) / 1000000,
+  }
+}
+
+// ----------------------------------------------------------------------------
+// getIAdminUnitAccountStatement: estado de cuenta de una unidad / vecino
+// ----------------------------------------------------------------------------
+
+const MONTH_LABELS_SHORT = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC']
+
+export async function getIAdminUnitAccountStatement(
+  propertyId: string,
+  unitId: string,
+  options: { monthsCount?: number } = {},
+): Promise<IAdminUnitAccountStatement | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const monthsCount = options.monthsCount ?? 12
+
+  // 1. Unidad + titular activo + property
+  const { data: unitRow } = await supabase
+    .from('iadmin_units')
+    .select('id, code, kind, prorata_coefficient, managed_property_id, iadmin_managed_properties(administration_id), iadmin_unit_holders(full_name, phone, email, is_active)')
+    .eq('id', unitId)
+    .eq('managed_property_id', propertyId)
+    .maybeSingle()
+  if (!unitRow) return null
+
+  const property = Array.isArray((unitRow as any).iadmin_managed_properties)
+    ? (unitRow as any).iadmin_managed_properties[0]
+    : (unitRow as any).iadmin_managed_properties
+  const administrationId = property?.administration_id as string | undefined
+  if (!administrationId) return null
+
+  const holders = Array.isArray((unitRow as any).iadmin_unit_holders)
+    ? ((unitRow as any).iadmin_unit_holders as Array<any>)
+    : []
+  const holder = holders.find((h) => h?.is_active) ?? holders[0] ?? null
+
+  const prorata = Number((unitRow as any).prorata_coefficient ?? 0)
+
+  // 2. Armar ventana de meses (más viejo al más nuevo)
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+  const months: IAdminUnitAccountMonth[] = []
+  for (let i = monthsCount - 1; i >= 0; i--) {
+    const d = new Date(currentYear, currentMonth - 1 - i, 1)
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    months.push({
+      year: y,
+      month: m,
+      label: `${MONTH_LABELS_SHORT[m - 1]} ${String(y).slice(2)}`,
+      periodStatus: null,
+      runId: null,
+      runStatus: null,
+      liquidationItemId: null,
+      ordinary: 0,
+      extraordinary: 0,
+      previousBalance: 0,
+      subtotal: 0,
+      collected: 0,
+      balance: 0,
+      isCurrent: y === currentYear && m === currentMonth,
+    })
+  }
+
+  const windowStart = new Date(months[0].year, months[0].month - 1, 1).toISOString().slice(0, 10)
+  const yearsInWindow = Array.from(new Set(months.map((m) => m.year)))
+
+  // 3. Periodos de la ventana
+  const { data: periods } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id, period_year, period_month, status')
+    .eq('managed_property_id', propertyId)
+    .in('period_year', yearsInWindow)
+  const periodByKey = new Map<string, { id: string; status: any }>()
+  for (const p of periods ?? []) {
+    periodByKey.set(`${p.period_year}-${p.period_month}`, { id: p.id, status: p.status })
+  }
+  for (const m of months) {
+    const found = periodByKey.get(`${m.year}-${m.month}`)
+    if (found) m.periodStatus = found.status as any
+  }
+
+  // 4. Runs de la ventana + item de esta unidad por cada run
+  const { data: runsData } = await supabase
+    .from('iadmin_liquidation_runs')
+    .select(`
+      id, status, managed_property_id, accounting_period_id,
+      iadmin_accounting_periods(period_year, period_month),
+      iadmin_liquidation_items(id, unit_id, ordinary_amount, extraordinary_amount, previous_balance)
+    `)
+    .eq('managed_property_id', propertyId)
+
+  for (const r of runsData ?? []) {
+    const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
+    if (!p) continue
+    const monthTarget = months.find((mm) => mm.year === p.period_year && mm.month === p.period_month)
+    if (!monthTarget) continue
+    monthTarget.runId = r.id as string
+    monthTarget.runStatus = r.status as any
+    const items = Array.isArray(r.iadmin_liquidation_items) ? r.iadmin_liquidation_items : []
+    const item = items.find((it: any) => it.unit_id === unitId)
+    if (item) {
+      monthTarget.liquidationItemId = item.id as string
+      monthTarget.ordinary = Number(item.ordinary_amount ?? 0)
+      monthTarget.extraordinary = Number(item.extraordinary_amount ?? 0)
+      monthTarget.previousBalance = Number(item.previous_balance ?? 0)
+    }
+  }
+
+  // 5. Para meses sin run pero con gastos imputados, calculamos subtotal estimado
+  //    usando la prorata sobre el total imputed del mes.
+  const missing = months.filter((m) => m.liquidationItemId === null && m.periodStatus !== null)
+  if (missing.length > 0) {
+    const periodIds = missing.map((m) => periodByKey.get(`${m.year}-${m.month}`)?.id).filter(Boolean) as string[]
+    if (periodIds.length > 0) {
+      const { data: expensesRows } = await supabase
+        .from('iadmin_expenses')
+        .select('amount, expense_kind, accounting_period_id')
+        .eq('managed_property_id', propertyId)
+        .eq('status', 'imputed')
+        .in('accounting_period_id', periodIds)
+      const byPeriod = new Map<string, { ord: number; ext: number }>()
+      for (const e of expensesRows ?? []) {
+        const acc = byPeriod.get(e.accounting_period_id as string) ?? { ord: 0, ext: 0 }
+        if ((e.expense_kind ?? 'ordinaria') === 'extraordinaria') acc.ext += Number(e.amount)
+        else acc.ord += Number(e.amount)
+        byPeriod.set(e.accounting_period_id as string, acc)
+      }
+      for (const m of missing) {
+        const pid = periodByKey.get(`${m.year}-${m.month}`)?.id
+        if (!pid) continue
+        const totals = byPeriod.get(pid)
+        if (!totals) continue
+        m.ordinary = Math.round(totals.ord * prorata * 100) / 100
+        m.extraordinary = Math.round(totals.ext * prorata * 100) / 100
+      }
+    }
+  }
+
+  // 6. Pagos de esta unidad dentro de la ventana
+  const { data: paymentsRows } = await supabase
+    .from('iadmin_payments')
+    .select(`
+      id, amount, paid_at, method, reference, receipt_number, due_label,
+      surcharge_amount, is_void, notes, liquidation_run_id, liquidation_item_id,
+      iadmin_liquidation_runs(
+        iadmin_accounting_periods(period_year, period_month)
+      )
+    `)
+    .eq('unit_id', unitId)
+    .gte('paid_at', windowStart)
+    .order('paid_at', { ascending: false })
+
+  const collectedByItem = new Map<string, number>()
+  const paymentsFormatted: IAdminUnitPaymentReceipt[] = []
+  for (const row of paymentsRows ?? []) {
+    const amount = Number(row.amount ?? 0)
+    if (!row.is_void && row.liquidation_item_id) {
+      collectedByItem.set(row.liquidation_item_id as string, (collectedByItem.get(row.liquidation_item_id as string) ?? 0) + amount)
+    }
+    const run = Array.isArray(row.iadmin_liquidation_runs) ? row.iadmin_liquidation_runs[0] : row.iadmin_liquidation_runs
+    const runPeriod = run ? (Array.isArray(run.iadmin_accounting_periods) ? run.iadmin_accounting_periods[0] : run.iadmin_accounting_periods) : null
+    const periodLabel = runPeriod
+      ? `${MONTH_LABELS_SHORT[runPeriod.period_month - 1]} ${String(runPeriod.period_year).slice(2)}`
+      : null
+    paymentsFormatted.push({
+      id: row.id as string,
+      receiptNumber: (row.receipt_number as string) ?? null,
+      amount,
+      paidAt: row.paid_at as string,
+      method: (row.method as string) ?? null,
+      reference: (row.reference as string) ?? null,
+      dueLabel: (row.due_label as string) ?? null,
+      surchargeAmount: Number(row.surcharge_amount ?? 0),
+      isVoid: Boolean(row.is_void),
+      notes: (row.notes as string) ?? null,
+      liquidationRunId: (row.liquidation_run_id as string) ?? null,
+      periodLabel,
+    })
+  }
+
+  // 7. Consolidar cada mes
+  for (const m of months) {
+    m.subtotal = Math.round((m.ordinary + m.extraordinary + m.previousBalance) * 100) / 100
+    m.collected = m.liquidationItemId
+      ? Math.round((collectedByItem.get(m.liquidationItemId) ?? 0) * 100) / 100
+      : 0
+    m.balance = Math.max(0, Math.round((m.subtotal - m.collected) * 100) / 100)
+  }
+
+  // 8. Totales globales
+  const billed = months.reduce((s, m) => s + m.subtotal, 0)
+  const collected = months.reduce((s, m) => s + m.collected, 0)
+  const pending = months.reduce((s, m) => s + m.balance, 0)
+  const collectionRatePct = billed > 0 ? Math.round((collected / billed) * 100) : null
+
+  return {
+    propertyId,
+    administrationId,
+    unit: {
+      id: unitId,
+      code: (unitRow as any).code as string,
+      kind: (unitRow as any).kind,
+      prorataCoefficient: prorata,
+      holderName: holder?.full_name ?? null,
+      holderPhone: holder?.phone ?? null,
+      holderEmail: holder?.email ?? null,
+    },
+    months,
+    payments: paymentsFormatted,
+    totals: {
+      billed: Math.round(billed * 100) / 100,
+      collected: Math.round(collected * 100) / 100,
+      pending: Math.round(pending * 100) / 100,
+      collectionRatePct,
+    },
   }
 }
 
