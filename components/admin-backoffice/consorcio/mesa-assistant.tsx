@@ -6,11 +6,14 @@ import {
   ArrowRight,
   CheckCircle2,
   Copy,
+  FileText,
   FileUp,
   Loader2,
   MessageSquare,
+  ShieldAlert,
   Sparkles,
   TrendingUp,
+  UserCircle2,
   UserPlus,
   X,
 } from 'lucide-react'
@@ -28,8 +31,11 @@ import {
   type AnnouncementDraft,
 } from '@/app/iadmin/comunicaciones/actions'
 import {
+  checkExpenseDuplicate,
   importExpenseFromExtraction,
   suggestProviderMatch,
+  type DuplicateCandidate,
+  type DuplicateCheckResult,
   type ImportExpenseResult,
   type ProviderMatchCandidate,
   type ProviderMatchResult,
@@ -106,6 +112,9 @@ export function MesaAssistant({
   const [expenseKind, setExpenseKind] = useState<'ordinaria' | 'extraordinaria'>('ordinaria')
   const [imported, setImported] = useState<ImportExpenseResult | null>(null)
   const [importing, startImporting] = useTransition()
+  const [duplicateCheck, setDuplicateCheck] = useState<DuplicateCheckResult | null>(null)
+  const [duplicateLoading, setDuplicateLoading] = useState(false)
+  const [duplicateAcked, setDuplicateAcked] = useState(false)
 
   // Comunicado
   const [announceTopic, setAnnounceTopic] = useState('')
@@ -214,6 +223,51 @@ export function MesaAssistant({
       .finally(() => setMatchLoading(false))
   }, [extractResult, administrationId, year, month])
 
+  // Auto-check de duplicados con debounce (se dispara cuando tenemos provider + monto + período)
+  useEffect(() => {
+    if (!extractResult || !providerChoice) {
+      setDuplicateCheck(null)
+      setDuplicateAcked(false)
+      return
+    }
+    // Sólo tiene sentido chequear si el proveedor es EXISTENTE (un nuevo no puede tener duplicados)
+    if (providerChoice.kind !== 'existing') {
+      setDuplicateCheck(null)
+      setDuplicateAcked(false)
+      return
+    }
+    const amount = Number(editAmount.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''))
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDuplicateCheck(null)
+      return
+    }
+    setDuplicateLoading(true)
+    setDuplicateAcked(false)
+    const timer = window.setTimeout(() => {
+      checkExpenseDuplicate({
+        propertyId,
+        year: editPeriod.year,
+        month: editPeriod.month,
+        providerId: providerChoice.kind === 'existing' ? providerChoice.id : undefined,
+        amount,
+        issuedAt: extractResult.suggestion.issued_at ?? undefined,
+      })
+        .then((r) => setDuplicateCheck(r))
+        .catch(() => setDuplicateCheck(null))
+        .finally(() => setDuplicateLoading(false))
+    }, 450)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [
+    extractResult,
+    providerChoice,
+    editAmount,
+    editPeriod.year,
+    editPeriod.month,
+    propertyId,
+  ])
+
   function resetExtract() {
     setExtractFile(null)
     setExtractResult(null)
@@ -222,6 +276,8 @@ export function MesaAssistant({
     setProviderChoice(null)
     setEditAmount('')
     setImported(null)
+    setDuplicateCheck(null)
+    setDuplicateAcked(false)
   }
 
   function handleImportExpense() {
@@ -231,6 +287,17 @@ export function MesaAssistant({
       toast.error('Ingresá un monto válido')
       return
     }
+
+    // Guard: si hay duplicados sin ack, requerimos confirmación
+    const hasUnackedDuplicates =
+      duplicateCheck && duplicateCheck.duplicates.length > 0 && !duplicateAcked
+    if (hasUnackedDuplicates) {
+      toast.error('Revisá el duplicado y confirmá que querés imputar igual.')
+      return
+    }
+
+    const ackIds = duplicateCheck?.duplicates.map((d) => d.id) ?? []
+
     startImporting(async () => {
       try {
         const result = await importExpenseFromExtraction({
@@ -240,6 +307,7 @@ export function MesaAssistant({
           providerId: providerChoice.kind === 'existing' ? providerChoice.id : undefined,
           providerName: providerChoice.kind === 'new' ? providerChoice.name : undefined,
           createProviderIfMissing: providerChoice.kind === 'new',
+          ackDuplicateIds: duplicateAcked && ackIds.length > 0 ? ackIds : undefined,
           amount,
           description: extractResult.suggestion.description ?? undefined,
           issuedAt: extractResult.suggestion.issued_at ?? undefined,
@@ -527,16 +595,47 @@ export function MesaAssistant({
                     </div>
                   </div>
 
+                  {/* Detección de duplicados */}
+                  {duplicateLoading ? (
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Verificando si ya existe un gasto similar…
+                    </div>
+                  ) : null}
+
+                  {duplicateCheck && duplicateCheck.duplicates.length > 0 ? (
+                    <DuplicateWarning
+                      check={duplicateCheck}
+                      acked={duplicateAcked}
+                      onToggleAck={() => setDuplicateAcked((v) => !v)}
+                      onOpenDocument={() => {}}
+                    />
+                  ) : null}
+
                   <Button
                     size="sm"
-                    className="w-full"
+                    className={`w-full ${
+                      duplicateCheck && duplicateCheck.duplicates.length > 0 && duplicateAcked
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                        : ''
+                    }`}
                     onClick={handleImportExpense}
-                    disabled={importing || !providerChoice || !editAmount}
+                    disabled={
+                      importing ||
+                      !providerChoice ||
+                      !editAmount ||
+                      (duplicateCheck !== null && duplicateCheck.duplicates.length > 0 && !duplicateAcked)
+                    }
                   >
                     {importing ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                         Imputando…
+                      </>
+                    ) : duplicateCheck && duplicateCheck.duplicates.length > 0 && duplicateAcked ? (
+                      <>
+                        <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                        Imputar igual (duplicado asumido)
                       </>
                     ) : (
                       <>
@@ -937,6 +1036,113 @@ function ImportSuccess({
           Cerrar asistente
         </Button>
       </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// DuplicateWarning — aviso cuando la factura matchea con un gasto ya cargado
+// ----------------------------------------------------------------------------
+
+const STATUS_LABEL_ES: Record<string, string> = {
+  draft: 'borrador',
+  pending_review: 'en revisión',
+  needs_doc: 'falta doc',
+  approved: 'aprobado',
+  imputed: 'imputado',
+}
+
+function formatDateShort(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
+}
+
+function DuplicateWarning({
+  check,
+  acked,
+  onToggleAck,
+}: {
+  check: DuplicateCheckResult
+  acked: boolean
+  onToggleAck: () => void
+  onOpenDocument?: (documentId: string) => void
+}) {
+  const tone = check.hasExact ? 'hard' : 'soft'
+  const cardClass =
+    tone === 'hard'
+      ? 'border-rose-300 bg-rose-50'
+      : 'border-amber-300 bg-amber-50'
+  const iconBg = tone === 'hard' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+  const title = check.hasExact
+    ? 'Posible factura duplicada'
+    : 'Posible factura ya cargada en este mes'
+  const description = check.hasExact
+    ? 'Ya hay un gasto exacto en el mismo período. Verificá antes de imputar.'
+    : 'Encontramos uno o más gastos similares del mismo proveedor en este mes.'
+
+  return (
+    <div className={`rounded-lg border ${cardClass} p-3 space-y-2 mesa-fade-in`}>
+      <div className="flex items-start gap-2.5">
+        <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+          <ShieldAlert className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-foreground">{title}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{description}</p>
+        </div>
+      </div>
+
+      <ul className="space-y-1.5">
+        {check.duplicates.slice(0, 3).map((d) => (
+          <li key={d.id} className="rounded-md border border-border/40 bg-background px-2.5 py-1.5 text-[11px]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium tabular-nums">$ {formatARSCompact(d.amount)}</span>
+              <span className="text-muted-foreground flex items-center gap-1">
+                {d.hasDocument ? <FileText className="w-2.5 h-2.5" /> : null}
+                <span className="uppercase tracking-[0.06em] text-[9px]">
+                  {STATUS_LABEL_ES[d.status] ?? d.status}
+                </span>
+              </span>
+            </div>
+            {d.description ? (
+              <p className="text-muted-foreground truncate italic text-[10px]">{d.description}</p>
+            ) : null}
+            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
+              {d.issuedAt ? (
+                <span>emitida {formatDateShort(d.issuedAt)}</span>
+              ) : null}
+              {d.createdByName ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <UserCircle2 className="w-2.5 h-2.5" />
+                  {d.createdByName}
+                </span>
+              ) : null}
+              {d.reasons.length > 0 ? (
+                <span className="text-foreground">· {d.reasons.join(' · ')}</span>
+              ) : null}
+            </div>
+          </li>
+        ))}
+        {check.duplicates.length > 3 ? (
+          <li className="text-[10px] text-muted-foreground text-center italic">
+            +{check.duplicates.length - 3} más en la planilla
+          </li>
+        ) : null}
+      </ul>
+
+      <label className="flex items-start gap-2 rounded-md bg-background/60 px-2.5 py-1.5 border border-border/40 cursor-pointer hover:border-primary/40 transition-colors">
+        <input
+          type="checkbox"
+          checked={acked}
+          onChange={onToggleAck}
+          className="mt-0.5 accent-primary"
+        />
+        <span className="text-[11px] text-foreground leading-snug">
+          Es un gasto distinto al que ya está cargado. Imputar igual.
+        </span>
+      </label>
     </div>
   )
 }

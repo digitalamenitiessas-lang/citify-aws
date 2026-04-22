@@ -119,6 +119,9 @@ const importSchema = z.object({
   dueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   expenseKind: z.enum(['ordinaria', 'extraordinaria']).optional().default('ordinaria'),
   category: z.string().trim().max(80).nullable().optional(),
+  // Si el user detectó duplicados pero decidió imputar igual, pasamos los ids
+  // para registrar el override en el audit log
+  ackDuplicateIds: z.array(z.string().uuid()).max(10).optional(),
   // Archivo opcional (si la extracción vino de un PDF / imagen)
   file: z
     .object({
@@ -361,6 +364,9 @@ export async function importExpenseFromExtraction(
       period: `${parsed.month}/${parsed.year}`,
       providerCreated,
       providerName,
+      duplicateOverride: parsed.ackDuplicateIds && parsed.ackDuplicateIds.length > 0
+        ? { acknowledgedIds: parsed.ackDuplicateIds }
+        : undefined,
     },
   })
 
@@ -378,3 +384,186 @@ export async function importExpenseFromExtraction(
     documentId,
   }
 }
+
+// ----------------------------------------------------------------------------
+// checkExpenseDuplicate: busca si ya hay un gasto similar en el período
+// ----------------------------------------------------------------------------
+
+const duplicateSchema = z.object({
+  propertyId: z.string().uuid(),
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  // Proveedor: uno de los dos
+  providerId: z.string().uuid().nullable().optional(),
+  providerName: z.string().trim().max(120).optional(),
+  amount: z.number().positive().nullable().optional(),
+  issuedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+})
+
+export type DuplicateCandidate = {
+  id: string
+  amount: number
+  description: string | null
+  issuedAt: string | null
+  createdAt: string | null
+  createdByName: string | null
+  status: IAdminExpenseStatus
+  hasDocument: boolean
+  // Qué tan probable es que sea el mismo (0-100)
+  similarity: number
+  reasons: string[] // ej. ['mismo monto', 'misma fecha']
+}
+
+export type DuplicateCheckResult = {
+  duplicates: DuplicateCandidate[]
+  hasExact: boolean // true si existe uno con mismo monto exacto
+  hasSameIssuedAt: boolean
+}
+
+/**
+ * Busca expenses del mismo proveedor en el mismo período (year/month) con
+ * monto similar. Útil para advertir al admin antes de re-imputar una factura
+ * que ya cargó. No modifica nada. Requiere capability expenses.view.
+ */
+export async function checkExpenseDuplicate(
+  input: z.input<typeof duplicateSchema>,
+): Promise<DuplicateCheckResult> {
+  const parsed = duplicateSchema.parse(input)
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  // Resolver administration + providerId (si vino por nombre)
+  const { data: property } = await supabase
+    .from('iadmin_managed_properties')
+    .select('id, administration_id')
+    .eq('id', parsed.propertyId)
+    .maybeSingle()
+  if (!property) throw new Error('Consorcio no encontrado')
+  const administrationId = property.administration_id as string
+
+  await requireIAdmin({
+    capability: 'expenses.view',
+    administrationId,
+  })
+
+  let providerId = parsed.providerId ?? null
+  if (!providerId && parsed.providerName && parsed.providerName.trim().length > 0) {
+    const { data: p } = await supabase
+      .from('iadmin_providers')
+      .select('id')
+      .eq('administration_id', administrationId)
+      .ilike('name', parsed.providerName.trim())
+      .maybeSingle()
+    providerId = p?.id ?? null
+  }
+
+  // Si no se pudo resolver proveedor, no hay duplicado posible
+  if (!providerId) {
+    return { duplicates: [], hasExact: false, hasSameIssuedAt: false }
+  }
+
+  // Período
+  const { data: period } = await supabase
+    .from('iadmin_accounting_periods')
+    .select('id')
+    .eq('managed_property_id', parsed.propertyId)
+    .eq('period_year', parsed.year)
+    .eq('period_month', parsed.month)
+    .maybeSingle()
+  if (!period) {
+    return { duplicates: [], hasExact: false, hasSameIssuedAt: false }
+  }
+
+  // Traer todos los expenses del proveedor en ese período (excluyendo rejected)
+  const { data: expenses } = await supabase
+    .from('iadmin_expenses')
+    .select(`
+      id, amount, description, issued_at, status, created_at, created_by,
+      iadmin_expense_documents(id)
+    `)
+    .eq('managed_property_id', parsed.propertyId)
+    .eq('provider_id', providerId)
+    .eq('accounting_period_id', period.id)
+    .neq('status', 'rejected')
+    .order('created_at', { ascending: false })
+
+  if (!expenses || expenses.length === 0) {
+    return { duplicates: [], hasExact: false, hasSameIssuedAt: false }
+  }
+
+  // Resolver nombres de created_by
+  const createdByIds = Array.from(
+    new Set(expenses.map((e: any) => e.created_by).filter(Boolean) as string[]),
+  )
+  const profileNameById = new Map<string, string>()
+  if (createdByIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', createdByIds)
+    for (const p of profiles ?? []) {
+      profileNameById.set(p.id, (p as any).full_name || (p as any).email || 'Usuario')
+    }
+  }
+
+  // Scoring por expense
+  const amountRef = parsed.amount ?? null
+  const issuedAtRef = parsed.issuedAt ?? null
+  let hasExact = false
+  let hasSameIssuedAt = false
+
+  const candidates: DuplicateCandidate[] = expenses.map((e: any) => {
+    const reasons: string[] = []
+    let similarity = 40 // base: mismo proveedor + mismo período
+    const amount = Number(e.amount)
+    const issuedAt = e.issued_at as string | null
+
+    if (amountRef !== null) {
+      const delta = Math.abs(amount - amountRef) / Math.max(amountRef, 1)
+      if (delta < 0.005) {
+        similarity += 50
+        reasons.push('mismo monto')
+        hasExact = true
+      } else if (delta < 0.02) {
+        similarity += 35
+        reasons.push(`monto casi idéntico (±${(delta * 100).toFixed(1)}%)`)
+      } else if (delta < 0.1) {
+        similarity += 10
+        reasons.push(`monto similar (±${(delta * 100).toFixed(0)}%)`)
+      }
+    }
+
+    if (issuedAtRef && issuedAt && issuedAt === issuedAtRef) {
+      similarity += 30
+      reasons.push('misma fecha de emisión')
+      hasSameIssuedAt = true
+    }
+
+    const docs = Array.isArray(e.iadmin_expense_documents) ? e.iadmin_expense_documents : []
+
+    return {
+      id: e.id as string,
+      amount,
+      description: (e.description as string) ?? null,
+      issuedAt,
+      createdAt: (e.created_at as string) ?? null,
+      createdByName: e.created_by ? (profileNameById.get(e.created_by) ?? null) : null,
+      status: e.status as IAdminExpenseStatus,
+      hasDocument: docs.length > 0,
+      similarity: Math.min(100, similarity),
+      reasons,
+    }
+  })
+
+  // Filtrar: sólo devolvemos los que son realmente sospechosos (similarity >= 50)
+  const duplicates = candidates
+    .filter((c) => c.similarity >= 50)
+    .sort((a, b) => b.similarity - a.similarity)
+
+  return {
+    duplicates,
+    hasExact,
+    hasSameIssuedAt,
+  }
+}
+
