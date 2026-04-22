@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { Check, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
+import { Check, Info, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,6 +29,7 @@ import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-d
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
 import { MesaAssistant } from '@/components/admin-backoffice/consorcio/mesa-assistant'
 import { MesaHeader } from '@/components/admin-backoffice/consorcio/mesa-header'
+import { CellHistoryPopover } from '@/components/admin-backoffice/consorcio/cell-history-popover'
 import { Sparkline } from '@/components/admin-backoffice/shared/sparkline'
 
 type Props = {
@@ -76,6 +77,14 @@ export function MonthlyPlanilla({
   const initialRange: VisibleRange =
     grid.months.length >= 12 ? 3 : grid.months.length >= 6 ? 3 : 3
   const [visibleRange, setVisibleRange] = useState<VisibleRange>(initialRange)
+
+  // Matrix de refs para navegación por teclado
+  const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map())
+  function registerCellRef(rowIdx: number, monthIdx: number, el: HTMLTableCellElement | null) {
+    const k = `${rowIdx}-${monthIdx}`
+    if (el) cellRefs.current.set(k, el)
+    else cellRefs.current.delete(k)
+  }
 
   const visibleMonths = useMemo(() => {
     const take = Math.min(visibleRange, grid.months.length)
@@ -257,6 +266,29 @@ export function MonthlyPlanilla({
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
   const hasPredictions = predictions.size > 0
 
+  // Movimiento entre celdas. `edit: true` abre edit mode directamente.
+  function moveFocus(targetRow: number, targetMonth: number, edit = false) {
+    if (allRows.length === 0) return
+    const totalRows = allRows.length
+    const totalMonths = visibleMonths.length
+    const r = Math.max(0, Math.min(totalRows - 1, targetRow))
+    const m = Math.max(0, Math.min(totalMonths - 1, targetMonth))
+    const row = allRows[r]
+    const month = visibleMonths[m]
+    const cell = row.cells.find((c) => c.year === month.year && c.month === month.month)
+    const isEditable = cell?.isEditable ?? false
+
+    if (edit && isEditable) {
+      setEditingCell(cellKey(row.providerId, month.year, month.month))
+    } else {
+      setEditingCell(null)
+      // Focus via microtask para dejar que React resetee el DOM
+      queueMicrotask(() => {
+        cellRefs.current.get(`${r}-${m}`)?.focus()
+      })
+    }
+  }
+
   return (
     <div className="space-y-4">
       <MesaHeader
@@ -356,7 +388,7 @@ export function MonthlyPlanilla({
                   </td>
                 </tr>
               ) : (
-                allRows.map((row) => {
+                allRows.map((row, rowIdx) => {
                   const fullSeries = grid.months.map((m) => getDisplayAmount(row, m.year, m.month))
                   return (
                     <tr
@@ -383,26 +415,31 @@ export function MonthlyPlanilla({
                           />
                         </div>
                       </td>
-                      {visibleMonths.map((m) => {
+                      {visibleMonths.map((m, monthIdx) => {
                         const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
                         const displayedAmount = getDisplayAmount(row, m.year, m.month)
+                        const cellData = row.cells.find((c) => c.year === m.year && c.month === m.month)
                         return (
                           <EditableCell
                             key={`${row.providerId}-${m.year}-${m.month}`}
-                            year={m.year}
-                            month={m.month}
+                            rowIdx={rowIdx}
+                            monthIdx={monthIdx}
+                            registerRef={registerCellRef}
+                            providerName={row.providerName}
+                            cellData={cellData}
                             editing={editingCell === cellKey(row.providerId, m.year, m.month)}
                             pending={pendingCells.has(cellKey(row.providerId, m.year, m.month))}
                             amount={displayedAmount}
                             prediction={displayedAmount === null ? prediction : undefined}
                             isCurrent={m.isCurrent}
-                            isEditable={row.cells.find((c) => c.year === m.year && c.month === m.month)?.isEditable ?? true}
+                            isEditable={cellData?.isEditable ?? true}
                             onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
                             onCommit={(val) => {
                               setEditingCell(null)
                               void commitCell(row, m.year, m.month, val)
                             }}
                             onCancel={() => setEditingCell(null)}
+                            onMove={moveFocus}
                             onAcceptPrediction={() => acceptPrediction(row.providerId)}
                             onDismissPrediction={() => dismissPrediction(row.providerId)}
                           />
@@ -541,23 +578,12 @@ function ScrollableTable({ children }: { children: React.ReactNode }) {
   )
 }
 
-function EditableCell({
-  year,
-  month,
-  editing,
-  pending,
-  amount,
-  prediction,
-  isCurrent,
-  isEditable,
-  onStartEdit,
-  onCommit,
-  onCancel,
-  onAcceptPrediction,
-  onDismissPrediction,
-}: {
-  year: number
-  month: number
+type EditableCellProps = {
+  rowIdx: number
+  monthIdx: number
+  registerRef: (rowIdx: number, monthIdx: number, el: HTMLTableCellElement | null) => void
+  providerName: string
+  cellData: IAdminMonthlyGridRow['cells'][number] | undefined
   editing: boolean
   pending: boolean
   amount: number | null
@@ -567,16 +593,38 @@ function EditableCell({
   onStartEdit: () => void
   onCommit: (val: number | null) => void
   onCancel: () => void
+  onMove: (rowIdx: number, monthIdx: number, edit?: boolean) => void
   onAcceptPrediction?: () => void
   onDismissPrediction?: () => void
-}) {
+}
+
+function EditableCell({
+  rowIdx,
+  monthIdx,
+  registerRef,
+  providerName,
+  cellData,
+  editing,
+  pending,
+  amount,
+  prediction,
+  isCurrent,
+  isEditable,
+  onStartEdit,
+  onCommit,
+  onCancel,
+  onMove,
+  onAcceptPrediction,
+  onDismissPrediction,
+}: EditableCellProps) {
   const [draft, setDraft] = useState(amount !== null ? String(amount) : '')
-  void year
-  void month
 
   if (editing && isEditable) {
     return (
-      <td className={`px-1 py-1 ${isCurrent ? 'th-current-month' : ''}`}>
+      <td
+        className={`px-1 py-1 ${isCurrent ? 'th-current-month' : ''}`}
+        ref={(el) => registerRef(rowIdx, monthIdx, el)}
+      >
         <input
           autoFocus
           type="text"
@@ -592,10 +640,19 @@ function EditableCell({
             onCommit(n === 0 ? null : n)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            const commitAndMove = (dr: number, dc: number, edit = false) => {
+              const n = draft.trim() ? Number(draft.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '')) : null
+              if (n !== null && !Number.isFinite(n)) return
+              e.preventDefault()
+              onCommit(n === 0 ? null : n)
+              queueMicrotask(() => onMove(rowIdx + dr, monthIdx + dc, edit))
+            }
+            if (e.key === 'Enter') commitAndMove(1, 0, true)
+            else if (e.key === 'Tab') commitAndMove(0, e.shiftKey ? -1 : 1, true)
             else if (e.key === 'Escape') {
               setDraft(amount !== null ? String(amount) : '')
               onCancel()
+              queueMicrotask(() => onMove(rowIdx, monthIdx, false))
             }
           }}
           className="w-full text-right tabular-nums text-sm bg-background border border-primary/70 rounded-md px-2 py-1 outline-none shadow-[0_0_0_3px_rgba(184,92,56,0.12)] transition-shadow"
@@ -606,7 +663,12 @@ function EditableCell({
 
   if (prediction && amount === null && isEditable) {
     return (
-      <td className={`px-2 py-2 ${isCurrent ? 'th-current-month' : ''}`}>
+      <td
+        className={`px-2 py-2 ${isCurrent ? 'th-current-month' : ''}`}
+        ref={(el) => registerRef(rowIdx, monthIdx, el)}
+        tabIndex={0}
+        onKeyDown={(e) => handleNavKeys(e, rowIdx, monthIdx, onMove, onStartEdit)}
+      >
         <div className="flex flex-col items-end gap-1 mesa-fade-in">
           <span className="text-muted-foreground italic tabular-nums text-xs">
             ~ {formatARSShort(prediction.suggestedAmount)}
@@ -642,20 +704,70 @@ function EditableCell({
     )
   }
 
+  const hasHistory = Boolean(cellData?.expenseId)
+  const contents = (
+    <div className="flex items-center justify-end gap-1.5 stat-value group/cell relative">
+      {pending ? <Loader2 className="w-3 h-3 animate-spin text-primary" /> : null}
+      {hasHistory && cellData ? (
+        <CellHistoryPopover cell={cellData} providerName={providerName}>
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute -top-0.5 right-full mr-1 opacity-0 group-hover/cell:opacity-60 hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+            aria-label="Ver historial"
+            tabIndex={-1}
+          >
+            <Info className="w-3 h-3" />
+          </button>
+        </CellHistoryPopover>
+      ) : null}
+      {amount !== null ? formatARSShort(amount) : <span className="text-muted-foreground/60">—</span>}
+    </div>
+  )
+
   return (
     <td
+      ref={(el) => registerRef(rowIdx, monthIdx, el)}
+      tabIndex={isEditable ? 0 : -1}
       onClick={isEditable ? onStartEdit : undefined}
-      className={`px-4 py-2 text-right tabular-nums transition-colors ${
+      onKeyDown={(e) => handleNavKeys(e, rowIdx, monthIdx, onMove, onStartEdit)}
+      className={`px-4 py-2 text-right tabular-nums transition-colors outline-none focus:shadow-[inset_0_0_0_2px_rgba(184,92,56,0.5)] ${
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
       } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'}`}
-      title={isEditable ? 'Click para editar' : 'Período cerrado'}
+      title={isEditable ? 'Enter edita · ↑↓←→ mueve · i ve historial' : 'Período cerrado'}
     >
-      <div className="flex items-center justify-end gap-1.5 stat-value">
-        {pending ? <Loader2 className="w-3 h-3 animate-spin text-primary" /> : null}
-        {amount !== null ? formatARSShort(amount) : <span className="text-muted-foreground/60">—</span>}
-      </div>
+      {contents}
     </td>
   )
+}
+
+function handleNavKeys(
+  e: React.KeyboardEvent<HTMLTableCellElement>,
+  rowIdx: number,
+  monthIdx: number,
+  onMove: (r: number, c: number, edit?: boolean) => void,
+  onStartEdit: () => void,
+) {
+  if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    onMove(rowIdx, monthIdx + 1)
+  } else if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    onMove(rowIdx, monthIdx - 1)
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    onMove(rowIdx + 1, monthIdx)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    onMove(rowIdx - 1, monthIdx)
+  } else if (e.key === 'Enter' || e.key === 'F2' || e.key === ' ') {
+    e.preventDefault()
+    onStartEdit()
+  } else if (e.key === 'Tab') {
+    // Dejar que el Tab nativo pase a la fila siguiente respetando shift
+    e.preventDefault()
+    onMove(rowIdx, monthIdx + (e.shiftKey ? -1 : 1))
+  }
 }

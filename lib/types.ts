@@ -712,6 +712,16 @@ export interface IAdminMonthlyGridRow {
     expenseId: string | null
     hasDocument: boolean
     isEditable: boolean  // false si el periodo esta closed
+    // Trazabilidad (solo si hay un único gasto detrás de la celda)
+    createdByName: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    status: IAdminExpenseStatus | null
+    description: string | null
+    issuedAt: string | null
+    documentId: string | null
+    documentName: string | null
+    documentPath: string | null
   }>
   lastAmount: number | null        // ultimo valor no-null (de referencia)
 }

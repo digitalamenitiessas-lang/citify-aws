@@ -2509,11 +2509,27 @@ export async function getIAdminMonthlyGrid(
     .from('iadmin_expenses')
     .select(`
       id, amount, provider_id, accounting_period_id, status, expense_kind,
-      iadmin_expense_documents(id),
+      description, issued_at, created_at, updated_at, created_by,
+      iadmin_expense_documents(id, file_name, storage_path),
       iadmin_accounting_periods!inner(period_year, period_month)
     `)
     .eq('managed_property_id', propertyId)
     .gte('iadmin_accounting_periods.period_year', months[0].year)
+
+  // Resolver nombres de los "created_by" con una sola consulta a profiles
+  const createdByIds = Array.from(
+    new Set((expenseRows ?? []).map((e: any) => e.created_by).filter(Boolean) as string[]),
+  )
+  const profileNameById = new Map<string, string>()
+  if (createdByIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', createdByIds)
+    for (const p of profiles ?? []) {
+      profileNameById.set(p.id, (p as any).full_name || (p as any).email || 'Usuario')
+    }
+  }
 
   // Filtramos por la ventana y por status (excluimos rejected)
   type ExpenseRow = {
@@ -2523,6 +2539,15 @@ export async function getIAdminMonthlyGrid(
     year: number
     month: number
     hasDocument: boolean
+    status: IAdminExpenseStatus
+    description: string | null
+    issuedAt: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    createdByName: string | null
+    documentId: string | null
+    documentName: string | null
+    documentPath: string | null
   }
   const expenses: ExpenseRow[] = []
   for (const e of expenseRows ?? []) {
@@ -2532,6 +2557,7 @@ export async function getIAdminMonthlyGrid(
     const inWindow = months.some((m) => m.year === p.period_year && m.month === p.period_month)
     if (!inWindow) continue
     const docs = Array.isArray(e.iadmin_expense_documents) ? e.iadmin_expense_documents : []
+    const firstDoc = docs[0] ?? null
     expenses.push({
       id: e.id,
       amount: Number(e.amount),
@@ -2539,6 +2565,15 @@ export async function getIAdminMonthlyGrid(
       year: p.period_year,
       month: p.period_month,
       hasDocument: docs.length > 0,
+      status: e.status as IAdminExpenseStatus,
+      description: e.description ?? null,
+      issuedAt: e.issued_at ?? null,
+      createdAt: e.created_at ?? null,
+      updatedAt: e.updated_at ?? null,
+      createdByName: e.created_by ? (profileNameById.get(e.created_by) ?? null) : null,
+      documentId: firstDoc?.id ?? null,
+      documentName: firstDoc?.file_name ?? null,
+      documentPath: firstDoc?.storage_path ?? null,
     })
   }
 
@@ -2586,13 +2621,23 @@ export async function getIAdminMonthlyGrid(
     const cells = months.map((m) => {
       const list = noProviderExpenses.filter((e) => e.year === m.year && e.month === m.month)
       const amount = list.length > 0 ? list.reduce((s, e) => s + e.amount, 0) : null
+      const single = list.length === 1 ? list[0] : null
       return {
         year: m.year,
         month: m.month,
         amount,
-        expenseId: list.length === 1 ? list[0].id : null,
+        expenseId: single?.id ?? null,
         hasDocument: list.some((e) => e.hasDocument),
         isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+        createdByName: single?.createdByName ?? null,
+        createdAt: single?.createdAt ?? null,
+        updatedAt: single?.updatedAt ?? null,
+        status: single?.status ?? null,
+        description: single?.description ?? null,
+        issuedAt: single?.issuedAt ?? null,
+        documentId: single?.documentId ?? null,
+        documentName: single?.documentName ?? null,
+        documentPath: single?.documentPath ?? null,
       }
     })
     freeRow = {
@@ -2652,6 +2697,24 @@ export async function getIAdminMonthlyGrid(
   }
 }
 
+type GridExpenseRow = {
+  id: string
+  amount: number
+  providerId: string | null
+  year: number
+  month: number
+  hasDocument: boolean
+  status: IAdminExpenseStatus
+  description: string | null
+  issuedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  createdByName: string | null
+  documentId: string | null
+  documentName: string | null
+  documentPath: string | null
+}
+
 function buildRow(
   providerId: string,
   providerName: string,
@@ -2659,19 +2722,29 @@ function buildRow(
   isRecurring: boolean,
   expenseKind: 'ordinaria' | 'extraordinaria',
   months: IAdminMonthlyGrid['months'],
-  expenses: Array<{ id: string; amount: number; providerId: string | null; year: number; month: number; hasDocument: boolean }>,
+  expenses: GridExpenseRow[],
   _providerById: Map<string, any>,
 ): IAdminMonthlyGridRow {
   const cells = months.map((m) => {
     const list = expenses.filter((e) => e.providerId === providerId && e.year === m.year && e.month === m.month)
     const total = list.reduce((s, e) => s + e.amount, 0)
+    const single = list.length === 1 ? list[0] : null
     return {
       year: m.year,
       month: m.month,
       amount: list.length > 0 ? Math.round(total * 100) / 100 : null,
-      expenseId: list.length === 1 ? list[0].id : null,
+      expenseId: single?.id ?? null,
       hasDocument: list.some((e) => e.hasDocument),
       isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+      createdByName: single?.createdByName ?? null,
+      createdAt: single?.createdAt ?? null,
+      updatedAt: single?.updatedAt ?? null,
+      status: single?.status ?? null,
+      description: single?.description ?? null,
+      issuedAt: single?.issuedAt ?? null,
+      documentId: single?.documentId ?? null,
+      documentName: single?.documentName ?? null,
+      documentPath: single?.documentPath ?? null,
     }
   })
   const lastAmount = [...cells].reverse().find((c) => c.amount !== null)?.amount ?? null
