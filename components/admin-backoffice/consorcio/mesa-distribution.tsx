@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, ListTree } from 'lucide-react'
+import { ChevronDown, ChevronUp, ListTree, Scale } from 'lucide-react'
 import { Money } from '@/components/admin-backoffice/shared/money'
+import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
 import type { IAdminMesaState } from '@/lib/types'
 
 export function MesaDistribution({ state }: { state: IAdminMesaState }) {
@@ -34,7 +35,19 @@ export function MesaDistribution({ state }: { state: IAdminMesaState }) {
         {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
       </button>
 
-      {open ? (
+      {open && !hasData ? (
+        <>
+          <div className="divider-soft" />
+          <EmptyState
+            icon={Scale}
+            title="Todavía no hay nada que distribuir"
+            description="Cuando cargues gastos en la planilla, acá vas a ver cuánto le toca a cada unidad según su alícuota."
+            compact
+          />
+        </>
+      ) : null}
+
+      {open && hasData ? (
         <>
           <div className="divider-soft" />
           {!state.coverageOk ? (

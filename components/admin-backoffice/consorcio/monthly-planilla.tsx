@@ -30,6 +30,7 @@ import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-d
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
 import { MesaAssistant, type MesaAssistantTab } from '@/components/admin-backoffice/consorcio/mesa-assistant'
 import { MesaHeader } from '@/components/admin-backoffice/consorcio/mesa-header'
+import { MesaPreviousRecap } from '@/components/admin-backoffice/consorcio/mesa-previous-recap'
 import { CellHistoryPopover } from '@/components/admin-backoffice/consorcio/cell-history-popover'
 import { MesaCommandPalette } from '@/components/admin-backoffice/consorcio/mesa-command-palette'
 import { MesaHelpOverlay } from '@/components/admin-backoffice/consorcio/mesa-help-overlay'
@@ -39,10 +40,13 @@ import { useHotkeys } from '@/components/admin-backoffice/shared/use-hotkeys'
 import { useLocalPref } from '@/components/admin-backoffice/shared/use-local-pref'
 import { SavedIndicator } from '@/components/admin-backoffice/shared/saved-indicator'
 import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
+import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
+import { FileSpreadsheet, SearchX } from 'lucide-react'
 
 type Props = {
   grid: IAdminMonthlyGrid
   state: IAdminMesaState
+  previousState?: IAdminMesaState | null
   cashAccounts: IAdminCashAccountWithBalance[]
   canEmit: boolean
   canManageRubros: boolean
@@ -62,6 +66,7 @@ function cellKey(providerId: string, year: number, month: number) {
 export function MonthlyPlanilla({
   grid,
   state,
+  previousState,
   cashAccounts,
   canEmit,
   canManageRubros,
@@ -70,6 +75,7 @@ export function MonthlyPlanilla({
   const router = useRouter()
 
   const [editingCell, setEditingCell] = useState<string | null>(null)
+  const [editSeed, setEditSeed] = useState<string | null>(null)
   const [localValues, setLocalValues] = useState<Record<string, number | null>>({})
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set())
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set())
@@ -486,6 +492,13 @@ export function MonthlyPlanilla({
         onChangeRange={setVisibleRange}
       />
 
+      {previousState && grid.months.length >= 2 ? (
+        <MesaPreviousRecap
+          previousMonth={grid.months[grid.months.length - 2]}
+          previousState={previousState}
+        />
+      ) : null}
+
       {grid.activeUnitsCount === 0 ? (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           ⚠ No hay unidades activas. Agregá las unidades desde Configuración → Datos del consorcio.
@@ -652,14 +665,36 @@ export function MonthlyPlanilla({
             <tbody>
               {allRows.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleMonths.length + 1} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Sin rubros. Agregá con <b>+ Rubro</b> arriba.
+                  <td colSpan={visibleMonths.length + 1} className="px-0 py-0">
+                    <EmptyState
+                      icon={FileSpreadsheet}
+                      title="La planilla está vacía"
+                      description={
+                        canManageRubros
+                          ? 'Agregá tu primer rubro (luz, encargado, mantenimiento…) o arrastrá una factura y la IA la carga sola.'
+                          : 'Todavía no se cargaron rubros. Un administrador con permisos puede agregarlos.'
+                      }
+                      actions={
+                        canManageRubros
+                          ? [
+                              { label: 'Agregar rubro', onClick: () => setShowRubroForm(true), shortcut: 'N', kind: 'primary' },
+                              { label: 'Extraer factura', onClick: () => openAssistantTab('extract'), kind: 'secondary' },
+                            ]
+                          : []
+                      }
+                    />
                   </td>
                 </tr>
               ) : visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleMonths.length + 1} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    No hay rubros que coincidan con “{search}”.
+                  <td colSpan={visibleMonths.length + 1} className="px-0 py-0">
+                    <EmptyState
+                      icon={SearchX}
+                      title="Sin resultados"
+                      description={`No hay rubros que coincidan con "${search}". Probá otra palabra o limpiá la búsqueda.`}
+                      actions={[{ label: 'Limpiar búsqueda', onClick: () => setSearch(''), kind: 'secondary' }]}
+                      compact
+                    />
                   </td>
                 </tr>
               ) : (
@@ -762,12 +797,27 @@ export function MonthlyPlanilla({
                                 prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
                                 isEditable={cellData?.isEditable ?? true}
-                                onStartEdit={() => setEditingCell(cellKey(row.providerId, m.year, m.month))}
+                                editSeed={isEditingThis ? editSeed : null}
+                                onStartEdit={(seed?: string) => {
+                                  setEditSeed(seed ?? null)
+                                  setEditingCell(cellKey(row.providerId, m.year, m.month))
+                                }}
                                 onCommit={(val) => {
                                   setEditingCell(null)
+                                  setEditSeed(null)
                                   void commitCell(row, m.year, m.month, val)
                                 }}
-                                onCancel={() => setEditingCell(null)}
+                                onCancel={() => {
+                                  setEditingCell(null)
+                                  setEditSeed(null)
+                                }}
+                                onClear={() => {
+                                  if (displayedAmount === null) return
+                                  void commitCell(row, m.year, m.month, null)
+                                }}
+                                onPasteAmount={(val) => {
+                                  void commitCell(row, m.year, m.month, val)
+                                }}
                                 onMove={moveFocus}
                                 onAcceptPrediction={() => acceptPrediction(row.providerId)}
                                 onDismissPrediction={() => dismissPrediction(row.providerId)}
@@ -961,12 +1011,22 @@ type EditableCellProps = {
   prediction?: MonthPrediction
   isCurrent: boolean
   isEditable: boolean
-  onStartEdit: () => void
+  editSeed?: string | null
+  onStartEdit: (seed?: string) => void
   onCommit: (val: number | null) => void
   onCancel: () => void
+  onClear?: () => void
+  onPasteAmount?: (val: number) => void
   onMove: (rowIdx: number, monthIdx: number, edit?: boolean) => void
   onAcceptPrediction?: () => void
   onDismissPrediction?: () => void
+}
+
+function parseNumericString(s: string): number | null {
+  const cleaned = s.trim().replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '')
+  if (!cleaned) return null
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : null
 }
 
 function EditableCell({
@@ -983,14 +1043,19 @@ function EditableCell({
   prediction,
   isCurrent,
   isEditable,
+  editSeed,
   onStartEdit,
   onCommit,
   onCancel,
+  onClear,
+  onPasteAmount,
   onMove,
   onAcceptPrediction,
   onDismissPrediction,
 }: EditableCellProps) {
-  const [draft, setDraft] = useState(amount !== null ? String(amount) : '')
+  const [draft, setDraft] = useState(
+    editSeed !== null && editSeed !== undefined ? editSeed : amount !== null ? String(amount) : '',
+  )
 
   if (editing && isEditable) {
     return (
@@ -1040,7 +1105,9 @@ function EditableCell({
         className={`px-2 py-2 ${isCurrent ? 'th-current-month' : ''}`}
         ref={(el) => registerRef(rowIdx, monthIdx, el)}
         tabIndex={0}
-        onKeyDown={(e) => handleNavKeys(e, rowIdx, monthIdx, onMove, onStartEdit)}
+        onKeyDown={(e) =>
+          handleNavKeys(e, { rowIdx, monthIdx, onMove, onStartEdit, onClear })
+        }
       >
         <div className="flex flex-col items-end gap-1 mesa-fade-in">
           <span className="text-muted-foreground italic tabular-nums text-xs">
@@ -1057,7 +1124,7 @@ function EditableCell({
             </button>
             <button
               type="button"
-              onClick={onStartEdit}
+              onClick={() => onStartEdit()}
               className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] hover:border-primary/40 transition-colors"
               title="Editar"
             >
@@ -1119,14 +1186,32 @@ function EditableCell({
     <td
       ref={(el) => registerRef(rowIdx, monthIdx, el)}
       tabIndex={isEditable ? 0 : -1}
-      onClick={isEditable ? onStartEdit : undefined}
-      onKeyDown={(e) => handleNavKeys(e, rowIdx, monthIdx, onMove, onStartEdit)}
+      onClick={isEditable ? () => onStartEdit() : undefined}
+      onKeyDown={(e) =>
+        handleNavKeys(e, {
+          rowIdx,
+          monthIdx,
+          onMove,
+          onStartEdit,
+          onClear: isEditable ? onClear : undefined,
+        })
+      }
+      onPaste={(e) => {
+        if (!isEditable) return
+        const text = e.clipboardData.getData('text').trim()
+        if (!text) return
+        const n = parseNumericString(text)
+        if (n !== null && Number.isFinite(n)) {
+          e.preventDefault()
+          onPasteAmount?.(n === 0 ? 0 : n)
+        }
+      }}
       className={`px-4 py-2 text-right tabular-nums transition-colors outline-none focus:shadow-[inset_0_0_0_2px_rgba(184,92,56,0.5)] ${
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
       } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'} ${saved ? 'cell-saved' : ''}`}
-      title={isEditable ? 'Enter edita · ↑↓←→ mueve · i ve historial' : 'Período cerrado'}
+      title={isEditable ? 'Enter edita · Del limpia · tipá para escribir · pegá desde Excel' : 'Período cerrado'}
     >
       {contents}
     </td>
@@ -1135,29 +1220,59 @@ function EditableCell({
 
 function handleNavKeys(
   e: React.KeyboardEvent<HTMLTableCellElement>,
-  rowIdx: number,
-  monthIdx: number,
-  onMove: (r: number, c: number, edit?: boolean) => void,
-  onStartEdit: () => void,
+  args: {
+    rowIdx: number
+    monthIdx: number
+    onMove: (r: number, c: number, edit?: boolean) => void
+    onStartEdit: (seed?: string) => void
+    onClear?: () => void
+  },
 ) {
+  const { rowIdx, monthIdx, onMove, onStartEdit, onClear } = args
+  // Ignoramos combos con ⌘ / Ctrl para dejar pasar paste (maneja onPaste)
+  if (e.metaKey || e.ctrlKey) return
+
   if (e.key === 'ArrowRight') {
     e.preventDefault()
     onMove(rowIdx, monthIdx + 1)
-  } else if (e.key === 'ArrowLeft') {
+    return
+  }
+  if (e.key === 'ArrowLeft') {
     e.preventDefault()
     onMove(rowIdx, monthIdx - 1)
-  } else if (e.key === 'ArrowDown') {
+    return
+  }
+  if (e.key === 'ArrowDown') {
     e.preventDefault()
     onMove(rowIdx + 1, monthIdx)
-  } else if (e.key === 'ArrowUp') {
+    return
+  }
+  if (e.key === 'ArrowUp') {
     e.preventDefault()
     onMove(rowIdx - 1, monthIdx)
-  } else if (e.key === 'Enter' || e.key === 'F2' || e.key === ' ') {
+    return
+  }
+  if (e.key === 'Enter' || e.key === 'F2') {
     e.preventDefault()
     onStartEdit()
-  } else if (e.key === 'Tab') {
-    // Dejar que el Tab nativo pase a la fila siguiente respetando shift
+    return
+  }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (onClear) {
+      e.preventDefault()
+      onClear()
+    }
+    return
+  }
+  if (e.key === 'Tab') {
     e.preventDefault()
     onMove(rowIdx, monthIdx + (e.shiftKey ? -1 : 1))
+    return
+  }
+  // Tipeo directo de un dígito / decimal → entra a edit mode con ese char
+  if (e.key.length === 1 && /^[0-9.,\-]$/.test(e.key)) {
+    e.preventDefault()
+    onStartEdit(e.key)
+    return
   }
 }

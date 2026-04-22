@@ -11,10 +11,14 @@ export default async function PlanillaPage({ params }: { params: Promise<{ id: s
   if (!grid) notFound()
 
   const currentMonth = grid.months[grid.months.length - 1]
+  const previousMonth = grid.months[grid.months.length - 2]
 
-  const [state, cashAccounts] = await Promise.all([
+  const [state, cashAccounts, previousState] = await Promise.all([
     getIAdminMesaState(id, currentMonth.year, currentMonth.month),
     getIAdminCashAccounts(id),
+    previousMonth
+      ? getIAdminMesaState(id, previousMonth.year, previousMonth.month)
+      : Promise.resolve(null),
   ])
   if (!state) notFound()
 
@@ -28,6 +32,7 @@ export default async function PlanillaPage({ params }: { params: Promise<{ id: s
     <MonthlyPlanilla
       grid={grid}
       state={state}
+      previousState={previousState ?? null}
       cashAccounts={cashAccounts}
       canEmit={canEmit}
       canManageRubros={canManageRubros}

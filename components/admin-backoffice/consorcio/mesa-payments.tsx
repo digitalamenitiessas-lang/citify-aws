@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Loader2, Wallet } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, HandCoins, Loader2, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { NeighborDrawer } from '@/components/admin-backoffice/consorcio/neighbor-drawer'
+import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
 import type { IAdminCashAccountWithBalance, IAdminMesaState, IAdminMesaUnitLine } from '@/lib/types'
 
 type Props = {
@@ -97,7 +98,19 @@ export function MesaPayments({
           {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </button>
 
-        {open ? (
+        {open && !state.hasRun ? (
+          <>
+            <div className="divider-soft" />
+            <EmptyState
+              icon={HandCoins}
+              title="Todavía no emitiste la liquidación"
+              description="Cargá los gastos del mes y emitila. Ahí empezás a ver quién pagó, quién debe y a registrar cobros con un click."
+              compact
+            />
+          </>
+        ) : null}
+
+        {open && state.hasRun ? (
           <>
             <div className="divider-soft" />
             <div className="px-6 py-3 flex items-center gap-2 flex-wrap">
@@ -222,6 +235,7 @@ export function MesaPayments({
             </p>
           </>
         ) : null}
+
       </section>
 
       <NeighborDrawer
