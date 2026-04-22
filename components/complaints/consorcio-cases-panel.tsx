@@ -19,6 +19,7 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type {
   ComplaintCaseDetailConsorcioView,
+  ComplaintCaseEvent,
   ComplaintCaseMessageMention,
   ComplaintCaseMessageView,
   ComplaintCaseSection,
@@ -122,27 +123,28 @@ export function ConsorcioCasesPanel({ data }: { data: ConsorcioDashboardData }) 
       current.map((building) => {
         const complaintCaseDetails = building.complaintCaseDetails.map((detail) =>
           detail.id === selectedCase.id
-            ? {
+            ? (() => {
+                const event: ComplaintCaseEvent = {
+                  id: `${detail.id}-${latestEventCreatedAt}`,
+                  caseId: detail.id,
+                  eventType: nextStatus === 'cerrado' ? 'closed' : nextStatus === 'resuelto' ? 'resolved' : 'status_changed',
+                  actorLabel: 'Consorcio',
+                  actorRole: 'consorcio',
+                  summary: latestEventSummary,
+                  metadata: { to: nextStatus },
+                  createdAt: latestEventCreatedAt,
+                }
+
+                return {
                 ...detail,
                 status: nextStatus,
                 updatedAt,
                 resolvedAt: row?.resolved_at ?? null,
                 closedAt: row?.closed_at ?? null,
                 canReply: nextStatus !== 'cerrado',
-                events: [
-                  ...detail.events,
-                  {
-                    id: `${detail.id}-${latestEventCreatedAt}`,
-                    caseId: detail.id,
-                    eventType: nextStatus === 'cerrado' ? 'closed' : nextStatus === 'resuelto' ? 'resolved' : 'status_changed',
-                    actorLabel: 'Consorcio',
-                    actorRole: 'consorcio',
-                    summary: latestEventSummary,
-                    metadata: { to: nextStatus },
-                    createdAt: latestEventCreatedAt,
-                  },
-                ],
+                events: [...detail.events, event],
               }
+            })()
             : detail,
         )
 
@@ -221,24 +223,25 @@ export function ConsorcioCasesPanel({ data }: { data: ConsorcioDashboardData }) 
       current.map((building) => {
         const complaintCaseDetails = building.complaintCaseDetails.map((detail) =>
           detail.id === selectedCase.id
-            ? {
+            ? (() => {
+                const event: ComplaintCaseEvent = {
+                  id: `${message.id}-event`,
+                  caseId: detail.id,
+                  eventType: 'message_posted',
+                  actorLabel: 'Consorcio',
+                  actorRole: 'consorcio',
+                  summary: 'Nuevo comentario en el expediente',
+                  metadata: { message_type: message.messageType },
+                  createdAt,
+                }
+
+                return {
                 ...detail,
                 updatedAt: createdAt,
                 messages: [...detail.messages, message],
-                events: [
-                  ...detail.events,
-                  {
-                    id: `${message.id}-event`,
-                    caseId: detail.id,
-                    eventType: 'message_posted',
-                    actorLabel: 'Consorcio',
-                    actorRole: 'consorcio',
-                    summary: 'Nuevo comentario en el expediente',
-                    metadata: { message_type: message.messageType },
-                    createdAt,
-                  },
-                ],
+                events: [...detail.events, event],
               }
+            })()
             : detail,
         )
 

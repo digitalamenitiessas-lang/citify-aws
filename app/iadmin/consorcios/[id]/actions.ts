@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
+import type { UnitProfileRelationship, UserRole } from '@/lib/types'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 
 async function getPropertyAdminId(propertyId: string) {
@@ -393,6 +395,329 @@ export async function endUnitHolder(input: z.input<typeof endHolderSchema>) {
   })
 
   revalidatePath(`/iadmin/consorcios/${propertyId}`)
+}
+
+// ----------------------------------------------------------------------------
+// Usuarios CITIFY vinculados a unidades
+// ----------------------------------------------------------------------------
+
+async function getUnitScope(unitId: string) {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  const { data: unit } = await supabase
+    .from('iadmin_units')
+    .select(`
+      id,
+      code,
+      managed_property_id,
+      iadmin_managed_properties!inner (
+        administration_id,
+        building_id
+      )
+    `)
+    .eq('id', unitId)
+    .maybeSingle()
+
+  if (!unit) throw new Error('Unidad no encontrada')
+
+  const property = Array.isArray(unit.iadmin_managed_properties)
+    ? unit.iadmin_managed_properties[0]
+    : unit.iadmin_managed_properties
+
+  return {
+    supabase,
+    unitId: unit.id as string,
+    unitCode: unit.code as string,
+    propertyId: unit.managed_property_id as string,
+    administrationId: property.administration_id as string,
+    buildingId: property.building_id as string,
+  }
+}
+
+const createUnitUserSchema = z.object({
+  unitId: z.string().uuid(),
+  relationshipType: z.enum(['propietario', 'vecino_principal', 'vecino_adicional']),
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().trim().email().max(160),
+  phone: z.string().trim().max(40).nullable().optional(),
+  password: z.string().min(8).max(72),
+  isPrimaryOwner: z.boolean().optional().default(false),
+})
+
+function roleForRelationship(relationshipType: UnitProfileRelationship): UserRole {
+  return relationshipType === 'propietario' ? 'propietario' : 'vecino'
+}
+
+function avatarFromName(fullName: string) {
+  return fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'U'
+}
+
+async function findOrCreateAuthProfile(input: {
+  fullName: string
+  email: string
+  phone: string | null
+  password: string
+  role: UserRole
+  buildingId: string
+}) {
+  const admin = getSupabaseAdminClient()
+  if (!admin) {
+    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear usuarios desde el panel.')
+  }
+
+  const normalizedEmail = input.email.toLowerCase()
+  const { data: existingProfile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .maybeSingle()
+
+  let profileId = existingProfile?.id as string | undefined
+
+  if (!profileId) {
+    const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+      email: normalizedEmail,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: { full_name: input.fullName },
+    })
+    if (createError || !createdUser.user) {
+      throw new Error(createError?.message ?? 'No se pudo crear el usuario.')
+    }
+    profileId = createdUser.user.id
+  }
+
+  const { error: profileError } = await admin.from('profiles').upsert({
+    id: profileId,
+    email: normalizedEmail,
+    full_name: input.fullName,
+    avatar_text: avatarFromName(input.fullName),
+    phone: input.phone,
+    role: input.role,
+    building_id: input.buildingId,
+  })
+  if (profileError) throw new Error(profileError.message)
+
+  return profileId
+}
+
+export async function createUnitUser(input: z.input<typeof createUnitUserSchema>) {
+  const parsed = createUnitUserSchema.parse(input)
+  const scope = await getUnitScope(parsed.unitId)
+  const { profile } = await requireIAdmin({
+    capability: 'holders.manage',
+    administrationId: scope.administrationId,
+  })
+
+  const role = roleForRelationship(parsed.relationshipType)
+  const targetProfileId = await findOrCreateAuthProfile({
+    fullName: parsed.fullName,
+    email: parsed.email,
+    phone: parsed.phone ?? null,
+    password: parsed.password,
+    role,
+    buildingId: scope.buildingId,
+  })
+
+  if (parsed.relationshipType === 'vecino_principal') {
+    await scope.supabase
+      .from('unit_profile_memberships')
+      .update({ active: false })
+      .eq('unit_id', scope.unitId)
+      .eq('relationship_type', 'vecino_principal')
+      .eq('active', true)
+  }
+
+  const { data: existingMembership } = await scope.supabase
+    .from('unit_profile_memberships')
+    .select('id')
+    .eq('unit_id', scope.unitId)
+    .eq('profile_id', targetProfileId)
+    .eq('relationship_type', parsed.relationshipType)
+    .maybeSingle()
+
+  const membershipPayload = {
+    unit_id: scope.unitId,
+    building_id: scope.buildingId,
+    profile_id: targetProfileId,
+    relationship_type: parsed.relationshipType,
+    is_primary: parsed.relationshipType === 'propietario' ? parsed.isPrimaryOwner : false,
+    active: true,
+    created_by_profile_id: profile.id,
+  }
+
+  const { error } = existingMembership
+    ? await scope.supabase.from('unit_profile_memberships').update(membershipPayload).eq('id', existingMembership.id)
+    : await scope.supabase.from('unit_profile_memberships').insert(membershipPayload)
+
+  if (error) throw new Error(error.message)
+
+  if (parsed.relationshipType === 'propietario') {
+    const { data: existingHolder } = await scope.supabase
+      .from('iadmin_unit_holders')
+      .select('id')
+      .eq('unit_id', scope.unitId)
+      .eq('profile_id', targetProfileId)
+      .eq('holder_kind', 'propietario')
+      .maybeSingle()
+
+    if (!existingHolder) {
+      await scope.supabase.from('iadmin_unit_holders').insert({
+        unit_id: scope.unitId,
+        profile_id: targetProfileId,
+        full_name: parsed.fullName,
+        holder_kind: 'propietario',
+        email: parsed.email.toLowerCase(),
+        phone: parsed.phone ?? null,
+        is_active: true,
+      })
+    }
+  }
+
+  await scope.supabase.from('iadmin_audit_logs').insert({
+    administration_id: scope.administrationId,
+    actor_profile_id: profile.id,
+    entity_type: 'unit_profile_memberships',
+    entity_id: scope.unitId,
+    action: 'unit_user.created',
+    metadata: {
+      unit_code: scope.unitCode,
+      profile_id: targetProfileId,
+      relationship_type: parsed.relationshipType,
+    },
+  })
+
+  revalidatePath(`/iadmin/consorcios/${scope.propertyId}`)
+  return { profileId: targetProfileId }
+}
+
+const deactivateUnitMembershipSchema = z.object({
+  membershipId: z.string().uuid(),
+})
+
+export async function deactivateUnitMembership(input: z.input<typeof deactivateUnitMembershipSchema>) {
+  const parsed = deactivateUnitMembershipSchema.parse(input)
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  const { data: membership } = await supabase
+    .from('unit_profile_memberships')
+    .select(`
+      id,
+      unit_id,
+      iadmin_units!inner (
+        managed_property_id,
+        iadmin_managed_properties!inner ( administration_id )
+      )
+    `)
+    .eq('id', parsed.membershipId)
+    .maybeSingle()
+
+  if (!membership) throw new Error('Vinculo no encontrado')
+  const unit = Array.isArray(membership.iadmin_units) ? membership.iadmin_units[0] : membership.iadmin_units
+  const property = unit?.iadmin_managed_properties
+    ? Array.isArray(unit.iadmin_managed_properties)
+      ? unit.iadmin_managed_properties[0]
+      : unit.iadmin_managed_properties
+    : null
+
+  const { profile } = await requireIAdmin({
+    capability: 'holders.manage',
+    administrationId: property?.administration_id as string,
+  })
+
+  const { error } = await supabase
+    .from('unit_profile_memberships')
+    .update({ active: false })
+    .eq('id', parsed.membershipId)
+
+  if (error) throw new Error(error.message)
+
+  await supabase.from('iadmin_audit_logs').insert({
+    administration_id: property?.administration_id,
+    actor_profile_id: profile.id,
+    entity_type: 'unit_profile_memberships',
+    entity_id: parsed.membershipId,
+    action: 'unit_user.deactivated',
+  })
+
+  revalidatePath(`/iadmin/consorcios/${unit?.managed_property_id}`)
+}
+
+// ----------------------------------------------------------------------------
+// Informacion general del edificio
+// ----------------------------------------------------------------------------
+
+const buildingInfoSchema = z.object({
+  propertyId: z.string().uuid(),
+  title: z.string().trim().min(2).max(120),
+  category: z.string().trim().min(2).max(60),
+  content: z.string().trim().min(2).max(2000),
+  visibleTo: z.enum(['residentes', 'vecinos', 'propietarios']).default('residentes'),
+  sortOrder: z.number().int().min(0).max(999).default(0),
+})
+
+export async function createBuildingInformation(input: z.input<typeof buildingInfoSchema>) {
+  const parsed = buildingInfoSchema.parse(input)
+  const { supabase, administrationId } = await getPropertyAdminId(parsed.propertyId)
+  const { profile } = await requireIAdmin({
+    capability: 'consorcio.edit',
+    administrationId,
+  })
+
+  const { data: property } = await supabase
+    .from('iadmin_managed_properties')
+    .select('building_id')
+    .eq('id', parsed.propertyId)
+    .maybeSingle()
+  if (!property) throw new Error('Consorcio no encontrado')
+
+  const { error } = await supabase.from('building_information').insert({
+    building_id: property.building_id,
+    title: parsed.title,
+    category: parsed.category,
+    content: parsed.content,
+    visible_to: parsed.visibleTo,
+    sort_order: parsed.sortOrder,
+    created_by_profile_id: profile.id,
+    updated_by_profile_id: profile.id,
+  })
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
+  revalidatePath('/usuario')
+  revalidatePath('/propietario')
+}
+
+const deactivateBuildingInfoSchema = z.object({
+  propertyId: z.string().uuid(),
+  itemId: z.string().uuid(),
+})
+
+export async function deactivateBuildingInformation(input: z.input<typeof deactivateBuildingInfoSchema>) {
+  const parsed = deactivateBuildingInfoSchema.parse(input)
+  const { supabase, administrationId } = await getPropertyAdminId(parsed.propertyId)
+  const { profile } = await requireIAdmin({
+    capability: 'consorcio.edit',
+    administrationId,
+  })
+
+  const { error } = await supabase
+    .from('building_information')
+    .update({ is_active: false, updated_by_profile_id: profile.id })
+    .eq('id', parsed.itemId)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
+  revalidatePath('/usuario')
+  revalidatePath('/propietario')
 }
 
 // ----------------------------------------------------------------------------

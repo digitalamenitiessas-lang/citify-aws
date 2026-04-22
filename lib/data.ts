@@ -2,6 +2,7 @@ import { CATEGORIES } from '@/lib/constants'
 import type {
   Building,
   BuildingAdminAssignment,
+  BuildingInformationItem,
   Business,
   BusinessDashboardData,
   ComplaintCaseDetailConsorcioView,
@@ -56,6 +57,8 @@ import type {
   IAdminUnitHolder,
   IAdminUnitWithHolders,
   MarketplaceItem,
+  OwnerDashboardData,
+  OwnerUnitSummary,
   Profile,
   Promotion,
   PromotionMonthlyStatus,
@@ -66,6 +69,7 @@ import type {
   SuperAdminBusinessDetail,
   SuperAdminDashboardData,
   SuperAdminPromotionDetail,
+  UnitProfileMembership,
 } from '@/lib/types'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 
@@ -113,6 +117,66 @@ function mapProfile(row: any): Profile {
     phone: row.phone ?? null,
     createdAt: row.created_at,
   }
+}
+
+function mapBuildingInformation(row: any): BuildingInformationItem {
+  return {
+    id: row.id,
+    buildingId: row.building_id,
+    title: row.title,
+    category: row.category ?? 'general',
+    content: row.content,
+    visibleTo: row.visible_to ?? 'residentes',
+    sortOrder: row.sort_order ?? 0,
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
+  }
+}
+
+function mapUnitProfileMembership(row: any): UnitProfileMembership {
+  const unit = Array.isArray(row.iadmin_units) ? row.iadmin_units[0] : row.iadmin_units
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  const managedProperty = unit?.iadmin_managed_properties
+    ? Array.isArray(unit.iadmin_managed_properties)
+      ? unit.iadmin_managed_properties[0]
+      : unit.iadmin_managed_properties
+    : null
+  const building = managedProperty?.buildings
+    ? Array.isArray(managedProperty.buildings)
+      ? managedProperty.buildings[0]
+      : managedProperty.buildings
+    : null
+
+  return {
+    id: row.id,
+    unitId: row.unit_id,
+    buildingId: row.building_id,
+    profileId: row.profile_id,
+    relationshipType: row.relationship_type,
+    isPrimary: Boolean(row.is_primary),
+    active: Boolean(row.active),
+    createdByProfileId: row.created_by_profile_id ?? null,
+    createdAt: row.created_at,
+    unitCode: unit?.code ?? null,
+    unitFloor: unit?.floor ?? null,
+    buildingName: building?.name ?? null,
+    profile: profile ? mapProfile(profile) : null,
+  }
+}
+
+async function getPrimaryBuildingIdForProfile(supabase: any, profile: any): Promise<string | null> {
+  if (profile?.building_id) return profile.building_id
+  const { data } = await supabase
+    .from('unit_profile_memberships')
+    .select('building_id')
+    .eq('profile_id', profile?.id)
+    .eq('active', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  return data?.building_id ?? null
 }
 
 function mapBusiness(client: any, row: any): Business {
@@ -815,6 +879,9 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
       marketplaceItems: [],
       savedPromotionIds: [],
       usedPromotionIds: [],
+      unitMemberships: [],
+      householdMembers: [],
+      buildingInformation: [],
       complaintReasons: [],
       complaintMentionableUsers: [],
       complaintCases: [],
@@ -823,10 +890,25 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
   }
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
-  const buildingId = profile?.building_id
+  const buildingId = await getPrimaryBuildingIdForProfile(supabase, profile)
 
-  const [{ data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }, { data: reasonRows }, { data: complaintRows }, { data: neighborRows }, { data: buildingAdminRows }, { data: businessesData }] =
+  const [{ data: membershipRows }, { data: buildingData }, { data: promotionsData }, { data: marketplaceData }, { data: savedRows }, { data: usedRows }, { data: reasonRows }, { data: complaintRows }, { data: neighborRows }, { data: buildingAdminRows }, { data: businessesData }, { data: buildingInfoRows }] =
     await Promise.all([
+      supabase
+        .from('unit_profile_memberships')
+        .select(`
+          *,
+          profiles!unit_profile_memberships_profile_id_fkey (*),
+          iadmin_units (
+            id,
+            code,
+            floor,
+            iadmin_managed_properties ( buildings ( id, name ) )
+          )
+        `)
+        .eq('profile_id', profileId)
+        .eq('active', true)
+        .order('created_at', { ascending: true }),
       buildingId ? supabase.from('buildings').select('*').eq('id', buildingId).maybeSingle() : Promise.resolve({ data: null }),
       supabase
         .from('promotions')
@@ -853,7 +935,42 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
             .eq('building_id', buildingId)
         : Promise.resolve({ data: [] }),
       supabase.from('businesses').select('*').order('name'),
+      buildingId
+        ? supabase
+            .from('building_information')
+            .select('*')
+            .eq('building_id', buildingId)
+            .eq('is_active', true)
+            .in('visible_to', ['residentes', 'vecinos'])
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: false })
+        : Promise.resolve({ data: [] }),
     ])
+
+  const unitMemberships = (membershipRows ?? []).map(mapUnitProfileMembership)
+  const householdUnitId =
+    unitMemberships.find((membership) => membership.relationshipType === 'vecino_principal')?.unitId ??
+    unitMemberships[0]?.unitId ??
+    null
+
+  const { data: householdRows } = householdUnitId
+    ? await supabase
+        .from('unit_profile_memberships')
+        .select(`
+          *,
+          profiles!unit_profile_memberships_profile_id_fkey (*),
+          iadmin_units (
+            id,
+            code,
+            floor,
+            iadmin_managed_properties ( buildings ( id, name ) )
+          )
+        `)
+        .eq('unit_id', householdUnitId)
+        .eq('active', true)
+        .order('relationship_type')
+        .order('created_at', { ascending: true })
+    : { data: [] }
 
   const mentionableUsers = [
     ...((neighborRows ?? []) as any[]).map((row: any) => mapMentionableUser(row, buildingId ?? '')),
@@ -882,10 +999,159 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
     marketplaceItems: (marketplaceData ?? []).map((row: any) => mapMarketplaceItem(supabase, row)),
     savedPromotionIds: (savedRows ?? []).map((row: any) => row.promotion_id),
     usedPromotionIds: (usedRows ?? []).map((row: any) => row.promotion_id),
+    unitMemberships,
+    householdMembers: (householdRows ?? []).map(mapUnitProfileMembership),
+    buildingInformation: (buildingInfoRows ?? []).map(mapBuildingInformation),
     complaintReasons: (reasonRows ?? []).map((row: any) => mapComplaintReason(row)),
     complaintMentionableUsers: mentionableUsers,
     complaintCases,
     complaintCaseDetails,
+  }
+}
+
+export async function getOwnerDashboardData(profileId: string): Promise<OwnerDashboardData | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: profileRow } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle()
+  if (!profileRow) return null
+
+  const { data: membershipRows } = await supabase
+    .from('unit_profile_memberships')
+    .select(`
+      *,
+      profiles!unit_profile_memberships_profile_id_fkey (*),
+      iadmin_units (
+        id,
+        code,
+        floor,
+        kind,
+        iadmin_managed_properties (
+          id,
+          display_name,
+          buildings ( id, name, address )
+        )
+      )
+    `)
+    .eq('profile_id', profileId)
+    .eq('relationship_type', 'propietario')
+    .eq('active', true)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+
+  const memberships = (membershipRows ?? []).map(mapUnitProfileMembership)
+  const unitIds = memberships.map((membership) => membership.unitId)
+  const buildingIds = Array.from(new Set(memberships.map((membership) => membership.buildingId)))
+
+  const [{ data: liquidationRows }, { data: paymentsRows }, { data: buildingInfoRows }] = await Promise.all([
+    unitIds.length
+      ? supabase
+          .from('iadmin_liquidation_items')
+          .select(`
+            id,
+            unit_id,
+            prorata_coefficient,
+            amount,
+            ordinary_amount,
+            extraordinary_amount,
+            previous_balance,
+            iadmin_units ( id, code, kind, iadmin_unit_holders ( id, full_name, holder_kind, is_active ) ),
+            iadmin_liquidation_runs!inner (
+              id,
+              period_year,
+              period_month,
+              status,
+              generated_at
+            )
+          `)
+          .in('unit_id', unitIds)
+          .order('generated_at', { referencedTable: 'iadmin_liquidation_runs', ascending: false })
+      : Promise.resolve({ data: [] }),
+    unitIds.length
+      ? supabase
+          .from('iadmin_payments')
+          .select('*, iadmin_units ( id, code ), iadmin_cash_accounts ( id, name )')
+          .in('unit_id', unitIds)
+          .eq('is_void', false)
+          .order('paid_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+    buildingIds.length
+      ? supabase
+          .from('building_information')
+          .select('*')
+          .in('building_id', buildingIds)
+          .eq('is_active', true)
+          .in('visible_to', ['residentes', 'propietarios'])
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const latestByUnit = new Map<string, IAdminLiquidationItem>()
+  for (const item of liquidationRows ?? []) {
+    if (latestByUnit.has(item.unit_id)) continue
+    const unit = Array.isArray(item.iadmin_units) ? item.iadmin_units[0] : item.iadmin_units
+    const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
+    const activeHolder = holders.find((holder: any) => holder?.is_active) ?? null
+    const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
+    const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
+    const previousBalance = Number(item.previous_balance ?? 0)
+    const subtotal = round2(ordinaryAmount + extraordinaryAmount + previousBalance)
+
+    latestByUnit.set(item.unit_id, {
+      id: item.id,
+      unitId: item.unit_id,
+      unitCode: unit?.code ?? 'Unidad',
+      unitKind: unit?.kind ?? 'otro',
+      activeHolderName: activeHolder?.full_name ?? null,
+      activeHolderKind: activeHolder?.holder_kind ?? null,
+      prorataCoefficient: Number(item.prorata_coefficient ?? 0),
+      ordinaryAmount,
+      extraordinaryAmount,
+      previousBalance,
+      amount: ordinaryAmount,
+      subtotal,
+      dueAmounts: [],
+      collectedAmount: 0,
+      balanceRemaining: subtotal,
+      payments: [],
+    })
+  }
+
+  const paymentsByUnit = new Map<string, IAdminPayment[]>()
+  for (const payment of paymentsRows ?? []) {
+    const mapped = mapPayment(payment)
+    const existing = paymentsByUnit.get(mapped.unitId ?? '') ?? []
+    existing.push(mapped)
+    if (mapped.unitId) paymentsByUnit.set(mapped.unitId, existing)
+  }
+
+  const units: OwnerUnitSummary[] = memberships.map((membership) => {
+    const latestLiquidation = latestByUnit.get(membership.unitId) ?? null
+    const payments = paymentsByUnit.get(membership.unitId) ?? []
+    const latestPayments = latestLiquidation
+      ? payments.filter((payment) => payment.liquidationItemId === latestLiquidation.id)
+      : []
+    const collectedAmount = round2(latestPayments.reduce((sum, payment) => sum + payment.amount, 0))
+
+    return {
+      membership,
+      latestLiquidation: latestLiquidation
+        ? {
+            ...latestLiquidation,
+            payments: latestPayments,
+            collectedAmount,
+            balanceRemaining: Math.max(round2(latestLiquidation.subtotal - collectedAmount), 0),
+          }
+        : null,
+      payments,
+    }
+  })
+
+  return {
+    profile: mapProfile(profileRow),
+    units,
+    buildingInformation: (buildingInfoRows ?? []).map(mapBuildingInformation),
   }
 }
 
@@ -1028,6 +1294,7 @@ export async function getIAdminPortfolio(administrationId: string): Promise<IAdm
       contactEmail: adminData.contact_email ?? null,
       contactPhone: adminData.contact_phone ?? null,
       isActive: Boolean(adminData.is_active),
+      legalInfo: (adminData.legal_info ?? {}) as IAdminLegalInfo,
       createdAt: adminData.created_at,
     },
     properties,
@@ -1058,7 +1325,7 @@ export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdm
   const periodYear = now.getFullYear()
   const periodMonth = now.getMonth() + 1
 
-  const [{ data: unitsData }, { data: periodData }, { data: expensesData }, { count: holderCount }] = await Promise.all([
+  const [{ data: unitsData }, { data: periodData }, { data: expensesData }, { count: holderCount }, { data: buildingInfoRows }] = await Promise.all([
     supabase
       .from('iadmin_units')
       .select(`*, iadmin_unit_holders ( id, full_name, holder_kind, is_active )`)
@@ -1086,6 +1353,13 @@ export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdm
       .select('id, iadmin_units!inner(managed_property_id)', { count: 'exact', head: true })
       .eq('is_active', true)
       .eq('iadmin_units.managed_property_id', propertyId),
+    supabase
+      .from('building_information')
+      .select('*')
+      .eq('building_id', property.buildingId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: false }),
   ])
 
   const units = (unitsData ?? []).map(mapUnit)
@@ -1103,6 +1377,7 @@ export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdm
     units,
     recentExpenses,
     currentPeriod: periodData ? mapAccountingPeriod(periodData) : null,
+    buildingInformation: (buildingInfoRows ?? []).map(mapBuildingInformation),
     totals: {
       units: units.length,
       activeHolders: holderCount ?? 0,
@@ -1328,7 +1603,20 @@ export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAd
   if (!supabase) return []
   const { data } = await supabase
     .from('iadmin_units')
-    .select('*, iadmin_unit_holders ( * )')
+    .select(`
+      *,
+      iadmin_unit_holders ( * ),
+      unit_profile_memberships (
+        *,
+        profiles!unit_profile_memberships_profile_id_fkey (*),
+        iadmin_units (
+          id,
+          code,
+          floor,
+          iadmin_managed_properties ( buildings ( id, name ) )
+        )
+      )
+    `)
     .eq('managed_property_id', propertyId)
     .order('code')
 
@@ -1340,7 +1628,13 @@ export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAd
         if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
         return (b.startDate ?? '').localeCompare(a.startDate ?? '')
       })
-    return { ...baseUnit, holders }
+    const memberships = (row.unit_profile_memberships ?? [])
+      .map(mapUnitProfileMembership)
+      .sort((a: UnitProfileMembership, b: UnitProfileMembership) => {
+        if (a.active !== b.active) return a.active ? -1 : 1
+        return a.relationshipType.localeCompare(b.relationshipType) || a.createdAt.localeCompare(b.createdAt)
+      })
+    return { ...baseUnit, holders, memberships }
   })
 }
 

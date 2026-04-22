@@ -383,7 +383,7 @@ function PreviewTable({
   for (const [source, target] of Object.entries(mapping)) {
     if (target !== 'ignore') targetToSource[target] = source
   }
-  const cols: Array<{ field: ImportTargetField; label: string }> = [
+  const previewCols: Array<{ field: ImportTargetField; label: string }> = [
     { field: 'unit_code', label: 'Código' },
     { field: 'unit_kind', label: 'Tipo' },
     { field: 'floor', label: 'Piso' },
@@ -394,7 +394,8 @@ function PreviewTable({
     { field: 'holder_tax_id', label: 'CUIT/DNI' },
     { field: 'holder_email', label: 'Email' },
     { field: 'holder_phone', label: 'Tel.' },
-  ].filter((c) => targetToSource[c.field])
+  ]
+  const cols = previewCols.filter((c) => targetToSource[c.field])
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border/40">

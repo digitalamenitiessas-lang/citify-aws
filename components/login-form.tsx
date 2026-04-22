@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME } from '@/lib/constants'
+import type { UserRole } from '@/lib/types'
 
 export function LoginForm() {
   const router = useRouter()
@@ -58,7 +59,7 @@ export function LoginForm() {
       return
     }
 
-    router.push(ROLE_HOME[profile.role])
+    router.push(ROLE_HOME[profile.role as UserRole])
     router.refresh()
   }
 
@@ -87,4 +88,3 @@ export function LoginForm() {
     </form>
   )
 }
-

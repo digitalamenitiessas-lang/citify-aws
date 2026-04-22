@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import {
   ArrowLeft,
   Building2,
@@ -19,6 +19,8 @@ import {
   Star,
   Tag,
   Ticket,
+  Info,
+  Users,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -29,8 +31,9 @@ import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
-import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, PromotionRedemptionToken, Business } from '@/lib/types'
+import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, PromotionRedemptionToken } from '@/lib/types'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { createHouseholdNeighbor } from '@/app/usuario/actions'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import type { MapMarker } from '@/components/map/map-view'
 
@@ -477,7 +480,7 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 
-type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints'
+type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household'
 
 export function ConsumerDashboard({ initialData, profileId, profileName, avatarText }: {
   initialData: ConsumerDashboardData
@@ -495,10 +498,21 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
   const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>('disponibles')
+  const [isAddingHousehold, startHouseholdTransition] = useTransition()
+  const [householdMembers, setHouseholdMembers] = useState(initialData.householdMembers)
+  const [householdDraft, setHouseholdDraft] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: 'Citify2026!',
+  })
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
   const buildingId = initialData.building?.id
+  const principalMembership = initialData.unitMemberships.find((membership) => membership.relationshipType === 'vecino_principal')
+  const additionalHouseholdCount = householdMembers.filter((membership) => membership.relationshipType === 'vecino_adicional' && membership.active).length
+  const canAddHousehold = Boolean(principalMembership) && additionalHouseholdCount < 4
 
   const allPromos = initialData.promotions
   const buildingPromos = useMemo(() => allPromos.filter(p => p.buildingId === buildingId), [allPromos, buildingId])
@@ -650,10 +664,66 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }
 
   // ── Bottom nav items
+  function submitHouseholdNeighbor(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!principalMembership) {
+      toast.error('Solo el vecino principal puede agregar familiares.')
+      return
+    }
+
+    startHouseholdTransition(async () => {
+      try {
+        const result = await createHouseholdNeighbor({
+          unitId: principalMembership.unitId,
+          fullName: householdDraft.fullName,
+          email: householdDraft.email,
+          phone: householdDraft.phone || null,
+          password: householdDraft.password,
+        })
+        const now = new Date().toISOString()
+        setHouseholdMembers((prev) => [
+          ...prev,
+          {
+            id: result.profileId,
+            unitId: principalMembership.unitId,
+            buildingId: principalMembership.buildingId,
+            profileId: result.profileId,
+            relationshipType: 'vecino_adicional',
+            isPrimary: false,
+            active: true,
+            createdByProfileId: profileId,
+            createdAt: now,
+            unitCode: principalMembership.unitCode,
+            unitFloor: principalMembership.unitFloor,
+            buildingName: principalMembership.buildingName,
+            profile: {
+              id: result.profileId,
+              email: householdDraft.email,
+              fullName: householdDraft.fullName,
+              role: 'vecino',
+              avatarText: householdDraft.fullName.slice(0, 2).toUpperCase(),
+              businessId: null,
+              buildingId: principalMembership.buildingId,
+              floor: principalMembership.unitFloor,
+              unit: principalMembership.unitCode,
+              phone: householdDraft.phone || null,
+              createdAt: now,
+            },
+          },
+        ])
+        setHouseholdDraft({ fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        toast.success('Familiar agregado a tu unidad.')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
   const nav = [
     { key: 'home', label: 'Inicio', icon: Home },
     { key: 'all-promos', label: 'Beneficios', icon: Tag },
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
+    { key: 'household', label: 'Unidad', icon: Users },
     { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
     { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
     { key: 'stores', label: 'Ubicaciones', icon: MapPin },
@@ -896,6 +966,96 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {mainView === 'household' && (
+          <div>
+            <div className="flex items-center gap-3 mb-6">
+              <button onClick={() => setMainView('home')} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Volver
+              </button>
+              <h2 className="font-bold text-foreground text-lg">Mi unidad</h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.9fr] gap-5">
+              <section className="glass-card rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-primary" />
+                  <h3 className="font-serif text-lg font-semibold text-foreground">Grupo familiar</h3>
+                </div>
+                {householdMembers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Todavia no hay usuarios asociados a tu unidad.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {householdMembers.map((member) => (
+                      <div key={member.id} className="rounded-xl border border-border/40 bg-background px-4 py-3">
+                        <div className="font-medium text-foreground">{member.profile?.fullName ?? 'Usuario'}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {member.profile?.email ?? 'sin email'} · {member.relationshipType.replace('_', ' ')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="glass-card rounded-2xl p-5">
+                <h3 className="font-serif text-lg font-semibold text-foreground">Agregar familiar o conviviente</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  El vecino principal puede crear hasta 4 usuarios vecinos adicionales para la misma unidad.
+                </p>
+                {!principalMembership ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-border/50 p-4 text-sm text-muted-foreground">
+                    Tu usuario no esta marcado como vecino principal de una unidad.
+                  </div>
+                ) : !canAddHousehold ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-border/50 p-4 text-sm text-muted-foreground">
+                    Ya alcanzaste el limite de 4 vecinos adicionales.
+                  </div>
+                ) : (
+                  <form onSubmit={submitHouseholdNeighbor} className="mt-4 space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>Nombre completo</Label>
+                      <Input value={householdDraft.fullName} onChange={(e) => setHouseholdDraft({ ...householdDraft, fullName: e.target.value })} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Email</Label>
+                      <Input type="email" value={householdDraft.email} onChange={(e) => setHouseholdDraft({ ...householdDraft, email: e.target.value })} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Telefono</Label>
+                      <Input value={householdDraft.phone} onChange={(e) => setHouseholdDraft({ ...householdDraft, phone: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Password temporal</Label>
+                      <Input value={householdDraft.password} onChange={(e) => setHouseholdDraft({ ...householdDraft, password: e.target.value })} required />
+                    </div>
+                    <Button type="submit" className="w-full btn-premium" disabled={isAddingHousehold}>
+                      {isAddingHousehold ? 'Creando...' : 'Crear usuario vecino'}
+                    </Button>
+                  </form>
+                )}
+              </section>
+            </div>
+
+            {initialData.buildingInformation.length > 0 ? (
+              <section className="glass-card rounded-2xl p-5 mt-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Info className="w-4 h-4 text-primary" />
+                  <h3 className="font-serif text-lg font-semibold text-foreground">Informacion del edificio</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {initialData.buildingInformation.map((item) => (
+                    <article key={item.id} className="rounded-xl border border-border/40 bg-background p-4">
+                      <div className="text-[11px] uppercase tracking-wide text-primary">{item.category}</div>
+                      <h4 className="mt-1 font-medium text-foreground">{item.title}</h4>
+                      <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{item.content}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
 

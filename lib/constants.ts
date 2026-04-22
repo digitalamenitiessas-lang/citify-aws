@@ -15,13 +15,15 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: 'Super Admin',
   negocio_admin: 'Admin Negocio',
   consorcio_admin: 'Admin Consorcio',
+  propietario: 'Propietario',
   vecino: 'Vecino',
 }
 
 export const ROLE_HOME: Record<UserRole, string> = {
   super_admin: '/superadmin',
   negocio_admin: '/admin',
-  consorcio_admin: '/consorcio',
+  consorcio_admin: '/iadmin',
+  propietario: '/propietario',
   vecino: '/usuario',
 }
 
@@ -48,4 +50,3 @@ export const IMAGE_RULES = {
     minHeight: 600,
   },
 } as const
-

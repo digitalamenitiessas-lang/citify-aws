@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
   Building2,
@@ -15,13 +16,16 @@ import {
   User,
   Users,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { ROLE_LABELS } from '@/lib/constants'
 import { ChatWidget } from '@/components/ai/chat-widget'
+import { bulkImportInitialOccupancy, createBusinessWithAdmin, createPlatformUser } from '@/app/superadmin/actions'
 import type {
   SuperAdminBuildingDetail,
   SuperAdminBusinessDetail,
   SuperAdminDashboardData,
   SuperAdminPromotionDetail,
+  UserRole,
 } from '@/lib/types'
 
 type TabType = 'overview' | 'buildings' | 'users' | 'businesses' | 'promotions'
@@ -558,9 +562,31 @@ function PromotionRow({ promotion }: { promotion: SuperAdminPromotionDetail }) {
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData }) {
+  const router = useRouter()
+  const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [selectedBuilding, setSelectedBuilding] = useState<SuperAdminBuildingDetail | null>(null)
   const [selectedBusiness, setSelectedBusiness] = useState<SuperAdminBusinessDetail | null>(null)
+  const [userDraft, setUserDraft] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: 'Citify2026!',
+    role: 'vecino',
+    buildingId: '',
+    businessId: '',
+  })
+  const [businessDraft, setBusinessDraft] = useState({
+    businessName: '',
+    category: '',
+    description: '',
+    address: '',
+    adminFullName: '',
+    adminEmail: '',
+    adminPhone: '',
+    adminPassword: 'Citify2026!',
+  })
+  const [importText, setImportText] = useState('')
 
   const totalUsage = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
 
@@ -576,6 +602,79 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     setActiveTab(tab)
     setSelectedBuilding(null)
     setSelectedBusiness(null)
+  }
+
+  function submitUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    startTransition(async () => {
+      try {
+        await createPlatformUser({
+          fullName: userDraft.fullName,
+          email: userDraft.email,
+          phone: userDraft.phone || null,
+          password: userDraft.password,
+          role: userDraft.role as UserRole,
+          buildingId: userDraft.buildingId || null,
+          businessId: userDraft.businessId || null,
+        })
+        toast.success('Usuario creado')
+        setUserDraft({ fullName: '', email: '', phone: '', password: 'Citify2026!', role: 'vecino', buildingId: '', businessId: '' })
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
+  function submitBusiness(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    startTransition(async () => {
+      try {
+        await createBusinessWithAdmin({
+          businessName: businessDraft.businessName,
+          category: businessDraft.category,
+          description: businessDraft.description,
+          address: businessDraft.address || null,
+          adminFullName: businessDraft.adminFullName,
+          adminEmail: businessDraft.adminEmail,
+          adminPhone: businessDraft.adminPhone || null,
+          adminPassword: businessDraft.adminPassword,
+        })
+        toast.success('Negocio y administrador creados')
+        setBusinessDraft({
+          businessName: '',
+          category: '',
+          description: '',
+          address: '',
+          adminFullName: '',
+          adminEmail: '',
+          adminPhone: '',
+          adminPassword: 'Citify2026!',
+        })
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
+  function submitInitialImport(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    startTransition(async () => {
+      try {
+        const result = await bulkImportInitialOccupancy({ csv: importText })
+        if (result.errors.length > 0) {
+          toast(`Importacion parcial: ${result.linkedUsers} usuarios vinculados, ${result.errors.length} filas con error.`)
+          console.warn('Errores de importacion CITIFY', result.errors)
+        } else {
+          toast.success(`Importacion lista: ${result.linkedUsers} usuarios vinculados y ${result.createdUnits} unidades creadas.`)
+          setImportText('')
+        }
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
   }
 
   return (
@@ -611,7 +710,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       {activeTab === 'overview' && (
         <div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} />
+            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos · ${data.users.filter((u) => u.role === 'propietario').length} propietarios`} icon={Users} />
             <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} />
             <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} />
             <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} />
@@ -660,6 +759,63 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       {activeTab === 'users' && (
         <div>
           <SectionHeader title="Usuarios" subtitle={`${data.users.length} cuentas registradas`} />
+          <form onSubmit={submitUser} className="glass-card rounded-xl p-5 mb-5">
+            <div className="mb-4">
+              <h3 className="font-semibold text-foreground text-sm">Crear usuario manual</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Para vecinos/propietarios con unidad, el vinculo fino se completa desde IAdmin en la unidad correspondiente.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Nombre completo" value={userDraft.fullName} onChange={(e) => setUserDraft({ ...userDraft, fullName: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Email" type="email" value={userDraft.email} onChange={(e) => setUserDraft({ ...userDraft, email: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Telefono" value={userDraft.phone} onChange={(e) => setUserDraft({ ...userDraft, phone: e.target.value })} />
+              <select className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" value={userDraft.role} onChange={(e) => setUserDraft({ ...userDraft, role: e.target.value })}>
+                <option value="vecino">Vecino</option>
+                <option value="propietario">Propietario</option>
+                <option value="consorcio_admin">Admin consorcio</option>
+                <option value="negocio_admin">Admin negocio</option>
+                <option value="super_admin">Super admin</option>
+              </select>
+              <select className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" value={userDraft.buildingId} onChange={(e) => setUserDraft({ ...userDraft, buildingId: e.target.value })}>
+                <option value="">Sin edificio directo</option>
+                {data.buildings.map((building) => (
+                  <option key={building.id} value={building.id}>{building.name}</option>
+                ))}
+              </select>
+              <select className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" value={userDraft.businessId} onChange={(e) => setUserDraft({ ...userDraft, businessId: e.target.value })}>
+                <option value="">Sin negocio</option>
+                {data.businesses.map((business) => (
+                  <option key={business.id} value={business.id}>{business.name}</option>
+                ))}
+              </select>
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Password temporal" value={userDraft.password} onChange={(e) => setUserDraft({ ...userDraft, password: e.target.value })} required />
+              <button type="submit" disabled={pending} className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium">
+                {pending ? 'Creando...' : 'Crear usuario'}
+              </button>
+            </div>
+          </form>
+          <form onSubmit={submitInitialImport} className="glass-card rounded-xl p-5 mb-5">
+            <div className="mb-4">
+              <h3 className="font-semibold text-foreground text-sm">Importacion inicial por unidades</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Pega un CSV con encabezados: building_id, unit_code, floor, relationship_type, full_name, email, phone, password, is_primary.
+              </p>
+            </div>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={6}
+              className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm outline-none"
+              placeholder={`building_id;unit_code;floor;relationship_type;full_name;email;phone;password;is_primary\n00000000-0000-0000-0000-000000000000;A-101;1;propietario;Maria Perez;maria@demo.com;3815550000;Citify2026!;true\n00000000-0000-0000-0000-000000000000;A-101;1;vecino_principal;Juan Perez;juan@demo.com;3815551111;Citify2026!;false`}
+              required
+            />
+            <div className="mt-3 flex justify-end">
+              <button type="submit" disabled={pending} className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium">
+                {pending ? 'Importando...' : 'Importar vecinos y propietarios'}
+              </button>
+            </div>
+          </form>
           <div className="glass-card rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -704,7 +860,28 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
 
       {/* NEGOCIOS */}
       {activeTab === 'businesses' && !selectedBusiness && (
-        <BusinessesList businesses={data.businesses} onSelect={setSelectedBusiness} />
+        <div>
+          <form onSubmit={submitBusiness} className="glass-card rounded-xl p-5 mb-5">
+            <div className="mb-4">
+              <h3 className="font-semibold text-foreground text-sm">Crear negocio con administrador</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">El negocio queda listo con un usuario `negocio_admin` asociado.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Nombre negocio" value={businessDraft.businessName} onChange={(e) => setBusinessDraft({ ...businessDraft, businessName: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Categoria" value={businessDraft.category} onChange={(e) => setBusinessDraft({ ...businessDraft, category: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Direccion" value={businessDraft.address} onChange={(e) => setBusinessDraft({ ...businessDraft, address: e.target.value })} />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Descripcion" value={businessDraft.description} onChange={(e) => setBusinessDraft({ ...businessDraft, description: e.target.value })} />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Nombre admin" value={businessDraft.adminFullName} onChange={(e) => setBusinessDraft({ ...businessDraft, adminFullName: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Email admin" type="email" value={businessDraft.adminEmail} onChange={(e) => setBusinessDraft({ ...businessDraft, adminEmail: e.target.value })} required />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Telefono admin" value={businessDraft.adminPhone} onChange={(e) => setBusinessDraft({ ...businessDraft, adminPhone: e.target.value })} />
+              <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Password temporal" value={businessDraft.adminPassword} onChange={(e) => setBusinessDraft({ ...businessDraft, adminPassword: e.target.value })} required />
+              <button type="submit" disabled={pending} className="md:col-span-4 rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium">
+                {pending ? 'Creando...' : 'Crear negocio y admin'}
+              </button>
+            </div>
+          </form>
+          <BusinessesList businesses={data.businesses} onSelect={setSelectedBusiness} />
+        </div>
       )}
       {activeTab === 'businesses' && selectedBusiness && (
         <BusinessDetail business={selectedBusiness} onBack={() => setSelectedBusiness(null)} />

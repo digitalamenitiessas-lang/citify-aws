@@ -1,7 +1,6 @@
+import { redirect } from 'next/navigation'
 import { SetupNotice } from '@/components/setup-notice'
-import { ConsorcioDashboard } from '@/components/dashboards/consorcio-dashboard'
-import { requireProfile } from '@/lib/auth'
-import { getConsorcioDashboardData } from '@/lib/data'
+import { getCurrentProfile } from '@/lib/auth'
 import { isSupabaseConfigured } from '@/lib/supabase/env'
 
 export default async function ConsorcioPage() {
@@ -13,13 +12,18 @@ export default async function ConsorcioPage() {
     )
   }
 
-  const { profile } = await requireProfile(['consorcio_admin', 'super_admin'])
-  const data = await getConsorcioDashboardData(profile.id)
+  const profile = await getCurrentProfile()
+  if (!profile) {
+    redirect('/login')
+  }
 
-  return (
-    <div className="min-h-screen bg-background pt-20">
-      <ConsorcioDashboard data={data} />
-    </div>
-  )
+  if (profile.role === 'propietario') {
+    redirect('/propietario')
+  }
+
+  if (profile.role === 'consorcio_admin' || profile.role === 'super_admin') {
+    redirect('/iadmin')
+  }
+
+  redirect('/')
 }
-

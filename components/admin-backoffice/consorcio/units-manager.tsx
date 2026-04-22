@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { IAdminHolderKind, IAdminUnitKind, IAdminUnitWithHolders } from '@/lib/types'
 import {
+  createUnitUser,
   createUnit,
   createUnitHolder,
+  deactivateUnitMembership,
   deactivateUnit,
   endUnitHolder,
   updateUnit,
@@ -37,6 +39,12 @@ const HOLDER_KIND_OPTIONS: Array<{ value: IAdminHolderKind; label: string }> = [
   { value: 'apoderado', label: 'Apoderado' },
   { value: 'otro', label: 'Otro' },
 ]
+
+const UNIT_USER_OPTIONS = [
+  { value: 'propietario', label: 'Propietario' },
+  { value: 'vecino_principal', label: 'Vecino principal' },
+  { value: 'vecino_adicional', label: 'Vecino adicional / familia' },
+] as const
 
 type UnitDraft = {
   code: string
@@ -90,6 +98,7 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
   const [editDraft, setEditDraft] = useState<UnitDraft>(emptyUnitDraft)
   const [expandedUnitId, setExpandedUnitId] = useState<string | null>(null)
   const [addingHolderFor, setAddingHolderFor] = useState<string | null>(null)
+  const [addingUserFor, setAddingUserFor] = useState<string | null>(null)
   const [holderDraft, setHolderDraft] = useState({
     fullName: '',
     holderKind: 'propietario' as IAdminHolderKind,
@@ -98,6 +107,14 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
     phone: '',
     startDate: '',
     replaceActive: true,
+  })
+  const [userDraft, setUserDraft] = useState({
+    relationshipType: 'propietario' as (typeof UNIT_USER_OPTIONS)[number]['value'],
+    fullName: '',
+    email: '',
+    phone: '',
+    password: 'Citify2026!',
+    isPrimaryOwner: true,
   })
 
   function submitNewUnit(event: React.FormEvent<HTMLFormElement>) {
@@ -200,6 +217,51 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
     })
   }
 
+  function resetUserDraft() {
+    setUserDraft({
+      relationshipType: 'propietario',
+      fullName: '',
+      email: '',
+      phone: '',
+      password: 'Citify2026!',
+      isPrimaryOwner: true,
+    })
+    setAddingUserFor(null)
+  }
+
+  function submitUnitUser(event: React.FormEvent<HTMLFormElement>, unitId: string) {
+    event.preventDefault()
+    startTransition(async () => {
+      try {
+        await createUnitUser({
+          unitId,
+          relationshipType: userDraft.relationshipType,
+          fullName: userDraft.fullName.trim(),
+          email: userDraft.email.trim(),
+          phone: userDraft.phone.trim() || null,
+          password: userDraft.password,
+          isPrimaryOwner: userDraft.isPrimaryOwner,
+        })
+        toast.success('Usuario vinculado a la unidad')
+        resetUserDraft()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
+  function handleDeactivateMembership(membershipId: string) {
+    if (!window.confirm('Desvincular este usuario de la unidad?')) return
+    startTransition(async () => {
+      try {
+        await deactivateUnitMembership({ membershipId })
+        toast.success('Usuario desvinculado')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
   const totalProrata = units.filter((u) => u.isActive).reduce((sum, u) => sum + (u.prorataCoefficient ?? 0), 0)
 
   return (
@@ -249,6 +311,7 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
               const activeHolders = unit.holders.filter((h) => h.isActive)
               const isEditing = editingUnitId === unit.id
               const isAddingHolder = addingHolderFor === unit.id
+              const isAddingUser = addingUserFor === unit.id
 
               return (
                 <li key={unit.id} className={!unit.isActive ? 'opacity-60' : ''}>
@@ -418,6 +481,105 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
                             <div className="flex justify-end gap-2">
                               <Button type="button" size="sm" variant="ghost" onClick={resetHolderDraft}>Cancelar</Button>
                               <Button type="submit" size="sm" disabled={pending}>Agregar</Button>
+                            </div>
+                          </form>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground">Usuarios CITIFY de la unidad</h4>
+                            <p className="text-xs text-muted-foreground">
+                              Vincula propietario, vecino principal y hasta 4 familiares/convivientes.
+                            </p>
+                          </div>
+                          {canManageHolders && !isAddingUser ? (
+                            <Button size="sm" variant="outline" onClick={() => setAddingUserFor(unit.id)}>
+                              <UserPlus className="w-3.5 h-3.5 mr-1" />
+                              Agregar usuario
+                            </Button>
+                          ) : null}
+                        </div>
+
+                        {unit.memberships.length === 0 && !isAddingUser ? (
+                          <div className="text-xs text-muted-foreground italic">No hay usuarios CITIFY vinculados.</div>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {unit.memberships.map((membership) => (
+                              <li key={membership.id} className="flex items-center justify-between text-xs rounded-md bg-background px-3 py-2 border border-border/40">
+                                <div>
+                                  <div className="font-medium text-foreground">
+                                    {membership.profile?.fullName ?? 'Usuario'}
+                                    <span className="text-muted-foreground capitalize font-normal">
+                                      {' '}· {membership.relationshipType.replace('_', ' ')}
+                                    </span>
+                                    {membership.isPrimary ? (
+                                      <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">principal</span>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {membership.profile?.email ?? 'sin email'}
+                                    {membership.profile?.phone ? ` · ${membership.profile.phone}` : ''}
+                                    {!membership.active ? ' · inactivo' : ''}
+                                  </div>
+                                </div>
+                                {membership.active && canManageHolders ? (
+                                  <Button size="sm" variant="ghost" disabled={pending} onClick={() => handleDeactivateMembership(membership.id)}>
+                                    <UserX className="w-3.5 h-3.5 mr-1" />
+                                    Desvincular
+                                  </Button>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {isAddingUser ? (
+                          <form onSubmit={(e) => submitUnitUser(e, unit.id)} className="mt-3 space-y-3 rounded-lg border border-border/40 p-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label>Tipo de vinculo</Label>
+                                <select
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                  value={userDraft.relationshipType}
+                                  onChange={(e) => setUserDraft({ ...userDraft, relationshipType: e.target.value as typeof userDraft.relationshipType })}
+                                >
+                                  {UNIT_USER_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Nombre completo</Label>
+                                <Input value={userDraft.fullName} onChange={(e) => setUserDraft({ ...userDraft, fullName: e.target.value })} required />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Email</Label>
+                                <Input type="email" value={userDraft.email} onChange={(e) => setUserDraft({ ...userDraft, email: e.target.value })} required />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Telefono</Label>
+                                <Input value={userDraft.phone} onChange={(e) => setUserDraft({ ...userDraft, phone: e.target.value })} />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Password temporal</Label>
+                                <Input value={userDraft.password} onChange={(e) => setUserDraft({ ...userDraft, password: e.target.value })} required />
+                              </div>
+                              {userDraft.relationshipType === 'propietario' ? (
+                                <label className="flex items-center gap-2 text-xs text-muted-foreground self-end pb-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={userDraft.isPrimaryOwner}
+                                    onChange={(e) => setUserDraft({ ...userDraft, isPrimaryOwner: e.target.checked })}
+                                  />
+                                  Propietario principal de la unidad
+                                </label>
+                              ) : null}
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" size="sm" variant="ghost" onClick={resetUserDraft}>Cancelar</Button>
+                              <Button type="submit" size="sm" disabled={pending}>Crear y vincular</Button>
                             </div>
                           </form>
                         ) : null}
