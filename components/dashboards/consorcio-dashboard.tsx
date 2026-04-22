@@ -2,7 +2,6 @@
 
 import { Building2, Home, Mail, Phone, Users } from 'lucide-react'
 import { ConsorcioCasesPanel } from '@/components/complaints/consorcio-cases-panel'
-import { ChatWidget } from '@/components/ai/chat-widget'
 import type { ConsorcioDashboardData } from '@/lib/types'
 
 export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
@@ -125,7 +124,6 @@ export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
       </div>
     </div>
 
-      <ChatWidget />
     </>
   )
 }

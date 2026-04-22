@@ -1,6 +1,9 @@
+'use client'
+
 import { Building2, Home, Info, ReceiptText, Users } from 'lucide-react'
 import type { OwnerDashboardData } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
+import { ChatWidget } from '@/components/ai/chat-widget'
 
 function relationshipLabel(value: string) {
   return value.replace('_', ' ')
@@ -12,6 +15,7 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
   const lastPayment = data.units.flatMap((unit) => unit.payments).sort((a, b) => b.paidAt.localeCompare(a.paidAt))[0]
 
   return (
+    <>
     <div className="mx-auto max-w-6xl px-6 py-8">
       <section className="glass-card rounded-3xl p-6 mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -142,6 +146,17 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
         </aside>
       </div>
     </div>
+
+      <ChatWidget
+        suggestions={[
+          '¿Cuánto debo de expensas?',
+          '¿Cuál fue mi último pago?',
+          '¿Hay avisos del edificio?',
+          '¿Cuáles son mis unidades?',
+        ]}
+        welcomeText="Puedo responder preguntas sobre tus expensas, pagos y avisos de tu edificio."
+      />
+    </>
   )
 }
 

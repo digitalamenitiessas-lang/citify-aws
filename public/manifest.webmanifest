@@ -1,0 +1,23 @@
+{
+  "name": "Citify",
+  "short_name": "Citify",
+  "description": "Mercado de promociones y gestión de consorcios para tu edificio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f0eb",
+  "theme_color": "#B85C38",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

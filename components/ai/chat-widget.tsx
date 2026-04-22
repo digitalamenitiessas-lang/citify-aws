@@ -121,16 +121,17 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 // ─── quick suggestions ────────────────────────────────────────────────────────
 
-function Suggestions({ onSelect }: { onSelect: (text: string) => void }) {
-  const suggestions = [
-    '¿Qué cupones tengo disponibles?',
-    '¿Hay algo nuevo en el mercado vecinal?',
-    '¿Cuál es el estado de mis reclamos?',
-    '¿Qué promociones vencen pronto?',
-  ]
+const DEFAULT_SUGGESTIONS = [
+  '¿Qué cupones tengo disponibles?',
+  '¿Hay algo nuevo en el mercado vecinal?',
+  '¿Cuál es el estado de mis reclamos?',
+  '¿Qué promociones vencen pronto?',
+]
+
+function Suggestions({ onSelect, items }: { onSelect: (text: string) => void; items: string[] }) {
   return (
     <div className="flex flex-wrap gap-2 p-3 border-t border-border/30">
-      {suggestions.map((s) => (
+      {items.map((s) => (
         <button
           key={s}
           onClick={() => onSelect(s)}
@@ -146,7 +147,13 @@ function Suggestions({ onSelect }: { onSelect: (text: string) => void }) {
 
 // ─── main widget ──────────────────────────────────────────────────────────────
 
-export function ChatWidget() {
+export function ChatWidget({
+  suggestions = DEFAULT_SUGGESTIONS,
+  welcomeText = 'Puedo responder preguntas sobre tus cupones, el mercado vecinal, tus reclamos y más.',
+}: {
+  suggestions?: string[]
+  welcomeText?: string
+} = {}) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -302,7 +309,7 @@ export function ChatWidget() {
               <div>
                 <p className="font-semibold text-foreground text-sm">¡Hola! Soy tu asistente</p>
                 <p className="text-muted-foreground text-xs mt-1 leading-relaxed">
-                  Puedo responder preguntas sobre tus cupones, el mercado vecinal, tus reclamos y más.
+                  {welcomeText}
                 </p>
               </div>
             </div>
@@ -329,7 +336,7 @@ export function ChatWidget() {
         </div>
 
         {/* Suggestions (only when empty) */}
-        {isEmpty && <Suggestions onSelect={(s) => sendMessage(s)} />}
+        {isEmpty && <Suggestions onSelect={(s) => sendMessage(s)} items={suggestions} />}
 
         {/* Input */}
         <div
