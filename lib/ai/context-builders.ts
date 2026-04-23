@@ -301,6 +301,136 @@ export async function buildNegocioContext(userId: string): Promise<NegocioContex
   }
 }
 
+// ─── Propietario context ──────────────────────────────────────────────────────
+
+export interface PropietarioContext {
+  role: 'propietario'
+  fullName: string
+  units: {
+    code: string
+    floor: string | null
+    buildingName: string
+    buildingAddress: string
+    latestLiquidation: {
+      period: string
+      ordinaryAmount: number
+      extraordinaryAmount: number
+      previousBalance: number
+      subtotal: number
+    } | null
+    recentPayments: { amount: number; paidAt: string }[]
+  }[]
+  buildingNotices: { title: string; content: string }[]
+}
+
+export async function buildPropietarioContext(userId: string): Promise<PropietarioContext | null> {
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
+
+  const { data: profileRow } = await supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', userId)
+    .single()
+  if (!profileRow) return null
+
+  const { data: membershipRows } = await supabase
+    .from('unit_profile_memberships')
+    .select(`
+      iadmin_units (
+        id,
+        code,
+        floor,
+        iadmin_managed_properties (
+          display_name,
+          buildings ( id, name, address )
+        )
+      )
+    `)
+    .eq('profile_id', userId)
+    .eq('relationship_type', 'propietario')
+    .eq('active', true)
+
+  const unitRows = (membershipRows ?? [])
+    .map((m: any) => {
+      const unit = Array.isArray(m.iadmin_units) ? m.iadmin_units[0] : m.iadmin_units
+      if (!unit) return null
+      const prop = Array.isArray(unit.iadmin_managed_properties)
+        ? unit.iadmin_managed_properties[0]
+        : unit.iadmin_managed_properties
+      const building = Array.isArray(prop?.buildings) ? prop.buildings[0] : prop?.buildings
+      return { unitId: unit.id as string, code: unit.code as string, floor: unit.floor as string | null, buildingId: building?.id as string, buildingName: building?.name ?? prop?.display_name ?? 'Edificio', buildingAddress: building?.address ?? '' }
+    })
+    .filter(Boolean) as { unitId: string; code: string; floor: string | null; buildingId: string; buildingName: string; buildingAddress: string }[]
+
+  const unitIds = unitRows.map((u) => u.unitId)
+  const buildingIds = Array.from(new Set(unitRows.map((u) => u.buildingId).filter(Boolean)))
+
+  const [{ data: liquidationRows }, { data: paymentRows }, { data: noticeRows }] = await Promise.all([
+    unitIds.length
+      ? supabase
+          .from('iadmin_liquidation_items')
+          .select('unit_id, amount, ordinary_amount, extraordinary_amount, previous_balance, iadmin_liquidation_runs!inner(period_year, period_month, status, generated_at)')
+          .in('unit_id', unitIds)
+          .order('generated_at', { referencedTable: 'iadmin_liquidation_runs', ascending: false })
+      : Promise.resolve({ data: [] }),
+    unitIds.length
+      ? supabase
+          .from('iadmin_payments')
+          .select('unit_id, amount, paid_at')
+          .in('unit_id', unitIds)
+          .eq('is_void', false)
+          .order('paid_at', { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [] }),
+    buildingIds.length
+      ? supabase
+          .from('building_information')
+          .select('title, content')
+          .in('building_id', buildingIds)
+          .eq('is_active', true)
+          .in('visible_to', ['residentes', 'propietarios'])
+          .order('sort_order', { ascending: true })
+          .limit(10)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const latestByUnit = new Map<string, any>()
+  for (const item of liquidationRows ?? []) {
+    if (!latestByUnit.has(item.unit_id)) latestByUnit.set(item.unit_id, item)
+  }
+
+  const paymentsByUnit = new Map<string, { amount: number; paidAt: string }[]>()
+  for (const p of paymentRows ?? []) {
+    const arr = paymentsByUnit.get(p.unit_id) ?? []
+    arr.push({ amount: Number(p.amount ?? 0), paidAt: p.paid_at })
+    paymentsByUnit.set(p.unit_id, arr)
+  }
+
+  return {
+    role: 'propietario',
+    fullName: profileRow.full_name ?? 'Propietario',
+    units: unitRows.map((u) => {
+      const liq = latestByUnit.get(u.unitId)
+      const run = liq ? (Array.isArray(liq.iadmin_liquidation_runs) ? liq.iadmin_liquidation_runs[0] : liq.iadmin_liquidation_runs) : null
+      const ordinary = Number(liq?.ordinary_amount ?? liq?.amount ?? 0)
+      const extraordinary = Number(liq?.extraordinary_amount ?? 0)
+      const previous = Number(liq?.previous_balance ?? 0)
+      return {
+        code: u.code,
+        floor: u.floor,
+        buildingName: u.buildingName,
+        buildingAddress: u.buildingAddress,
+        latestLiquidation: run
+          ? { period: `${run.period_year}-${String(run.period_month).padStart(2, '0')}`, ordinaryAmount: ordinary, extraordinaryAmount: extraordinary, previousBalance: previous, subtotal: ordinary + extraordinary + previous }
+          : null,
+        recentPayments: (paymentsByUnit.get(u.unitId) ?? []).slice(0, 5),
+      }
+    }),
+    buildingNotices: (noticeRows ?? []).map((n: any) => ({ title: n.title, content: n.content ?? '' })),
+  }
+}
+
 // ─── Super Admin context ──────────────────────────────────────────────────────
 
 export interface SuperAdminContext {

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Building2, ChevronRight } from 'lucide-react'
 import type { IAdminContext } from '@/lib/types'
 import { IAdminBalanceHint, IAdminNav, IAdminNotificationsBadge } from './iadmin-nav'
+import { ChatWidget } from '@/components/ai/chat-widget'
 
 export function IAdminShell({
   context,
@@ -16,6 +17,7 @@ export function IAdminShell({
   const allowedCapabilities = primary?.capabilities ?? []
 
   return (
+    <>
     <div className="min-h-screen bg-background pt-16">
       <div className="mx-auto flex max-w-[1400px] gap-6 px-6 py-6">
         <aside className="hidden lg:block w-64 shrink-0">
@@ -67,5 +69,16 @@ export function IAdminShell({
         </main>
       </div>
     </div>
+
+      <ChatWidget
+        suggestions={[
+          '¿Cuántos vecinos registrados hay?',
+          '¿Qué expedientes están activos?',
+          '¿Cuál es la ocupación de los edificios?',
+          '¿Qué edificios tengo a cargo?',
+        ]}
+        welcomeText="Puedo responder preguntas sobre tus edificios, vecinos y expedientes."
+      />
+    </>
   )
 }

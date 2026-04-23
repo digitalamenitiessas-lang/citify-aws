@@ -2,54 +2,35 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { FileSpreadsheet, LayoutDashboard, Scale, Settings, Wallet } from 'lucide-react'
+import { Settings, Table } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 type SubNavItem = {
   key: string
   href: (propertyId: string) => string
+  matchPrefix?: (propertyId: string) => string
   label: string
-  icon: typeof LayoutDashboard
+  icon: typeof Table
   need: IAdminCapability
   exact?: boolean
 }
 
 const ITEMS: SubNavItem[] = [
   {
-    key: 'inicio',
+    key: 'mesa',
     href: (id) => `/iadmin/consorcios/${id}`,
-    label: 'Inicio',
-    icon: LayoutDashboard,
+    label: 'Mesa del mes',
+    icon: Table,
     need: 'consorcio.view',
     exact: true,
   },
   {
-    key: 'gestion',
-    href: (id) => `/iadmin/consorcios/${id}/gestion`,
-    label: 'Gestion',
+    key: 'configuracion',
+    href: (id) => `/iadmin/consorcios/${id}/configuracion`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/`,
+    label: 'Configuración',
     icon: Settings,
     need: 'consorcio.view',
-  },
-  {
-    key: 'cuentas',
-    href: (id) => `/iadmin/consorcios/${id}/cuentas`,
-    label: 'Cuentas',
-    icon: Wallet,
-    need: 'cash_accounts.view',
-  },
-  {
-    key: 'importar',
-    href: (id) => `/iadmin/consorcios/${id}/importar`,
-    label: 'Importar',
-    icon: FileSpreadsheet,
-    need: 'units.manage',
-  },
-  {
-    key: 'conciliacion',
-    href: (id) => `/iadmin/consorcios/${id}/conciliacion`,
-    label: 'Conciliacion',
-    icon: Scale,
-    need: 'collections.register',
   },
 ]
 
@@ -84,7 +65,9 @@ export function ConsorcioSubNav({
           const href = item.href(propertyId)
           const isActive = item.exact
             ? pathname === `/iadmin/consorcios/${propertyId}`
-            : pathname.startsWith(href)
+            : item.matchPrefix
+              ? pathname.startsWith(item.matchPrefix(propertyId))
+              : pathname.startsWith(href)
           const Icon = item.icon
           return (
             <Link
