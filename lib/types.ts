@@ -866,6 +866,144 @@ export interface IAdminOverdueBucket {
   totalAmount: number
 }
 
+export interface IAdminMonthlyGridRow {
+  providerId: string
+  providerName: string
+  category: string | null
+  isRecurring: boolean
+  expenseKind: IAdminExpenseKind
+  cells: Array<{
+    year: number
+    month: number
+    amount: number | null
+    expenseId: string | null
+    hasDocument: boolean
+    isEditable: boolean  // false si el periodo esta closed
+    // Trazabilidad (solo si hay un único gasto detrás de la celda)
+    createdByName: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    status: IAdminExpenseStatus | null
+    description: string | null
+    issuedAt: string | null
+    documentId: string | null
+    documentName: string | null
+    documentPath: string | null
+  }>
+  lastAmount: number | null        // ultimo valor no-null (de referencia)
+}
+
+export interface IAdminMesaUnitLine {
+  unitId: string
+  unitCode: string
+  unitKind: IAdminUnitKind
+  holderName: string | null
+  holderPhone: string | null
+  prorataCoefficient: number
+  ordinary: number
+  extraordinary: number
+  previousBalance: number
+  subtotal: number
+  collected: number
+  balance: number
+  dueAmounts: Array<{ label: string; date: string; amount: number }>
+}
+
+export interface IAdminUnitAccountMonth {
+  year: number
+  month: number
+  label: string           // "ENE 25"
+  periodStatus: IAdminPeriodStatus | null
+  runId: string | null
+  runStatus: IAdminLiquidationStatus | null
+  liquidationItemId: string | null
+  // Totales de la unidad en ese mes
+  ordinary: number
+  extraordinary: number
+  previousBalance: number
+  subtotal: number
+  collected: number
+  balance: number         // saldo pendiente
+  isCurrent: boolean
+}
+
+export interface IAdminUnitPaymentReceipt {
+  id: string
+  receiptNumber: string | null
+  amount: number
+  paidAt: string
+  method: string | null
+  reference: string | null
+  dueLabel: string | null
+  surchargeAmount: number
+  isVoid: boolean
+  notes: string | null
+  liquidationRunId: string | null
+  periodLabel: string | null  // "ABR 26"
+}
+
+export interface IAdminUnitAccountStatement {
+  propertyId: string
+  administrationId: string
+  unit: {
+    id: string
+    code: string
+    kind: IAdminUnitKind
+    prorataCoefficient: number
+    holderName: string | null
+    holderPhone: string | null
+    holderEmail: string | null
+  }
+  months: IAdminUnitAccountMonth[]        // del más viejo al más nuevo
+  payments: IAdminUnitPaymentReceipt[]    // descendente por paidAt
+  totals: {
+    billed: number
+    collected: number
+    pending: number
+    collectionRatePct: number | null
+  }
+}
+
+export interface IAdminMesaState {
+  runId: string | null
+  runStatus: IAdminLiquidationStatus | null
+  hasRun: boolean
+  ordinaryTotal: number
+  extraordinaryTotal: number
+  previousBalanceTotal: number
+  totalToDistribute: number
+  totalCollected: number
+  totalPending: number
+  collectionRatePct: number | null
+  units: IAdminMesaUnitLine[]
+  dueDates: IAdminDueDate[]
+  coverageOk: boolean   // suma alicuotas = 100%
+  coverageDeltaPct: number
+  alicuotaSum: number
+}
+
+export interface IAdminMonthlyGrid {
+  propertyId: string
+  propertyName: string
+  administrationId: string
+  months: Array<{
+    year: number
+    month: number
+    label: string       // "NOV 25"
+    isCurrent: boolean
+    total: number
+    periodStatus: IAdminPeriodStatus | null
+    runId: string | null
+    runStatus: IAdminLiquidationStatus | null
+  }>
+  rows: IAdminMonthlyGridRow[]
+  freeRow: IAdminMonthlyGridRow | null   // celda sin proveedor asociado (para gastos ad-hoc)
+  totalByMonth: Record<string, number>
+  activeUnitsCount: number
+  totalAlicuota: number            // suma de alicuotas activas
+  readyToEmit: boolean              // hay al menos 1 gasto en el mes actual
+}
+
 export type IAdminClosingStepId =
   | 'period_open'
   | 'expenses_loaded'
