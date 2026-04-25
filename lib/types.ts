@@ -366,6 +366,8 @@ export interface SuperAdminBuildingDetail extends Building {
   neighbors: Profile[]
   registeredNeighbors: number
   occupancyRate: number
+  administration: IAdminAdministration | null
+  managedProperty: IAdminManagedProperty | null
 }
 
 export interface PromotionRedemptionByBuilding {
@@ -385,11 +387,54 @@ export interface SuperAdminBusinessDetail extends Business {
   monthlyStatus: PromotionMonthlyStatus | null
 }
 
+export interface SuperAdminConsorcioAdminOption {
+  profileId: string
+  fullName: string
+  email: string
+  phone: string | null
+  assignedBuildingsCount: number
+  primaryBuildingName: string | null
+  assignedBuildingNames: string[]
+}
+
 export interface SuperAdminDashboardData {
   buildings: SuperAdminBuildingDetail[]
   users: Profile[]
   businesses: SuperAdminBusinessDetail[]
-  promotions: Promotion[]
+  promotions: SuperAdminPromotionDetail[]
+  consorcioAdminOptions: SuperAdminConsorcioAdminOption[]
+}
+
+export interface SuperAdminCreateManagedPropertyInput {
+  building: {
+    name: string
+    address: string
+    totalUnits: number
+    latitude?: number | null
+    longitude?: number | null
+  }
+  administration: {
+    name: string
+    legalName?: string | null
+    taxId?: string | null
+    contactEmail?: string | null
+    contactPhone?: string | null
+  }
+  managedProperty: {
+    displayName?: string | null
+    propertyKind: IAdminPropertyKind
+    taxId?: string | null
+    managedSince?: string | null
+    managementFeePct?: number | null
+    notes?: string | null
+  }
+  adminProfileId: string
+}
+
+export interface SuperAdminCreateManagedPropertyResult {
+  buildingId: string
+  administrationId: string
+  managedPropertyId: string
 }
 
 export interface ConsumerDashboardData {
