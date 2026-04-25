@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireProfile } from '@/lib/auth'
-import type { UserRole } from '@/lib/types'
+import type {
+  SuperAdminCreateManagedPropertyInput,
+  SuperAdminCreateManagedPropertyResult,
+  UserRole,
+} from '@/lib/types'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 
 function avatarFromName(fullName: string) {
@@ -121,7 +125,7 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
     phone: parsed.phone ?? null,
     password: parsed.password,
     role,
-    buildingId: parsed.buildingId ?? null,
+    buildingId: role === 'consorcio_admin' ? null : parsed.buildingId ?? null,
     businessId: parsed.businessId ?? null,
   })
 
@@ -130,14 +134,25 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
   }
 
   if (role === 'consorcio_admin' && parsed.buildingId) {
+    const { count: assignmentsCount } = await admin
+      .from('building_admin_assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('profile_id', profileId)
+
+    const isPrimaryAssignment = (assignmentsCount ?? 0) === 0
+
     await admin.from('building_admin_assignments').upsert(
       {
         profile_id: profileId,
         building_id: parsed.buildingId,
-        is_primary: true,
+        is_primary: isPrimaryAssignment,
       },
       { onConflict: 'profile_id,building_id' },
     )
+
+    if (isPrimaryAssignment) {
+      await admin.from('profiles').update({ building_id: parsed.buildingId }).eq('id', profileId)
+    }
 
     const { data: property } = await admin
       .from('iadmin_managed_properties')
@@ -147,12 +162,17 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
       .maybeSingle()
 
     if (property?.administration_id) {
+      const { count: grantsCount } = await admin
+        .from('iadmin_role_grants')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', profileId)
+
       await admin.from('iadmin_role_grants').upsert(
         {
           administration_id: property.administration_id,
           profile_id: profileId,
           operational_role: 'titular',
-          is_primary: true,
+          is_primary: (grantsCount ?? 0) === 0,
         },
         { onConflict: 'administration_id,profile_id' },
       )
@@ -161,6 +181,90 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
 
   revalidatePath('/superadmin')
   return { profileId }
+}
+
+const propertyKindValues = ['consorcio', 'barrio_privado', 'edificio', 'mixto'] as const
+
+const createManagedPropertySchema = z.object({
+  building: z.object({
+    name: z.string().trim().min(2).max(120),
+    address: z.string().trim().min(5).max(200),
+    totalUnits: z.number().int().min(0).max(100000),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
+  }),
+  administration: z.object({
+    name: z.string().trim().min(2).max(120),
+    legalName: z.string().trim().max(160).nullable().optional(),
+    taxId: z.string().trim().max(32).nullable().optional(),
+    contactEmail: z.string().trim().email().max(160).nullable().optional(),
+    contactPhone: z.string().trim().max(40).nullable().optional(),
+  }),
+  managedProperty: z.object({
+    displayName: z.string().trim().max(120).nullable().optional(),
+    propertyKind: z.enum(propertyKindValues),
+    taxId: z.string().trim().max(32).nullable().optional(),
+    managedSince: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    managementFeePct: z.number().min(0).max(100).nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+  }),
+  adminProfileId: z.string().uuid(),
+})
+
+const createManagedPropertyResultSchema = z.object({
+  building_id: z.string().uuid(),
+  administration_id: z.string().uuid(),
+  managed_property_id: z.string().uuid(),
+})
+
+export async function createManagedProperty(
+  input: SuperAdminCreateManagedPropertyInput,
+): Promise<SuperAdminCreateManagedPropertyResult> {
+  const parsed = createManagedPropertySchema.parse(input)
+  const { profile } = await requireProfile(['super_admin'])
+
+  const admin = getSupabaseAdminClient()
+  if (!admin) {
+    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear consorcios desde superadmin.')
+  }
+
+  const { data, error } = await admin.rpc('superadmin_create_consorcio', {
+    building_name: parsed.building.name,
+    building_address: parsed.building.address,
+    building_total_units: parsed.building.totalUnits,
+    building_latitude: parsed.building.latitude ?? null,
+    building_longitude: parsed.building.longitude ?? null,
+    administration_name: parsed.administration.name,
+    administration_legal_name: parsed.administration.legalName ?? null,
+    administration_tax_id: parsed.administration.taxId ?? null,
+    administration_contact_email: parsed.administration.contactEmail ?? null,
+    administration_contact_phone: parsed.administration.contactPhone ?? null,
+    property_display_name: parsed.managedProperty.displayName ?? null,
+    property_kind: parsed.managedProperty.propertyKind,
+    property_tax_id: parsed.managedProperty.taxId ?? null,
+    property_managed_since: parsed.managedProperty.managedSince ?? null,
+    property_management_fee_pct: parsed.managedProperty.managementFeePct ?? null,
+    property_notes: parsed.managedProperty.notes ?? null,
+    admin_profile_id: parsed.adminProfileId,
+    creator_profile_id: profile.id,
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const result = createManagedPropertyResultSchema.parse(data)
+
+  revalidatePath('/superadmin')
+  revalidatePath('/iadmin')
+  revalidatePath('/iadmin/cartera')
+  revalidatePath(`/iadmin/consorcios/${result.managed_property_id}`)
+
+  return {
+    buildingId: result.building_id,
+    administrationId: result.administration_id,
+    managedPropertyId: result.managed_property_id,
+  }
 }
 
 const bulkImportInitialOccupancySchema = z.object({

@@ -21,6 +21,7 @@ import type {
   ConsorcioManagedBuilding,
   ConsumerDashboardData,
   HomeData,
+  IAdminAdministration,
   IAdminAccountingPeriod,
   IAdminAIExtraction,
   IAdminConsorcioDetail,
@@ -74,6 +75,7 @@ import type {
   PromotionsPageData,
   SuperAdminBuildingDetail,
   SuperAdminBusinessDetail,
+  SuperAdminConsorcioAdminOption,
   SuperAdminDashboardData,
   SuperAdminPromotionDetail,
   UnitProfileMembership,
@@ -763,10 +765,10 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
 export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardData> {
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
-    return { buildings: [], users: [], businesses: [], promotions: [] }
+    return { buildings: [], users: [], businesses: [], promotions: [], consorcioAdminOptions: [] }
   }
 
-  const [buildingsRes, usersRes, businessesRes, promotionsRes, assignmentsRes, redemptionsRes] = await Promise.all([
+  const [buildingsRes, usersRes, businessesRes, promotionsRes, assignmentsRes, redemptionsRes, propertiesRes] = await Promise.all([
     supabase.from('buildings').select('*').order('name'),
     supabase.from('profiles').select('*').order('full_name'),
     supabase.from('businesses').select('*').order('name'),
@@ -780,11 +782,16 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     supabase
       .from('promotion_redemptions')
       .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`),
+    supabase
+      .from('iadmin_managed_properties')
+      .select(`*, buildings ( id, name, address, total_units ), iadmin_administrations ( * )`)
+      .order('created_at', { ascending: false }),
   ])
 
   const allBuildings = (buildingsRes.data ?? []).map(mapBuilding)
   const allUsers = (usersRes.data ?? []).map(mapProfile)
   const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase, row))
+  const buildingNameById = new Map(allBuildings.map((building) => [building.id, building.name]))
 
   const adminsByBuilding = new Map<string, ConsorcioAdminInfo[]>()
   for (const row of assignmentsRes.data ?? []) {
@@ -832,12 +839,83 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     return { ...promotion, redemptionsByBuilding }
   })
 
+  const propertyByBuilding = new Map<
+    string,
+    {
+      administration: IAdminAdministration | null
+      managedProperty: IAdminManagedProperty
+    }
+  >()
+
+  for (const row of propertiesRes.data ?? []) {
+    if (!row.building_id || propertyByBuilding.has(row.building_id)) continue
+    const administration = row.iadmin_administrations
+      ? mapAdministration(Array.isArray(row.iadmin_administrations) ? row.iadmin_administrations[0] : row.iadmin_administrations)
+      : null
+
+    propertyByBuilding.set(row.building_id, {
+      administration,
+      managedProperty: mapManagedProperty(row),
+    })
+  }
+
   const buildings: SuperAdminBuildingDetail[] = allBuildings.map((building) => {
     const neighbors = neighborsByBuilding.get(building.id) ?? []
     const admins = adminsByBuilding.get(building.id) ?? []
     const occupancyRate = Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100)
-    return { ...building, admins, neighbors, registeredNeighbors: neighbors.length, occupancyRate }
+    const managedContext = propertyByBuilding.get(building.id)
+    return {
+      ...building,
+      admins,
+      neighbors,
+      registeredNeighbors: neighbors.length,
+      occupancyRate,
+      administration: managedContext?.administration ?? null,
+      managedProperty: managedContext?.managedProperty ?? null,
+    }
   })
+
+  const adminAssignmentSummary = new Map<
+    string,
+    {
+      assignedBuildingNames: string[]
+      primaryBuildingName: string | null
+    }
+  >()
+
+  for (const row of assignmentsRes.data ?? []) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    if (!profile?.id) continue
+
+    const current = adminAssignmentSummary.get(profile.id) ?? {
+      assignedBuildingNames: [],
+      primaryBuildingName: null,
+    }
+    const buildingName = buildingNameById.get(row.building_id)
+    if (buildingName && !current.assignedBuildingNames.includes(buildingName)) {
+      current.assignedBuildingNames.push(buildingName)
+    }
+    if (row.is_primary && buildingName) {
+      current.primaryBuildingName = buildingName
+    }
+    adminAssignmentSummary.set(profile.id, current)
+  }
+
+  const consorcioAdminOptions: SuperAdminConsorcioAdminOption[] = allUsers
+    .filter((user) => user.role === 'consorcio_admin')
+    .map((user) => {
+      const summary = adminAssignmentSummary.get(user.id)
+      return {
+        profileId: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        assignedBuildingsCount: summary?.assignedBuildingNames.length ?? 0,
+        primaryBuildingName: summary?.primaryBuildingName ?? null,
+        assignedBuildingNames: summary?.assignedBuildingNames ?? [],
+      }
+    })
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'))
 
   const businessPromoMap = new Map<string, SuperAdminPromotionDetail[]>()
   for (const promotion of allPromotions) {
@@ -873,6 +951,7 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     users: allUsers,
     businesses,
     promotions: allPromotions,
+    consorcioAdminOptions,
   }
 }
 
@@ -1165,6 +1244,20 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
 // ----------------------------------------------------------------------------
 // IAdmin: lecturas base del backoffice administrativo
 // ----------------------------------------------------------------------------
+
+function mapAdministration(row: any): IAdminAdministration {
+  return {
+    id: row.id,
+    name: row.name,
+    legalName: row.legal_name ?? null,
+    taxId: row.tax_id ?? null,
+    contactEmail: row.contact_email ?? null,
+    contactPhone: row.contact_phone ?? null,
+    isActive: Boolean(row.is_active),
+    legalInfo: (row.legal_info ?? {}) as IAdminAdministration['legalInfo'],
+    createdAt: row.created_at,
+  }
+}
 
 function mapManagedProperty(row: any): IAdminManagedProperty {
   const building = Array.isArray(row.buildings) ? row.buildings[0] : row.buildings
