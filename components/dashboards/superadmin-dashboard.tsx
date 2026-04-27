@@ -26,13 +26,19 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import {
-  bulkImportInitialOccupancy,
+  analyzeInitialOccupancyFile,
+  confirmInitialOccupancyImport,
   createBusinessWithAdmin,
   createManagedProperty,
   createPlatformUser,
 } from '@/app/superadmin/actions'
 import type {
   IAdminPropertyKind,
+  InitialOccupancyImportPreview,
+  InitialOccupancyImportRowDraft,
+  InitialOccupancyImportRowStatus,
+  InitialOccupancyUnitDecision,
+  UnitProfileRelationship,
   SuperAdminConsorcioAdminOption,
   SuperAdminBuildingDetail,
   SuperAdminBusinessDetail,
@@ -70,6 +76,90 @@ const CONSORCIO_WIZARD_STEPS: Array<{
   { id: 'summary', label: 'Resumen', description: 'Verificacion final antes de crear.' },
 ]
 const PIE_COLORS = ['#B85C38', '#C4733D', '#8B6B52', '#D4A882'] as const
+
+type ImportWizardStep = 'building' | 'upload' | 'review' | 'confirm'
+
+const IMPORT_STEP_LABELS: Array<{ id: ImportWizardStep; label: string }> = [
+  { id: 'building', label: 'Seleccionar edificio' },
+  { id: 'upload', label: 'Subir archivo' },
+  { id: 'review', label: 'Revisar propuesta IA' },
+  { id: 'confirm', label: 'Confirmar importación' },
+]
+
+const IMPORT_RELATIONSHIP_OPTIONS: Array<{ value: UnitProfileRelationship; label: string }> = [
+  { value: 'propietario', label: 'Propietario' },
+  { value: 'vecino_principal', label: 'Vecino principal' },
+  { value: 'vecino_adicional', label: 'Vecino adicional' },
+]
+
+function normalizeImportText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function recomputeImportPreview(preview: InitialOccupancyImportPreview): InitialOccupancyImportPreview {
+  const groupedByUnit = new Map<string, InitialOccupancyImportRowDraft[]>()
+
+  for (const row of preview.rows) {
+    const key = normalizeImportText(row.unitCode)
+    if (!key) continue
+    const group = groupedByUnit.get(key) ?? []
+    group.push(row)
+    groupedByUnit.set(key, group)
+  }
+
+  const rows = preview.rows.map((row) => {
+    const reasons: string[] = []
+    const unitKey = normalizeImportText(row.unitCode)
+    const unitRows = unitKey ? groupedByUnit.get(unitKey) ?? [] : []
+    const principalCount = unitRows.filter((item) => item.relationshipType === 'vecino_principal').length
+    const unitDecision: InitialOccupancyUnitDecision = row.unitCode.trim()
+      ? row.existingUnitId
+        ? 'reuse'
+        : row.unitDecision === 'reuse'
+          ? 'reuse'
+          : 'create'
+      : 'unresolved'
+
+    if (!row.fullName.trim()) reasons.push('Falta nombre completo.')
+    if (!row.email.trim()) reasons.push('Falta email.')
+    if (!row.unitCode.trim()) reasons.push('La unidad requiere revisión.')
+    if (row.relationshipType === 'vecino_principal' && principalCount > 1) {
+      reasons.push('Hay más de un vecino principal propuesto para esta unidad.')
+    }
+
+    let status: InitialOccupancyImportRowStatus = reasons.length === 0 ? 'ready' : 'pending'
+    if (!row.fullName.trim() && !row.email.trim() && !row.unitCode.trim()) {
+      status = 'error'
+    }
+
+    return {
+      ...row,
+      status,
+      statusReason: reasons[0] ?? null,
+      unitDecision,
+    }
+  })
+
+  return {
+    ...preview,
+    rows,
+    summary: {
+      totalRows: rows.length,
+      readyRows: rows.filter((row) => row.status === 'ready').length,
+      pendingRows: rows.filter((row) => row.status === 'pending').length,
+      errorRows: rows.filter((row) => row.status === 'error').length,
+      unitsToCreate: rows.filter((row) => row.unitDecision === 'create').length,
+      unitsToReuse: rows.filter((row) => row.unitDecision === 'reuse').length,
+      usersToCreateEstimate: rows.filter((row) => row.status === 'ready').length,
+      membershipsToUpsert: rows.filter((row) => row.status === 'ready').length,
+    },
+  }
+}
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon: Icon }: { label: string; value: number; sub: string; icon: typeof Shield }) {
@@ -876,6 +966,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   const router = useRouter()
   const searchParams = useSearchParams()
   const [pending, startTransition] = useTransition()
+  const [importPending, startImportTransition] = useTransition()
   const [userDraft, setUserDraft] = useState({
     fullName: '',
     email: '',
@@ -917,7 +1008,10 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   const [consorcioStepIndex, setConsorcioStepIndex] = useState(0)
   const [administrationNameTouched, setAdministrationNameTouched] = useState(false)
   const [consorcioLocationSearching, setConsorcioLocationSearching] = useState(false)
-  const [importText, setImportText] = useState('')
+  const [importStep, setImportStep] = useState<ImportWizardStep>('building')
+  const [selectedImportBuildingId, setSelectedImportBuildingId] = useState('')
+  const [importFile, setImportFile] = useState<{ fileName: string; mimeType: string; fileBase64: string } | null>(null)
+  const [importPreview, setImportPreview] = useState<InitialOccupancyImportPreview | null>(null)
 
   const totalUsage = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
   const consorcioAdmins = data.consorcioAdminOptions
@@ -955,6 +1049,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         consorcioDraft.administrationContactEmail.trim() ||
         consorcioDraft.administrationContactPhone.trim(),
     )
+  const selectedImportBuilding = data.buildings.find((building) => building.id === selectedImportBuildingId) ?? null
   const stats = computeDashboardStats(data)
 
   const tabs: { key: TabType; label: string; icon: typeof Shield }[] = [
@@ -1127,6 +1222,117 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     setConsorcioStepIndex((current) => Math.max(current - 1, 0))
   }
 
+  function resetImportFlow() {
+    setImportStep('building')
+    setSelectedImportBuildingId('')
+    setImportFile(null)
+    setImportPreview(null)
+  }
+
+  async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      setImportFile(null)
+      return
+    }
+
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    if (!extension || !['xlsx', 'xls', 'csv'].includes(extension)) {
+      toast.error('Solo se admiten archivos .xlsx, .xls o .csv.')
+      event.target.value = ''
+      return
+    }
+
+    const reader = new FileReader()
+    const result = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(String(reader.result ?? ''))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+
+    const base64 = result.split(',')[1] ?? ''
+    setImportFile({
+      fileName: file.name,
+      mimeType:
+        file.type ||
+        (extension === 'csv'
+          ? 'text/csv'
+          : extension === 'xls'
+            ? 'application/vnd.ms-excel'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+      fileBase64: base64,
+    })
+    setImportPreview(null)
+  }
+
+  function updateImportPreviewRow(rowId: string, patch: Partial<InitialOccupancyImportRowDraft>) {
+    setImportPreview((current) => {
+      if (!current) return current
+      const next = {
+        ...current,
+        rows: current.rows.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
+      }
+      return recomputeImportPreview(next)
+    })
+  }
+
+  function analyzeImportFile() {
+    if (!selectedImportBuildingId) {
+      toast.error('Selecciona primero el edificio destino.')
+      return
+    }
+    if (!importFile) {
+      toast.error('Sube primero el archivo a procesar.')
+      return
+    }
+
+    startImportTransition(async () => {
+      try {
+        const preview = await analyzeInitialOccupancyFile({
+          buildingId: selectedImportBuildingId,
+          fileName: importFile.fileName,
+          mimeType: importFile.mimeType,
+          fileBase64: importFile.fileBase64,
+        })
+        setImportPreview(recomputeImportPreview(preview))
+        setImportStep('review')
+        toast.success('La planilla fue interpretada. Revisa la propuesta antes de importar.')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'No pudimos analizar el archivo.')
+      }
+    })
+  }
+
+  function confirmImportPreview() {
+    if (!importPreview) {
+      toast.error('Primero debes analizar una planilla.')
+      return
+    }
+
+    startImportTransition(async () => {
+      try {
+        const result = await confirmInitialOccupancyImport({
+          buildingId: importPreview.buildingId,
+          rows: importPreview.rows,
+        })
+
+        if (result.errors.length > 0) {
+          toast(`Importación parcial: ${result.linkedMemberships} vínculos listos, ${result.errors.length} filas con error.`)
+          console.warn('Errores importación IA', result.errors)
+        } else {
+          toast.success(
+            `Importación lista: ${result.createdUsers} usuarios, ${result.createdUnits} unidades y ${result.linkedMemberships + result.updatedMemberships} vínculos procesados.`,
+          )
+        }
+
+        resetImportFlow()
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'No pudimos confirmar la importación.')
+      }
+    })
+  }
+
   function submitUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     startTransition(async () => {
@@ -1241,25 +1447,6 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         toast.success('Consorcio creado y listo para IAdmin')
         resetConsorcioDraft()
         navigate('buildings', { buildingId: result.buildingId })
-        router.refresh()
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Error')
-      }
-    })
-  }
-
-  function submitInitialImport(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    startTransition(async () => {
-      try {
-        const result = await bulkImportInitialOccupancy({ csv: importText })
-        if (result.errors.length > 0) {
-          toast(`Importacion parcial: ${result.linkedUsers} usuarios vinculados, ${result.errors.length} filas con error.`)
-          console.warn('Errores de importacion CITIFY', result.errors)
-        } else {
-          toast.success(`Importacion lista: ${result.linkedUsers} usuarios vinculados y ${result.createdUnits} unidades creadas.`)
-          setImportText('')
-        }
         router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
@@ -1843,27 +2030,363 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
               </button>
             </div>
           </form>
-          <form onSubmit={submitInitialImport} className="glass-card rounded-xl p-5 mb-5">
-            <div className="mb-4">
-              <h3 className="font-semibold text-foreground text-sm">Importacion inicial por unidades</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Pega un CSV con encabezados: building_id, unit_code, floor, relationship_type, full_name, email, phone, password, is_primary.
-              </p>
-            </div>
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              rows={6}
-              className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm outline-none"
-              placeholder={`building_id;unit_code;floor;relationship_type;full_name;email;phone;password;is_primary\n00000000-0000-0000-0000-000000000000;A-101;1;propietario;Maria Perez;maria@demo.com;3815550000;Citify2026!;true\n00000000-0000-0000-0000-000000000000;A-101;1;vecino_principal;Juan Perez;juan@demo.com;3815551111;Citify2026!;false`}
-              required
-            />
-            <div className="mt-3 flex justify-end">
-              <button type="submit" disabled={pending} className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium">
-                {pending ? 'Importando...' : 'Importar vecinos y propietarios'}
+          <div className="glass-card rounded-xl p-5 mb-5">
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground text-sm">Importación asistida con IA</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Sube un Excel o CSV de un solo edificio. CITIFY interpretará la planilla, propondrá unidades y relaciones,
+                  y te dejará revisar todo antes de importar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={resetImportFlow}
+                className="rounded-lg border border-border/50 px-3 py-2 text-xs font-semibold text-muted-foreground"
+              >
+                Reiniciar flujo
               </button>
             </div>
-          </form>
+
+            <div className="grid gap-2 md:grid-cols-4">
+              {IMPORT_STEP_LABELS.map((step, index) => {
+                const activeIndex = IMPORT_STEP_LABELS.findIndex((item) => item.id === importStep)
+                const isActive = step.id === importStep
+                const isCompleted = index < activeIndex
+
+                return (
+                  <div
+                    key={step.id}
+                    className={`rounded-xl border px-3 py-3 ${
+                      isActive
+                        ? 'border-primary/40 bg-primary/10'
+                        : isCompleted
+                          ? 'border-border/60 bg-background/80'
+                          : 'border-border/40 bg-background/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      {isCompleted && <Badge color="success">Listo</Badge>}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">{step.label}</div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-border/40 bg-background/70 p-4">
+              {importStep === 'building' && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Seleccionar edificio</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Esta importación procesa un solo consorcio por archivo. Elige primero el edificio destino.
+                    </p>
+                  </div>
+                  <select
+                    className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                    value={selectedImportBuildingId}
+                    onChange={(e) => setSelectedImportBuildingId(e.target.value)}
+                  >
+                    <option value="">Seleccionar consorcio</option>
+                    {data.buildings.map((building) => (
+                      <option key={building.id} value={building.id}>
+                        {building.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedImportBuildingId) {
+                          toast.error('Selecciona un edificio para continuar.')
+                          return
+                        }
+                        setImportStep('upload')
+                      }}
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium"
+                    >
+                      Continuar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {importStep === 'upload' && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subir archivo</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Edificio seleccionado: <span className="font-medium text-foreground">{selectedImportBuilding?.name ?? 'Sin edificio'}</span>
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-border/60 bg-background/60 p-4">
+                    <Label htmlFor="initial-occupancy-file">Archivo Excel o CSV</Label>
+                    <input
+                      id="initial-occupancy-file"
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleImportFileChange}
+                      className="mt-2 block w-full text-sm text-muted-foreground"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Soporta `.xlsx`, `.xls` y `.csv`. La IA usará el archivo para detectar columnas y proponer la asignación a unidades.
+                    </p>
+                    {importFile && (
+                      <p className="mt-3 text-xs text-foreground">
+                        Archivo listo: <span className="font-medium">{importFile.fileName}</span>
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportStep('building')}
+                      className="rounded-lg border border-border/50 px-4 py-2 text-sm font-semibold text-foreground"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={analyzeImportFile}
+                      disabled={importPending || !selectedImportBuildingId || !importFile}
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium disabled:opacity-60"
+                    >
+                      {importPending ? 'Analizando...' : 'Analizar con IA'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {importStep === 'review' && importPreview && (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Revisar propuesta IA</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Corrige filas pendientes antes de confirmar. Las filas listas se podrán importar tal como están.
+                      </p>
+                    </div>
+                    <Badge color="default">{importPreview.fileName}</Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Filas</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.totalRows}</div>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Listas</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.readyRows}</div>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Pendientes</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.pendingRows}</div>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Unidades nuevas</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.unitsToCreate}</div>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Reutiliza unidades</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.unitsToReuse}</div>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-3">
+                      <div className="text-xs text-muted-foreground">Vínculos</div>
+                      <div className="mt-1 text-lg font-semibold text-foreground">{importPreview.summary.membershipsToUpsert}</div>
+                    </div>
+                  </div>
+
+                  {importPreview.warnings.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-800">
+                      <p className="font-semibold uppercase tracking-wider">Advertencias detectadas</p>
+                      <ul className="mt-2 space-y-1">
+                        {importPreview.warnings.map((warning, index) => (
+                          <li key={`${warning}-${index}`}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto rounded-xl border border-border/40">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-background/80">
+                        <tr className="border-b border-border/50">
+                          {['Estado', 'Persona', 'Contacto', 'Unidad', 'Piso', 'Relación', 'Unidad destino', 'Motivo'].map((header) => (
+                            <th key={header} className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.rows.map((row) => (
+                          <tr key={row.id} className="border-b border-border/30 align-top last:border-0">
+                            <td className="px-3 py-3">
+                              <Badge color={row.status === 'ready' ? 'success' : row.status === 'pending' ? 'warn' : 'default'}>
+                                {row.status === 'ready' ? 'Lista' : row.status === 'pending' ? 'Pendiente' : 'Error'}
+                              </Badge>
+                              <p className="mt-2 text-[11px] text-muted-foreground">
+                                {row.sourceSheet} · línea {row.sourceRowNumber}
+                              </p>
+                            </td>
+                            <td className="px-3 py-3">
+                              <Input
+                                value={row.fullName}
+                                onChange={(event) => updateImportPreviewRow(row.id, { fullName: event.target.value })}
+                                className="min-w-[220px]"
+                              />
+                              <p className="mt-2 text-[11px] text-muted-foreground">{row.rawPreview || 'Sin vista previa original'}</p>
+                            </td>
+                            <td className="px-3 py-3 space-y-2">
+                              <Input
+                                value={row.email}
+                                onChange={(event) => updateImportPreviewRow(row.id, { email: event.target.value })}
+                                placeholder="Email"
+                                className="min-w-[220px]"
+                              />
+                              <Input
+                                value={row.phone}
+                                onChange={(event) => updateImportPreviewRow(row.id, { phone: event.target.value })}
+                                placeholder="Teléfono"
+                                className="min-w-[220px]"
+                              />
+                            </td>
+                            <td className="px-3 py-3">
+                              <Input
+                                value={row.unitCode}
+                                onChange={(event) =>
+                                  updateImportPreviewRow(row.id, {
+                                    unitCode: event.target.value,
+                                    existingUnitId: null,
+                                    unitDecision: 'create',
+                                  })
+                                }
+                                placeholder="Unidad"
+                                className="min-w-[140px]"
+                              />
+                            </td>
+                            <td className="px-3 py-3">
+                              <Input
+                                value={row.floor ?? ''}
+                                onChange={(event) => updateImportPreviewRow(row.id, { floor: event.target.value })}
+                                placeholder="Piso"
+                                className="min-w-[90px]"
+                              />
+                            </td>
+                            <td className="px-3 py-3">
+                              <select
+                                className="min-w-[180px] rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                                value={row.relationshipType}
+                                onChange={(event) =>
+                                  updateImportPreviewRow(row.id, {
+                                    relationshipType: event.target.value as UnitProfileRelationship,
+                                  })
+                                }
+                              >
+                                {IMPORT_RELATIONSHIP_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-3">
+                              <select
+                                className="min-w-[150px] rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                                value={row.unitDecision}
+                                onChange={(event) =>
+                                  updateImportPreviewRow(row.id, {
+                                    unitDecision: event.target.value as InitialOccupancyImportRowDraft['unitDecision'],
+                                    existingUnitId: event.target.value === 'reuse' ? row.existingUnitId : null,
+                                  })
+                                }
+                              >
+                                <option value="reuse">Reutilizar</option>
+                                <option value="create">Crear unidad</option>
+                                <option value="unresolved">Pendiente</option>
+                              </select>
+                            </td>
+                            <td className="px-3 py-3">
+                              <p className="text-xs text-muted-foreground">{row.statusReason ?? 'Sin observaciones'}</p>
+                              <p className="mt-2 text-[11px] text-muted-foreground">Confianza IA: {row.confidence}%</p>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportStep('upload')}
+                      className="rounded-lg border border-border/50 px-4 py-2 text-sm font-semibold text-foreground"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportStep('confirm')}
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium"
+                    >
+                      Ir a confirmación
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {importStep === 'confirm' && importPreview && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Confirmar importación</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Se importarán únicamente las filas listas. Las pendientes quedarán fuera hasta que vuelvas a revisarlas.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-4">
+                      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Edificio destino</div>
+                      <div className="mt-2 text-sm font-semibold text-foreground">{importPreview.buildingName}</div>
+                      <p className="mt-1 text-xs text-muted-foreground">{importPreview.fileName}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/40 bg-background/60 p-4">
+                      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Resultado esperado</div>
+                      <p className="mt-2 text-sm font-semibold text-foreground">
+                        {importPreview.summary.readyRows} filas listas · {importPreview.summary.pendingRows} pendientes
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {importPreview.summary.unitsToCreate} unidades nuevas · {importPreview.summary.membershipsToUpsert} vínculos a procesar
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportStep('review')}
+                      className="rounded-lg border border-border/50 px-4 py-2 text-sm font-semibold text-foreground"
+                    >
+                      Volver a revisar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmImportPreview}
+                      disabled={importPending || importPreview.summary.readyRows === 0}
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium disabled:opacity-60"
+                    >
+                      {importPending ? 'Importando...' : 'Confirmar importación'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="glass-card rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
