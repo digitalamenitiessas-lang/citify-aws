@@ -89,7 +89,7 @@ export function ConsorcioDashboard({ data }: { data: ConsorcioDashboardData }) {
                 <tr key={neighbor.id} className={`border-b border-border/30 transition-colors hover:bg-secondary/30 ${index === neighborRows.length - 1 ? 'border-0' : ''}`}>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white" style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}>
                         {neighbor.avatarText}
                       </div>
                       <span className="font-medium text-foreground">{neighbor.fullName}</span>

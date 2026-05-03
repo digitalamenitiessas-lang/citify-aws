@@ -13,7 +13,7 @@ export function SetupNotice({
       <div className="glass-card rounded-2xl p-8 max-w-2xl w-full">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, rgba(184,92,56,0.14), rgba(143,64,32,0.18))' }}>
+            style={{ background: 'linear-gradient(135deg, rgba(240, 78, 35,0.14), rgba(199, 62, 21,0.18))' }}>
             <DatabaseZap className="w-6 h-6 text-primary" />
           </div>
           <div>

@@ -70,7 +70,7 @@ export function PromotionCard({
         </div>
         <div
           className="flex-shrink-0 px-3 py-1.5 rounded-lg text-center"
-          style={{ background: 'linear-gradient(135deg, #B85C3822, #8F402022)', border: '1px solid rgba(184,92,56,0.2)' }}
+          style={{ background: 'linear-gradient(135deg, #F04E2322, #C73E1522)', border: '1px solid rgba(240, 78, 35,0.2)' }}
         >
           <span className="font-bold text-lg text-primary">{promotion.discount}</span>
           <p className="text-xs text-muted-foreground">DTO</p>

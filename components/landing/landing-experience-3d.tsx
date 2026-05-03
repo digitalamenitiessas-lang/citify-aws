@@ -966,7 +966,7 @@ function LandingCanvasScene({
         {useRealModel ? <ApartmentGLTF modelPath={modelPath} mobile={mobile} /> : <ApartmentFallbackModel mobile={mobile} reducedDetail={reducedDetail} reducedMotion={reducedMotion} />}
       </Suspense>
 
-      {!mobile && !reducedDetail && !useRealModel ? <ContactShadows position={[0, -0.54, 0]} opacity={0.1} scale={18} blur={1.4} far={12} color="#8f4020" /> : null}
+      {!mobile && !reducedDetail && !useRealModel ? <ContactShadows position={[0, -0.54, 0]} opacity={0.1} scale={18} blur={1.4} far={12} color="#C73E15" /> : null}
 
       <CameraRig scenes={landingScenes} sceneIndex={sceneIndex} localProgress={localProgress} mobile={mobile} reducedMotion={reducedMotion} />
     </Canvas>
@@ -982,7 +982,7 @@ function PromotionMiniCard({ promotion }: { promotion: Promotion }) {
           <h4 className="mt-1 text-sm font-semibold text-[#241a14]">{promotion.title}</h4>
           <p className="mt-1 text-xs text-[#6d5a4d]">{promotion.businessName}</p>
         </div>
-        <div className="rounded-2xl border border-[#d2a786] bg-[#b85c38] px-3 py-2 text-center shadow-[0_10px_24px_rgba(184,92,56,0.22)]">
+        <div className="rounded-2xl border border-[#d2a786] bg-[#F04E23] px-3 py-2 text-center shadow-[0_10px_24px_rgba(240, 78, 35,0.22)]">
           <div className="text-lg font-semibold text-white">{promotion.discount}</div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-white/80">DTO</div>
         </div>
@@ -1007,11 +1007,11 @@ function ScenePanel({
       case 'olive':
         return 'border-[#87956b]/30 bg-[rgba(245,239,230,0.82)] text-[#2d241a]'
       case 'sand':
-        return 'border-[#d4a882]/35 bg-[rgba(251,245,236,0.82)] text-[#2d241a]'
+        return 'border-[#F5A55D]/35 bg-[rgba(251,245,236,0.82)] text-[#2d241a]'
       case 'cream':
         return 'border-white/20 bg-[rgba(255,250,243,0.84)] text-[#2d241a]'
       default:
-        return 'border-[#b85c38]/30 bg-[rgba(46,23,13,0.72)] text-white'
+        return 'border-[#F04E23]/30 bg-[rgba(46,23,13,0.72)] text-white'
     }
   })()
 
@@ -1212,7 +1212,7 @@ export function LandingExperience3D({
   return (
     <div className="relative min-h-[calc(100vh-4rem)] overflow-x-clip bg-background">
       <div className="fixed inset-0 top-16 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(212,168,130,0.34),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(184,92,56,0.18),transparent_34%),linear-gradient(180deg,#f7f0e4_0%,#f4ead8_54%,#efe2ce_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245, 165, 93,0.34),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(240, 78, 35,0.18),transparent_34%),linear-gradient(180deg,#ffffff_0%,#fafafa_54%,#f5f5f5_100%)]" />
         <LandingCanvasScene
           sceneIndex={sceneIndex}
           localProgress={localProgress}

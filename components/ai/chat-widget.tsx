@@ -96,7 +96,7 @@ function MessageBubble({ msg }: { msg: Message }) {
       {!isUser && (
         <div
           className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mr-2 mt-0.5"
-          style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+          style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
         >
           <Bot className="w-3.5 h-3.5 text-white" />
         </div>
@@ -109,7 +109,7 @@ function MessageBubble({ msg }: { msg: Message }) {
         }`}
         style={
           isUser
-            ? { background: 'linear-gradient(135deg, #B85C38, #8F4020)' }
+            ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' }
             : { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(8px)' }
         }
       >
@@ -136,7 +136,7 @@ function Suggestions({ onSelect, items }: { onSelect: (text: string) => void; it
           key={s}
           onClick={() => onSelect(s)}
           className="px-3 py-1.5 rounded-full text-xs font-medium border border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-          style={{ background: 'rgba(184,92,56,0.05)' }}
+          style={{ background: 'rgba(240, 78, 35,0.05)' }}
         >
           {s}
         </button>
@@ -249,8 +249,8 @@ export function ChatWidget({
         aria-label="Abrir asistente IA"
         className="fixed bottom-24 right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95"
         style={{
-          background: 'linear-gradient(135deg, #B85C38, #8F4020)',
-          boxShadow: '0 8px 32px rgba(143,64,32,0.45)',
+          background: 'linear-gradient(135deg, #F04E23, #C73E15)',
+          boxShadow: '0 8px 32px rgba(199, 62, 21,0.45)',
         }}
       >
         {open ? (
@@ -269,14 +269,14 @@ export function ChatWidget({
           height: '520px',
           background: 'rgba(255,255,255,0.72)',
           backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(184,92,56,0.18)',
-          boxShadow: '0 24px 80px rgba(143,64,32,0.22)',
+          border: '1px solid rgba(240, 78, 35,0.18)',
+          boxShadow: '0 24px 80px rgba(199, 62, 21,0.22)',
         }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+          style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
         >
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
@@ -302,7 +302,7 @@ export function ChatWidget({
             <div className="flex flex-col items-center justify-center h-full text-center gap-3 pb-4">
               <div
                 className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, rgba(184,92,56,0.15), rgba(143,64,32,0.1))' }}
+                style={{ background: 'linear-gradient(135deg, rgba(240, 78, 35,0.15), rgba(199, 62, 21,0.1))' }}
               >
                 <Sparkles className="w-7 h-7 text-primary" />
               </div>
@@ -365,7 +365,7 @@ export function ChatWidget({
             disabled={!input.trim() || isStreaming}
             id="ai-chat-send"
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-            style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+            style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
             aria-label="Enviar mensaje"
           >
             {isStreaming ? (

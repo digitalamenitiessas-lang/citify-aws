@@ -122,7 +122,7 @@ export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues, onCo
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 mesa-fade-in">
-      <div className="mesa-card rounded-2xl flex items-center gap-2 pl-4 pr-2 py-2 shadow-[0_10px_40px_-10px_rgba(92,58,30,0.3)] backdrop-blur-xl">
+      <div className="mesa-card rounded-2xl flex items-center gap-2 pl-4 pr-2 py-2 shadow-[0_10px_40px_-10px_rgba(0, 0, 0,0.3)] backdrop-blur-xl">
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground whitespace-nowrap">
           <span className="w-5 h-5 rounded-full bg-primary/15 text-primary inline-flex items-center justify-center text-[10px] font-semibold tabular-nums">
             {count}
@@ -145,7 +145,7 @@ export function MesaBatchBar({ count, onClear, onApplyDelta, onClearValues, onCo
               }
             }}
             placeholder="+10%  ·  *1.05  ·  =50000"
-            className="w-44 rounded-md border border-border/50 bg-background px-2 py-1 text-xs tabular-nums focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow"
+            className="w-44 rounded-md border border-border/50 bg-background px-2 py-1 text-xs tabular-nums focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(240, 78, 35,0.08)] transition-shadow"
           />
           <button
             type="button"

@@ -137,7 +137,7 @@ export function MesaHelpOverlay({
 
 function KeyCap({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md border border-border/60 bg-muted/40 text-[11px] font-medium text-foreground shadow-[0_1px_0_rgba(92,58,30,0.06)]">
+    <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md border border-border/60 bg-muted/40 text-[11px] font-medium text-foreground shadow-[0_1px_0_rgba(0, 0, 0,0.06)]">
       {children}
     </kbd>
   )

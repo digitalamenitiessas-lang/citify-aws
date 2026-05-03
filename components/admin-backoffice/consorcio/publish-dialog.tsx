@@ -252,7 +252,7 @@ export function PublishDialog({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar vecino o unidad…"
-              className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow"
+              className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(240, 78, 35,0.08)] transition-shadow"
             />
           </div>
           <div className="flex-1" />

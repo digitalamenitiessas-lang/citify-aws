@@ -82,8 +82,8 @@ export function MesaEvolutionChart({ months }: Props) {
                 <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.55" />
               </linearGradient>
               <linearGradient id="bar-grad-past" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#C9B99A" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="#DDD0BB" stopOpacity="0.55" />
+                <stop offset="0%" stopColor="#CCCCCC" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#E5E5E5" stopOpacity="0.55" />
               </linearGradient>
             </defs>
 
@@ -95,7 +95,7 @@ export function MesaEvolutionChart({ months }: Props) {
                 x2={width - paddingX}
                 y1={paddingTop + availableH * t}
                 y2={paddingTop + availableH * t}
-                stroke="rgba(180, 120, 70, 0.08)"
+                stroke="rgba(240, 78, 35, 0.08)"
                 strokeDasharray="2 4"
               />
             ))}
@@ -145,7 +145,7 @@ export function MesaEvolutionChart({ months }: Props) {
                     height={total > 0 ? h : 2}
                     rx={3}
                     ry={3}
-                    fill={total > 0 ? fill : 'rgba(180, 120, 70, 0.12)'}
+                    fill={total > 0 ? fill : 'rgba(240, 78, 35, 0.12)'}
                     style={{
                       transition: 'transform 180ms ease, filter 180ms ease',
                       transformOrigin: `${x + barW / 2}px ${paddingTop + availableH}px`,
