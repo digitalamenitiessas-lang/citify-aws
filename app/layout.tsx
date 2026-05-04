@@ -29,9 +29,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Citify',
   },
-  icons: {
-    apple: '/apple-icon.png',
-  },
 }
 
 export default function RootLayout({
@@ -40,7 +37,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className="bg-background" suppressHydrationWarning>
+    <html lang="es" className="dark bg-background" suppressHydrationWarning>
       <body className={`${poppins.variable} font-sans antialiased`}>
         <Providers>
           <Navbar />
