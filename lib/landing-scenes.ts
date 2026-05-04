@@ -76,7 +76,7 @@ export const landingScenes: LandingSceneDefinition[] = [
   {
     id: 'welcome',
     label: 'Bienvenida',
-    eyebrow: 'Escena 1 - Living principal',
+    eyebrow: 'Bienvenida',
     headline: 'CITIFY conecta la vida del edificio con todo lo que pasa a su alrededor.',
     body: 'Vecinos, comercios y consorcios encuentran en CITIFY una nueva forma de ahorrar, participar y sentirse parte de una comunidad mas conectada.',
     contentKey: 'welcome',
@@ -105,7 +105,7 @@ export const landingScenes: LandingSceneDefinition[] = [
   {
     id: 'neighbors',
     label: 'Vecinos',
-    eyebrow: 'Escena 2 - Cocina social',
+    eyebrow: 'Vecinos',
     headline: 'Para los vecinos, CITIFY hace que el edificio se sienta mas util, cercano y vivo.',
     body: 'Promociones, descubrimiento de comercios, comunidad y herramientas cotidianas se integran en una experiencia pensada para aprovechar mejor cada dia.',
     contentKey: 'neighbors',
@@ -134,7 +134,7 @@ export const landingScenes: LandingSceneDefinition[] = [
   {
     id: 'promotions',
     label: 'Promos',
-    eyebrow: 'Escena 3 - Comedor y vitrina',
+    eyebrow: 'Comercios',
     headline: 'Los comercios llegan al edificio con propuestas relevantes y beneficios que invitan a volver.',
     body: 'CITIFY acerca ofertas de cercania, ayuda a descubrir nuevos favoritos y crea una relacion mas directa entre los locales y quienes viven alrededor.',
     contentKey: 'promotions',
@@ -163,7 +163,7 @@ export const landingScenes: LandingSceneDefinition[] = [
   {
     id: 'consorcio',
     label: 'Consorcio',
-    eyebrow: 'Escena 4 - Pasillo operativo',
+    eyebrow: 'Consorcio',
     headline: 'Para el consorcio, CITIFY ordena la convivencia y fortalece la comunidad.',
     body: 'La participacion gana contexto, el seguimiento se vuelve mas claro y el edificio encuentra una forma mas cercana de organizar lo importante.',
     contentKey: 'consorcio',
@@ -192,7 +192,7 @@ export const landingScenes: LandingSceneDefinition[] = [
   {
     id: 'infrastructure',
     label: 'Sumate',
-    eyebrow: 'Escena 5 - Estudio final',
+    eyebrow: 'Sumate',
     headline: 'Sumarte a CITIFY es abrirle la puerta a una vida de edificio mas conectada.',
     body: 'Si queres acercar beneficios, comunidad y nuevas oportunidades a tu edificio, CITIFY esta pensado para eso: hacer que todos ganen mas cerca de casa.',
     contentKey: 'infrastructure',
