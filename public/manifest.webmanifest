@@ -4,8 +4,8 @@
   "description": "Mercado de promociones y gestión de consorcios para tu edificio",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f0eb",
-  "theme_color": "#B85C38",
+  "background_color": "#FFFFFF",
+  "theme_color": "#F04E23",
   "orientation": "portrait-primary",
   "icons": [
     {

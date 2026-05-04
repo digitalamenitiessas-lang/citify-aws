@@ -117,7 +117,7 @@ export function ExpensePreviewDialog({
             <img
               src={signedUrl}
               alt={fileName ?? 'Comprobante'}
-              className="w-full h-full max-h-[70vh] object-contain bg-[repeating-conic-gradient(#f7f0e4_0%,#f7f0e4_25%,#ede0cc_25%,#ede0cc_50%)] bg-[length:16px_16px]"
+              className="w-full h-full max-h-[70vh] object-contain bg-[repeating-conic-gradient(#fafafa_0%,#fafafa_25%,#f0f0f0_25%,#f0f0f0_50%)] bg-[length:16px_16px]"
             />
           ) : isPdf ? (
             <iframe

@@ -979,7 +979,7 @@ export function MonthlyPlanilla({
                     ;(e.target as HTMLInputElement).blur()
                   }
                 }}
-                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow"
+                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(240, 78, 35,0.08)] transition-shadow"
               />
               {search ? (
                 <button
@@ -1602,7 +1602,7 @@ function EditableCell({
               queueMicrotask(() => onMove(rowIdx, monthIdx, false))
             }
           }}
-          className="w-full text-right tabular-nums text-sm bg-background border border-primary/70 rounded-md px-2 py-1 outline-none shadow-[0_0_0_3px_rgba(184,92,56,0.12)] transition-shadow"
+          className="w-full text-right tabular-nums text-sm bg-background border border-primary/70 rounded-md px-2 py-1 outline-none shadow-[0_0_0_3px_rgba(240, 78, 35,0.12)] transition-shadow"
         />
       </td>
     )
@@ -1693,8 +1693,8 @@ function EditableCell({
 
   const selectionClass = isSelected
     ? isAnchor && selectionSize > 1
-      ? 'bg-primary/15 shadow-[inset_0_0_0_2px_rgba(184,92,56,0.55)]'
-      : 'bg-primary/10 shadow-[inset_0_0_0_1px_rgba(184,92,56,0.35)]'
+      ? 'bg-primary/15 shadow-[inset_0_0_0_2px_rgba(240, 78, 35,0.55)]'
+      : 'bg-primary/10 shadow-[inset_0_0_0_1px_rgba(240, 78, 35,0.35)]'
     : ''
 
   return (
@@ -1742,7 +1742,7 @@ function EditableCell({
           onPasteAmount?.(n === 0 ? 0 : n)
         }
       }}
-      className={`px-4 py-2 text-right tabular-nums transition-colors outline-none focus:shadow-[inset_0_0_0_2px_rgba(184,92,56,0.5)] ${
+      className={`px-4 py-2 text-right tabular-nums transition-colors outline-none focus:shadow-[inset_0_0_0_2px_rgba(240, 78, 35,0.5)] ${
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
         isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'

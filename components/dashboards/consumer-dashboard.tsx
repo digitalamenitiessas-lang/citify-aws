@@ -74,7 +74,7 @@ function QRModal({ promotion, onClose }: { promotion: Promotion; onClose: () => 
         <button onClick={onClose} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors">
           <X className="w-5 h-5" />
         </button>
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}>
           <QrCode className="w-7 h-7 text-white" />
         </div>
         <h2 className="font-serif text-xl font-bold text-foreground mb-0.5">{promotion.businessName}</h2>
@@ -106,7 +106,7 @@ function PromotionQrModal({
         <button onClick={onClose} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors">
           <X className="w-5 h-5" />
         </button>
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}>
           <QrCode className="w-7 h-7 text-white" />
         </div>
         <h2 className="font-serif text-xl font-bold text-foreground mb-0.5">{promotion.businessName}</h2>
@@ -205,7 +205,7 @@ function CreateMarketplaceModal({ onClose, onSave }: {
 
 function DiscountBadge({ discount }: { discount: string }) {
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}>
       {discount}
     </span>
   )
@@ -221,7 +221,7 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
-    <div className="flex-shrink-0 w-52 rounded-2xl overflow-hidden border border-border/60 bg-card" style={{ boxShadow: '0 4px 20px rgba(92,58,30,0.08)' }}>
+    <div className="flex-shrink-0 w-52 rounded-2xl overflow-hidden border border-border/60 bg-card" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0,0.08)' }}>
       {/* image */}
       <div className="relative h-32 bg-gradient-to-br from-secondary to-muted overflow-hidden">
         {promotion.imageUrl ? (
@@ -240,9 +240,9 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }
         <button
           onClick={() => onSaveToggle(promotion)}
           className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all"
-          style={{ background: isSaved ? 'linear-gradient(135deg,#B85C38,#8F4020)' : 'rgba(255,255,255,0.85)' }}
+          style={{ background: isSaved ? 'linear-gradient(135deg,#F04E23,#C73E15)' : 'rgba(255,255,255,0.85)' }}
         >
-          <Gift className="w-3.5 h-3.5" style={{ color: isSaved ? '#fff' : '#B85C38' }} />
+          <Gift className="w-3.5 h-3.5" style={{ color: isSaved ? '#fff' : '#F04E23' }} />
         </button>
       </div>
 
@@ -272,7 +272,7 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }
               <button
                 onClick={() => onSaveToggle(promotion)}
                 className="px-2 py-1.5 rounded-lg text-xs font-medium border border-border/60 text-muted-foreground hover:text-foreground transition-colors"
-                style={isSaved ? { background: 'rgba(184,92,56,0.1)', color: 'var(--primary)', borderColor: 'rgba(184,92,56,0.3)' } : {}}
+                style={isSaved ? { background: 'rgba(240, 78, 35,0.1)', color: 'var(--primary)', borderColor: 'rgba(240, 78, 35,0.3)' } : {}}
               >
                 {isSaved ? '✓' : '+'}
               </button>
@@ -294,7 +294,7 @@ function HotCouponCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
-    <div className="flex-shrink-0 w-44 rounded-2xl overflow-hidden border border-border/60 bg-card" style={{ boxShadow: '0 4px 20px rgba(92,58,30,0.08)' }}>
+    <div className="flex-shrink-0 w-44 rounded-2xl overflow-hidden border border-border/60 bg-card" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0,0.08)' }}>
       <div className="relative h-24 bg-gradient-to-br from-secondary to-muted overflow-hidden">
         {promotion.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -335,9 +335,9 @@ function ExclusiveCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
 }) {
   const isExpired = promotion.expirationDate < new Date().toISOString().slice(0, 10)
   return (
-    <div className="flex-shrink-0 w-52 rounded-2xl overflow-hidden border border-primary/20 bg-card relative" style={{ boxShadow: '0 4px 24px rgba(184,92,56,0.12)' }}>
+    <div className="flex-shrink-0 w-52 rounded-2xl overflow-hidden border border-primary/20 bg-card relative" style={{ boxShadow: '0 4px 24px rgba(240, 78, 35,0.12)' }}>
       <div className="absolute top-2 left-2 z-10">
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#B85C38,#8F4020)' }}>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg,#F04E23,#C73E15)' }}>
           <Sparkles className="w-3 h-3" /> Exclusivo
         </span>
       </div>
@@ -433,7 +433,7 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
         {categories.map(cat => (
           <button key={cat} onClick={() => setCategory(cat)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${category === cat ? 'text-white' : 'text-muted-foreground border border-border/50 hover:text-foreground'}`}
-            style={category === cat ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : { background: 'rgba(184,92,56,0.05)' }}
+            style={category === cat ? { background: 'linear-gradient(135deg,#F04E23,#C73E15)' } : { background: 'rgba(240, 78, 35,0.05)' }}
           >
             {cat}
           </button>
@@ -453,8 +453,8 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
                 )}
                 <div className="absolute top-2 left-2"><DiscountBadge discount={p.discount} /></div>
                 <button onClick={() => onSaveToggle(p)} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                  style={{ background: savedCoupons.includes(p.id) ? 'linear-gradient(135deg,#B85C38,#8F4020)' : 'rgba(255,255,255,0.85)' }}>
-                  <Gift className="w-3.5 h-3.5" style={{ color: savedCoupons.includes(p.id) ? '#fff' : '#B85C38' }} />
+                  style={{ background: savedCoupons.includes(p.id) ? 'linear-gradient(135deg,#F04E23,#C73E15)' : 'rgba(255,255,255,0.85)' }}>
+                  <Gift className="w-3.5 h-3.5" style={{ color: savedCoupons.includes(p.id) ? '#fff' : '#F04E23' }} />
                 </button>
               </div>
               <div className="p-4">
@@ -734,38 +734,36 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
       {/* ── HERO HEADER ──────────────────────────────────────────────────── */}
       {mainView === 'home' && (
-        <div
-          className="relative overflow-hidden px-5 pt-3 pb-5"
-          style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}
-        >
-          {/* decorative blobs */}
-          <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
-          <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
+        <div className="relative overflow-hidden border-b border-border/60 bg-background px-5 pt-4 pb-4">
+          {/* subtle orange glow — top right */}
+          <div className="pointer-events-none absolute -top-16 -right-16 w-56 h-56 rounded-full opacity-60" style={{ background: 'radial-gradient(circle, rgba(240,78,35,0.18), transparent 70%)' }} />
 
           <div className="relative z-10">
-            <p className="text-white/70 text-sm font-medium mb-0.5">Bienvenido/a de vuelta</p>
-            <h1 className="text-white text-2xl font-bold mb-0.5">
-              Hola, {firstName} 👋
-            </h1>
-            <p className="text-white/80 text-sm mb-1">
-              <span className="font-semibold text-white">{allPromos.length} promociones</span> disponibles para vos
+            <div className="flex items-baseline flex-wrap gap-x-2 gap-y-0.5">
+              <h1 className="text-foreground text-xl font-semibold tracking-tight leading-tight">
+                Hola, {firstName} <span aria-hidden>👋</span>
+              </h1>
+              {initialData.building?.name && (
+                <span className="inline-flex items-center gap-1 text-muted-foreground text-xs font-medium">
+                  <Building2 className="w-3 h-3" />
+                  {initialData.building.name}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              <span className="font-semibold text-primary">{allPromos.length} promos</span> disponibles
+              {buildingPromos.length > 0 && <> · <span className="font-semibold text-primary">{buildingPromos.length}</span> exclusivas de tu edificio</>}
             </p>
-            {buildingPromos.length > 0 && (
-              <p className="text-white/70 text-xs">
-                {buildingPromos.length} exclusivas de {buildingName}
-              </p>
-            )}
 
             {/* Search bar */}
-            <div className="mt-5 relative">
+            <div className="mt-3 relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onFocus={() => setMainView('all-promos')}
                 placeholder="Buscar promociones..."
-                className="w-full pl-10 pr-4 py-3 rounded-xl text-sm outline-none"
-                style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--foreground)' }}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none border border-border bg-card text-foreground transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
               />
             </div>
           </div>
@@ -879,7 +877,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                     className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                       couponFilter === 'disponibles' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
                     }`}
-                    style={couponFilter === 'disponibles' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                    style={couponFilter === 'disponibles' ? { background: 'linear-gradient(135deg,#F04E23,#C73E15)' } : {}}
                   >
                     Disponibles
                     {disponiblesCount > 0 && (
@@ -893,7 +891,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                     className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                       couponFilter === 'usados' ? 'text-white shadow-lg' : 'text-muted-foreground border border-border/50 bg-input/20'
                     }`}
-                    style={couponFilter === 'usados' ? { background: 'linear-gradient(135deg,#B85C38,#8F4020)' } : {}}
+                    style={couponFilter === 'usados' ? { background: 'linear-gradient(135deg,#F04E23,#C73E15)' } : {}}
                   >
                     Usados
                     {usadosCount > 0 && (
@@ -1092,7 +1090,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                       <p className="text-xl font-bold text-primary mt-0.5">${item.price.toLocaleString()}</p>
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
                       <div className="flex items-center gap-2 mt-3">
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg,#B85C38,#8F4020)' }}>{item.sellerAvatar}</div>
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg,#F04E23,#C73E15)' }}>{item.sellerAvatar}</div>
                         <span className="text-xs text-muted-foreground">{item.sellerName}</span>
                         {item.sellerPhone && (
                           <a href={`tel:${item.sellerPhone}`} className="ml-auto text-xs text-primary font-medium hover:underline">Contactar</a>
@@ -1182,7 +1180,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       </div>
 
       {/* ── BOTTOM NAVIGATION ────────────────────────────────────────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60" style={{ background: 'rgba(251,246,238,0.95)', backdropFilter: 'blur(12px)' }}>
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
         <div className="flex items-center justify-around px-2 py-2 max-w-5xl mx-auto">
           {nav.map(item => {
             const isActive = mainView === item.key

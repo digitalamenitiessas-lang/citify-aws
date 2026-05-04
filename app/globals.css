@@ -4,59 +4,109 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* CITIFY — Warm Terracotta Editorial Palette */
-  --background: #F7F0E4;
-  --foreground: #241409;
-  --card: #FBF6EE;
-  --card-foreground: #241409;
-  --popover: #FBF6EE;
-  --popover-foreground: #241409;
-  --primary: #B85C38;
+  /* CITIFY — Brand palette: white / black / vibrant orange */
+  --background: #FFFFFF;
+  --foreground: #1A1A1A;
+  --card: #FFFFFF;
+  --card-foreground: #1A1A1A;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A1A;
+  --primary: #F04E23;
   --primary-foreground: #FFFFFF;
-  --secondary: #EDE0CC;
-  --secondary-foreground: #5C3A1E;
-  --muted: #EDE0CC;
-  --muted-foreground: #8B6B52;
-  --accent: #D4A882;
-  --accent-foreground: #241409;
+  --secondary: #FFF1E8;
+  --secondary-foreground: #1A1A1A;
+  --muted: #F5F5F5;
+  --muted-foreground: #666666;
+  --accent: #F5A55D;
+  --accent-foreground: #1A1A1A;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: #ffffff;
-  --border: #DDD0BB;
-  --input: #EDE0CC;
-  --ring: #B85C38;
-  --chart-1: #B85C38;
-  --chart-2: #C4733D;
-  --chart-3: #8B6B52;
-  --chart-4: #D4A882;
-  --chart-5: #5C3A1E;
+  --border: #E5E5E5;
+  --input: #F5F5F5;
+  --ring: #F04E23;
+  --chart-1: #F04E23;
+  --chart-2: #F5A55D;
+  --chart-3: #C73E15;
+  --chart-4: #FFC893;
+  --chart-5: #1A1A1A;
   --radius: 0.75rem;
-  --sidebar: #FBF6EE;
-  --sidebar-foreground: #241409;
-  --sidebar-primary: #B85C38;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1A1A1A;
+  --sidebar-primary: #F04E23;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #EDE0CC;
-  --sidebar-accent-foreground: #241409;
-  --sidebar-border: #DDD0BB;
-  --sidebar-ring: #B85C38;
+  --sidebar-accent: #FFF1E8;
+  --sidebar-accent-foreground: #1A1A1A;
+  --sidebar-border: #E5E5E5;
+  --sidebar-ring: #F04E23;
 
-  /* Custom CITIFY warm tokens */
-  --citify-cream-1: #FBF6EE;
-  --citify-cream-2: #F2E8D4;
-  --citify-cream-3: #EDE0CC;
-  --citify-tan-1: #DDD0BB;
-  --citify-tan-2: #C9B99A;
-  --citify-brown-light: #8B6B52;
-  --citify-brown: #5C3A1E;
-  --citify-terracotta: #B85C38;
-  --citify-terracotta-dark: #8F4020;
-  --citify-surface: rgba(180, 120, 70, 0.06);
-  --citify-glass: rgba(180, 120, 70, 0.04);
-  --citify-highlight: rgba(180, 120, 70, 0.1);
+  /* Custom CITIFY tokens — remapped to white/orange brand
+     (legacy names like "cream"/"brown" preserved for compatibility) */
+  --citify-cream-1: #FFFFFF;
+  --citify-cream-2: #FAFAFA;
+  --citify-cream-3: #F5F5F5;
+  --citify-tan-1: #E5E5E5;
+  --citify-tan-2: #CCCCCC;
+  --citify-brown-light: #666666;
+  --citify-brown: #1A1A1A;
+  --citify-terracotta: #F04E23;
+  --citify-terracotta-dark: #C73E15;
+  --citify-surface: rgba(240, 78, 35, 0.05);
+  --citify-glass: rgba(240, 78, 35, 0.03);
+  --citify-highlight: rgba(240, 78, 35, 0.1);
+}
+
+.dark {
+  --background: #0E0E0E;
+  --foreground: #FAFAFA;
+  --card: #1A1A1A;
+  --card-foreground: #FAFAFA;
+  --popover: #1A1A1A;
+  --popover-foreground: #FAFAFA;
+  --primary: #F04E23;
+  --primary-foreground: #FFFFFF;
+  --secondary: #2A1810;
+  --secondary-foreground: #FAFAFA;
+  --muted: #1F1F1F;
+  --muted-foreground: #A3A3A3;
+  --accent: #F5A55D;
+  --accent-foreground: #1A1A1A;
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: #ffffff;
+  --border: #2A2A2A;
+  --input: #1F1F1F;
+  --ring: #F04E23;
+  --chart-1: #F04E23;
+  --chart-2: #F5A55D;
+  --chart-3: #FFC893;
+  --chart-4: #C73E15;
+  --chart-5: #FAFAFA;
+  --sidebar: #0E0E0E;
+  --sidebar-foreground: #FAFAFA;
+  --sidebar-primary: #F04E23;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1F1F1F;
+  --sidebar-accent-foreground: #FAFAFA;
+  --sidebar-border: #2A2A2A;
+  --sidebar-ring: #F04E23;
+
+  /* Custom CITIFY tokens — dark variants */
+  --citify-cream-1: #1A1A1A;
+  --citify-cream-2: #222222;
+  --citify-cream-3: #2A2A2A;
+  --citify-tan-1: #333333;
+  --citify-tan-2: #555555;
+  --citify-brown-light: #A3A3A3;
+  --citify-brown: #FAFAFA;
+  --citify-terracotta: #F04E23;
+  --citify-terracotta-dark: #C73E15;
+  --citify-surface: rgba(240, 78, 35, 0.08);
+  --citify-glass: rgba(240, 78, 35, 0.06);
+  --citify-highlight: rgba(240, 78, 35, 0.14);
 }
 
 @theme inline {
-  --font-sans: var(--font-inter);
-  --font-serif: var(--font-playfair);
+  --font-sans: var(--font-poppins);
+  --font-serif: var(--font-poppins);
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -102,12 +152,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-inter), sans-serif;
+    font-family: var(--font-poppins), sans-serif;
   }
 
-  /* Headings always use Playfair Display */
   h1, h2, h3 {
-    font-family: var(--font-playfair), serif;
+    font-family: var(--font-poppins), sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.02em;
   }
 }
 
@@ -116,7 +167,7 @@
   background: var(--citify-surface);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(180, 120, 70, 0.14);
+  border: 1px solid rgba(240, 78, 35, 0.14);
   background-color: var(--citify-cream-1);
 }
 
@@ -126,30 +177,30 @@
 
 .glass-card-hover:hover {
   background-color: var(--citify-cream-2);
-  border-color: rgba(184, 92, 56, 0.2);
+  border-color: rgba(240, 78, 35, 0.2);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(92, 58, 30, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
 }
 
 /* Warm subtle grid background */
 .bg-grid {
   background-image:
-    linear-gradient(rgba(92, 58, 30, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(92, 58, 30, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
   background-size: 48px 48px;
 }
 
 /* Premium button — Terracotta */
 .btn-premium {
-  background: linear-gradient(135deg, #B85C38, #8F4020);
+  background: linear-gradient(135deg, #F5A55D, #F04E23);
   color: #ffffff;
-  border: 1px solid rgba(143, 64, 32, 0.3);
+  border: 1px solid rgba(199, 62, 21, 0.3);
   transition: all 0.3s ease;
 }
 
 .btn-premium:hover {
-  background: linear-gradient(135deg, #C4673F, #B85C38);
-  box-shadow: 0 4px 20px rgba(184, 92, 56, 0.3);
+  background: linear-gradient(135deg, #F26D44, #F04E23);
+  box-shadow: 0 4px 20px rgba(240, 78, 35, 0.35);
 }
 
 /* ============================================================
@@ -160,15 +211,15 @@
 /* Card con borde degradado y capa de sombra sutil; sensación "lifted" */
 .mesa-card {
   position: relative;
-  background: linear-gradient(180deg, rgba(251, 246, 238, 0.92), rgba(247, 240, 228, 0.82));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--card) 94%, transparent), color-mix(in oklab, var(--card) 86%, transparent));
   backdrop-filter: blur(14px) saturate(1.08);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  border: 1px solid rgba(180, 120, 70, 0.12);
+  border: 1px solid color-mix(in oklab, var(--foreground) 6%, transparent);
   border-radius: 1rem;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 0 0 1px rgba(180, 120, 70, 0.04),
-    0 6px 24px -12px rgba(92, 58, 30, 0.12);
+    0 0 0 1px rgba(240, 78, 35, 0.04),
+    0 6px 24px -12px rgba(0, 0, 0, 0.1);
 }
 
 .mesa-card::before {
@@ -177,7 +228,7 @@
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(212, 168, 130, 0.4), rgba(184, 92, 56, 0) 45%, rgba(184, 92, 56, 0) 55%, rgba(212, 168, 130, 0.3));
+  background: linear-gradient(135deg, rgba(245, 165, 93, 0.45), rgba(240, 78, 35, 0) 45%, rgba(240, 78, 35, 0) 55%, rgba(245, 165, 93, 0.35));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -190,7 +241,7 @@
   position: relative;
 }
 .kpi-cell:hover {
-  background-color: rgba(180, 120, 70, 0.04);
+  background-color: rgba(240, 78, 35, 0.04);
 }
 .kpi-cell::after {
   content: '';
@@ -210,12 +261,12 @@
 /* Disco con degradado para los iconos de KPI — reemplaza bg-muted flat */
 .kpi-icon-disc {
   background:
-    radial-gradient(120% 120% at 30% 20%, rgba(212, 168, 130, 0.9), rgba(212, 168, 130, 0.5) 45%, rgba(180, 120, 70, 0.25) 90%);
+    radial-gradient(120% 120% at 30% 20%, rgba(245, 165, 93, 0.95), rgba(245, 165, 93, 0.55) 45%, rgba(240, 78, 35, 0.25) 90%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -1px 0 rgba(92, 58, 30, 0.05),
-    0 1px 2px rgba(92, 58, 30, 0.06);
-  color: var(--citify-brown);
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  color: #FFFFFF;
 }
 
 /* Punto "vivo" — pulsa para estados en curso */
@@ -248,7 +299,7 @@
   right: -12px;
   bottom: 0;
   width: 12px;
-  background: linear-gradient(90deg, rgba(92, 58, 30, 0.07), transparent);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.07), transparent);
   pointer-events: none;
   opacity: 0;
   transition: opacity 220ms ease;
@@ -264,9 +315,9 @@
   gap: 2px;
   padding: 3px;
   border-radius: 9999px;
-  background: rgba(180, 120, 70, 0.08);
-  border: 1px solid rgba(180, 120, 70, 0.14);
-  box-shadow: inset 0 1px 2px rgba(92, 58, 30, 0.04);
+  background: rgba(240, 78, 35, 0.06);
+  border: 1px solid rgba(240, 78, 35, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .seg button {
   position: relative;
@@ -281,28 +332,28 @@
   color: var(--foreground);
 }
 .seg button[aria-pressed='true'] {
-  background: white;
+  background: var(--card);
   color: var(--foreground);
   box-shadow:
-    0 1px 2px rgba(92, 58, 30, 0.08),
-    0 0 0 1px rgba(180, 120, 70, 0.1);
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(240, 78, 35, 0.18);
 }
 
 /* Header celda "mes actual" con gradient terracota suave */
 .th-current-month {
-  background: linear-gradient(180deg, rgba(184, 92, 56, 0.14), rgba(184, 92, 56, 0.06));
+  background: linear-gradient(180deg, rgba(240, 78, 35, 0.16), rgba(240, 78, 35, 0.06));
   color: var(--primary);
 }
 
 /* Hover rows en la planilla — terracota muy sutil */
 .planilla-row:hover {
-  background-color: rgba(184, 92, 56, 0.03);
+  background-color: rgba(240, 78, 35, 0.04);
 }
 
 /* Divider horizontal degradado — reemplaza border-b duro */
 .divider-soft {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(180, 120, 70, 0.18), transparent);
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.1), transparent);
 }
 
 /* Delta pill (variación vs mes anterior) */
@@ -326,7 +377,7 @@
   color: #065f46;
 }
 .delta-pill[data-tone='flat'] {
-  background: rgba(139, 107, 82, 0.1);
+  background: rgba(102, 102, 102, 0.1);
   color: var(--citify-brown-light);
 }
 
@@ -357,7 +408,7 @@
 
 /* Zebra rows sutil en la planilla */
 .planilla-row:nth-child(even):not(:hover) {
-  background-color: rgba(180, 120, 70, 0.015);
+  background-color: rgba(0, 0, 0, 0.015);
 }
 
 /* Pointer feedback para links de ayuda */
@@ -369,8 +420,8 @@
   height: 18px;
   padding: 0 4px;
   border-radius: 4px;
-  border: 1px solid rgba(180, 120, 70, 0.22);
-  background: rgba(251, 246, 238, 0.6);
+  border: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
   color: var(--citify-brown-light);
   font-size: 10px;
   font-weight: 500;
