@@ -6,6 +6,7 @@ import { PwaInit } from '@/components/pwa/pwa-init'
 import './globals.css'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+const iconVersion = '20260505'
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -83,14 +84,13 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
-      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: `/favicon-16x16.png?v=${iconVersion}`, sizes: '16x16', type: 'image/png' },
+      { url: `/favicon-32x32.png?v=${iconVersion}`, sizes: '32x32', type: 'image/png' },
+      { url: `/icon-192x192.png?v=${iconVersion}`, sizes: '192x192', type: 'image/png' },
+      { url: `/icon-512x512.png?v=${iconVersion}`, sizes: '512x512', type: 'image/png' },
     ],
-    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
-    shortcut: ['/favicon-32x32.png'],
+    apple: [{ url: `/icon-192x192.png?v=${iconVersion}`, sizes: '192x192', type: 'image/png' }],
+    shortcut: [`/favicon-32x32.png?v=${iconVersion}`],
   },
   appleWebApp: {
     capable: true,

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   BarChart3,
@@ -51,6 +52,12 @@ type BarcodeDetectorLike = {
 
 type WindowWithBarcodeDetector = Window & {
   BarcodeDetector?: new (options?: { formats?: string[] }) => BarcodeDetectorLike
+}
+
+const BUSINESS_SECTION_OPTIONS: BusinessDashboardSection[] = ['home', 'promotions', 'history', 'profile']
+
+function isBusinessDashboardSection(value: string | null): value is BusinessDashboardSection {
+  return Boolean(value && BUSINESS_SECTION_OPTIONS.includes(value as BusinessDashboardSection))
 }
 
 interface PromotionFormState {
@@ -567,7 +574,7 @@ function BusinessQrScanner({
         <div className="aspect-[4/3] w-full bg-[radial-gradient(circle_at_top,rgba(240, 78, 35,0.12),transparent_45%),linear-gradient(180deg,rgba(18,18,18,0.92),rgba(34,34,34,0.98))]">
           {scannerState === 'scanning' || scannerState === 'starting' || scannerState === 'validating' ? (
             <div className="relative h-full w-full">
-              <video ref={videoRef} playsInline muted className="h-full w-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+              <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="relative h-40 w-40 rounded-[2rem] border border-white/40 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]">
                   <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 bg-cyan-300/90 shadow-[0_0_14px_rgba(103,232,249,0.9)]" />
@@ -801,9 +808,14 @@ export function BusinessDashboard({
   initialData: BusinessDashboardData
   profileId: string
 }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const rawSection = searchParams.get('section')
+  const urlSection: BusinessDashboardSection = isBusinessDashboardSection(rawSection) ? rawSection : 'home'
   const [business, setBusiness] = useState<Business | null>(initialData.business)
   const [promotions, setPromotions] = useState<Promotion[]>(initialData.promotions)
-  const [activeSection, setActiveSection] = useState<BusinessDashboardSection>('home')
+  const [activeSection, setActiveSection] = useState<BusinessDashboardSection>(urlSection)
   const [showModal, setShowModal] = useState(false)
   const [modalState, setModalState] = useState<PromotionFormState | null>(null)
   const [modalMode, setModalMode] = useState<'create' | 'edit' | 'duplicate'>('create')
@@ -819,6 +831,27 @@ export function BusinessDashboard({
   )
   const [address, setAddress] = useState(business?.address ?? '')
   const [locationSaving, setLocationSaving] = useState(false)
+
+  useEffect(() => {
+    if (activeSection !== urlSection) {
+      setActiveSection(urlSection)
+    }
+  }, [activeSection, urlSection])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (activeSection === 'home') {
+      params.delete('section')
+    } else {
+      params.set('section', activeSection)
+    }
+
+    const nextQuery = params.toString()
+    const currentQuery = searchParams.toString()
+    if (nextQuery !== currentQuery) {
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
+    }
+  }, [activeSection, pathname, router, searchParams])
 
   const referenceMonthStart = initialData.monthlyStatus?.monthStart ?? getCurrentMonthStart()
   const effectivePromotions = useMemo(() => applyPromotionAutoRenewal(promotions, referenceMonthStart), [promotions, referenceMonthStart])

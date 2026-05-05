@@ -18,7 +18,6 @@ export function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
 
-  // No renderizar el navbar en rutas imprimibles o publicas
   if (pathname?.startsWith('/print') || pathname?.startsWith('/l/')) {
     return null
   }
@@ -33,8 +32,6 @@ export function Navbar() {
     let active = true
 
     async function loadSession() {
-      if (!supabase) return
-
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -55,20 +52,19 @@ export function Navbar() {
       } else {
         setUserState(null)
       }
+
       setAuthResolved(true)
     }
 
-    loadSession()
+    void loadSession()
 
-    const listener = supabase?.auth.onAuthStateChange(() => {
-      loadSession()
+    const listener = supabase.auth.onAuthStateChange(() => {
+      void loadSession()
     })
 
     return () => {
       active = false
-      if (listener?.data?.subscription) {
-        listener.data.subscription.unsubscribe()
-      }
+      listener.data.subscription.unsubscribe()
     }
   }, [])
 
@@ -83,10 +79,14 @@ export function Navbar() {
     router.refresh()
   }
 
+  function closeMobileMenu() {
+    setMobileOpen(false)
+  }
+
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
+    <header className="fixed left-0 right-0 top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <Link href="/" className="flex items-center gap-2" onClick={closeMobileMenu}>
           <Image
             src="/citify-logo.png"
             alt="Citify"
@@ -98,26 +98,43 @@ export function Navbar() {
           <span className="text-lg font-semibold tracking-tight text-foreground">Citify</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-6">
+        <nav className="hidden items-center gap-6 md:flex">
           {userState ? (
             <>
-              <Link href={ROLE_HOME[userState.role]} className="text-xs font-medium px-4 py-2 rounded-full inline-flex items-center gap-2" style={{ background: 'rgba(240, 78, 35, 0.08)', border: '1px solid rgba(240, 78, 35, 0.2)', color: 'var(--muted-foreground)' }}>
-                <UserRound className="w-3.5 h-3.5" />
+              <Link
+                href={ROLE_HOME[userState.role]}
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium"
+                style={{
+                  background: 'rgba(240, 78, 35, 0.08)',
+                  border: '1px solid rgba(240, 78, 35, 0.2)',
+                  color: 'var(--muted-foreground)',
+                }}
+              >
+                <UserRound className="h-3.5 w-3.5" />
                 {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>
               </Link>
               <Button variant="outline" size="sm" className="gap-2" onClick={handleLogout}>
-                <LogOut className="w-4 h-4" />
+                <LogOut className="h-4 w-4" />
                 Salir
               </Button>
               <ThemeToggle />
             </>
           ) : authResolved ? (
             <>
-              <span className="text-xs font-medium px-4 py-2 rounded-full" style={{ background: 'rgba(240, 78, 35, 0.08)', border: '1px solid rgba(240, 78, 35, 0.2)', color: 'var(--muted-foreground)' }}>
+              <span
+                className="rounded-full px-4 py-2 text-xs font-medium"
+                style={{
+                  background: 'rgba(240, 78, 35, 0.08)',
+                  border: '1px solid rgba(240, 78, 35, 0.2)',
+                  color: 'var(--muted-foreground)',
+                }}
+              >
                 desarrollado por <span className="font-semibold text-foreground">Digital Amenities</span>
               </span>
               <Link href="/login">
-                <Button size="sm" className="btn-premium">Ingresar</Button>
+                <Button size="sm" className="btn-premium">
+                  Ingresar
+                </Button>
               </Link>
               <ThemeToggle />
             </>
@@ -129,32 +146,35 @@ export function Navbar() {
           )}
         </nav>
 
-        <div className="md:hidden flex items-center gap-2">
+        <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
-          <button className="text-muted-foreground" onClick={() => setMobileOpen(!mobileOpen)}>
-            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          <button className="text-muted-foreground" onClick={() => setMobileOpen((current) => !current)}>
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
       {mobileOpen ? (
-        <div className="md:hidden border-t border-border px-6 py-4 flex flex-col gap-3 bg-background/98">
+        <div className="flex flex-col gap-3 border-t border-border bg-background/98 px-6 py-4 md:hidden">
           {userState ? (
             <>
-              <Link href={ROLE_HOME[userState.role]} className="text-sm font-medium text-center py-2 text-muted-foreground">
-                {userState.fullName} · <span className="text-foreground font-semibold">{ROLE_LABELS[userState.role]}</span>
+              <div className="py-1 text-center text-sm text-muted-foreground">
+                {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>
+              </div>
+              <Link href={ROLE_HOME[userState.role]} className="w-full" onClick={closeMobileMenu}>
+                <Button className="w-full btn-premium">Ir a mi panel</Button>
               </Link>
               <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
-                <LogOut className="w-4 h-4" />
+                <LogOut className="h-4 w-4" />
                 Salir
               </Button>
             </>
           ) : authResolved ? (
             <>
-              <span className="text-sm font-medium text-center py-2 text-muted-foreground">
-                desarrollado por <span className="text-foreground font-semibold">Digital Amenities</span>
+              <span className="py-2 text-center text-sm font-medium text-muted-foreground">
+                desarrollado por <span className="font-semibold text-foreground">Digital Amenities</span>
               </span>
-              <Link href="/login" className="w-full">
+              <Link href="/login" className="w-full" onClick={closeMobileMenu}>
                 <Button className="w-full btn-premium">Ingresar</Button>
               </Link>
             </>
