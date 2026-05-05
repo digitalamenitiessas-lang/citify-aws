@@ -63,6 +63,8 @@ export interface PromotionMonthlyStatus {
   isCompliant: boolean
   promotionsThisMonth: number
   lastMonthPromotion: Promotion | null
+  isAutoRenewed: boolean
+  autoRenewedPromotion: Promotion | null
 }
 
 export interface PromotionRedemptionToken {
@@ -381,6 +383,7 @@ export interface SuperAdminPromotionDetail extends Promotion {
 }
 
 export interface SuperAdminBusinessDetail extends Business {
+  ownerEmail: string | null
   promotions: SuperAdminPromotionDetail[]
   totalRedemptions: number
   topBuilding: string | null

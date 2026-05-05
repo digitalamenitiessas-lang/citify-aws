@@ -70,14 +70,6 @@ function getCurrentMonthStart() {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10)
 }
 
-function isMissingPromotionColumnError(message: string, columnName: 'published_month' | 'source_promotion_id') {
-  const normalized = message.toLowerCase()
-  return (
-    normalized.includes(`could not find the ${columnName} column`) ||
-    normalized.includes(`column "${columnName}" does not exist`)
-  )
-}
-
 function getPreviousMonthStart(monthStart: string) {
   const date = new Date(`${monthStart}T00:00:00.000Z`)
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
@@ -88,17 +80,57 @@ function getMonthEnd(monthStart: string) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
 }
 
+function buildAutoRenewedPromotion(promotion: Promotion, referenceMonthStart: string): Promotion {
+  const monthEnd = getMonthEnd(referenceMonthStart)
+  return {
+    ...promotion,
+    publishedMonth: referenceMonthStart,
+    expirationDate: promotion.expirationDate > monthEnd ? promotion.expirationDate : monthEnd,
+    sourcePromotionId: promotion.sourcePromotionId ?? promotion.id,
+  }
+}
+
+function applyPromotionAutoRenewal(promotions: Promotion[], referenceMonthStart: string): Promotion[] {
+  const currentByBusiness = new Set(
+    promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart).map((promotion) => promotion.businessId),
+  )
+
+  const latestActiveByBusiness = new Map<string, Promotion>()
+  for (const promotion of [...promotions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    if (!promotion.isActive || currentByBusiness.has(promotion.businessId) || latestActiveByBusiness.has(promotion.businessId)) continue
+    latestActiveByBusiness.set(promotion.businessId, promotion)
+  }
+
+  if (latestActiveByBusiness.size === 0) {
+    return promotions
+  }
+
+  return promotions.map((promotion) => {
+    const fallbackPromotion = latestActiveByBusiness.get(promotion.businessId)
+    if (!fallbackPromotion || fallbackPromotion.id !== promotion.id) {
+      return promotion
+    }
+    return buildAutoRenewedPromotion(promotion, referenceMonthStart)
+  })
+}
+
 function formatMonthLabel(monthStart: string) {
   return new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthStart}T00:00:00.000Z`))
 }
 
 function buildMonthlyStatus(promotions: Promotion[], referenceMonthStart: string): PromotionMonthlyStatus {
+  const effectivePromotions = applyPromotionAutoRenewal(promotions, referenceMonthStart)
   const previousMonthStart = getPreviousMonthStart(referenceMonthStart)
-  const promotionsThisMonth = promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
+  const promotionsThisMonth = effectivePromotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
   const lastMonthPromotion =
-    [...promotions]
+    [...effectivePromotions]
       .filter((promotion) => promotion.publishedMonth === previousMonthStart)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+  const autoRenewedPromotion =
+    promotionsThisMonth.find((promotion) => {
+      const original = promotions.find((item) => item.id === promotion.id)
+      return original ? original.publishedMonth !== referenceMonthStart : false
+    }) ?? null
 
   return {
     monthStart: referenceMonthStart,
@@ -106,6 +138,8 @@ function buildMonthlyStatus(promotions: Promotion[], referenceMonthStart: string
     isCompliant: promotionsThisMonth.length > 0,
     promotionsThisMonth: promotionsThisMonth.length,
     lastMonthPromotion,
+    isAutoRenewed: Boolean(autoRenewedPromotion),
+    autoRenewedPromotion,
   }
 }
 
@@ -247,8 +281,16 @@ function PromotionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(10,6,2,0.75)', backdropFilter: 'blur(6px)' }}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-        <div className="border-b border-gray-100 px-7 pb-5 pt-7">
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border/60 bg-background shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-10 rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Cerrar modal"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <div className="border-b border-border/60 px-7 pb-5 pt-7">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <MonthBadge monthStart={form.publishedMonth} />
             {form.sourcePromotionId ? (
@@ -257,8 +299,8 @@ function PromotionModal({
               </span>
             ) : null}
           </div>
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <h2 className="text-xl font-bold text-foreground">{title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             {mode === 'duplicate'
               ? `Tomamos la promo anterior como base para ${monthLabel}. Puedes ajustarla antes de publicarla.`
               : `Publica una promocion para ${monthLabel} con imagen, alcance y vencimiento persistidos en Supabase.`}
@@ -284,7 +326,7 @@ function PromotionModal({
               onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
               rows={4}
               required
-              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition-all focus:border-gray-400 focus:ring-2 focus:ring-gray-200"
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
             />
           </div>
 
@@ -294,7 +336,7 @@ function PromotionModal({
               <select
                 value={form.category}
                 onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
               >
                 {CATEGORIES.filter((category) => category !== 'Todas').map((category) => (
                   <option key={category} value={category}>
@@ -312,7 +354,7 @@ function PromotionModal({
               <select
                 value={form.buildingId ?? ''}
                 onChange={(event) => setForm((prev) => ({ ...prev, buildingId: event.target.value || null }))}
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
               >
                 <option value="">Toda la red CITIFY</option>
                 {buildings.map((building) => (
@@ -779,13 +821,20 @@ export function BusinessDashboard({
   const [locationSaving, setLocationSaving] = useState(false)
 
   const referenceMonthStart = initialData.monthlyStatus?.monthStart ?? getCurrentMonthStart()
+  const effectivePromotions = useMemo(() => applyPromotionAutoRenewal(promotions, referenceMonthStart), [promotions, referenceMonthStart])
   const monthlyStatus = useMemo(() => buildMonthlyStatus(promotions, referenceMonthStart), [promotions, referenceMonthStart])
-  const totalUsage = useMemo(() => promotions.reduce((sum, promotion) => sum + promotion.usageCount, 0), [promotions])
-  const thisMonthPromotions = useMemo(() => promotions.filter((promotion) => promotion.publishedMonth === monthlyStatus.monthStart), [promotions, monthlyStatus.monthStart])
-  const previousPromotions = useMemo(() => promotions.filter((promotion) => promotion.publishedMonth !== monthlyStatus.monthStart), [promotions, monthlyStatus.monthStart])
+  const totalUsage = useMemo(() => effectivePromotions.reduce((sum, promotion) => sum + promotion.usageCount, 0), [effectivePromotions])
+  const thisMonthPromotions = useMemo(
+    () => effectivePromotions.filter((promotion) => promotion.publishedMonth === monthlyStatus.monthStart),
+    [effectivePromotions, monthlyStatus.monthStart],
+  )
+  const previousPromotions = useMemo(
+    () => effectivePromotions.filter((promotion) => promotion.publishedMonth !== monthlyStatus.monthStart),
+    [effectivePromotions, monthlyStatus.monthStart],
+  )
   const activePromotionsCount = useMemo(
-    () => promotions.filter((promotion) => promotion.isActive && promotion.expirationDate >= new Date().toISOString().slice(0, 10)).length,
-    [promotions],
+    () => effectivePromotions.filter((promotion) => promotion.isActive && promotion.expirationDate >= new Date().toISOString().slice(0, 10)).length,
+    [effectivePromotions],
   )
   const thisMonthRedemptions = useMemo(
     () => redemptionHistory.filter((item) => item.redeemedAt.slice(0, 7) === monthlyStatus.monthStart.slice(0, 7)).length,
@@ -851,39 +900,13 @@ export function BusinessDashboard({
       category: form.category,
       expiration_date: form.expirationDate,
       building_id: form.buildingId,
-      published_month: form.publishedMonth,
-      source_promotion_id: form.sourcePromotionId,
       image_path: imagePath,
       is_active: true,
     }
 
-    const persistPromotion = (promotionPayload: typeof payload) =>
-      form.id
-        ? supabase.from('promotions').update(promotionPayload).eq('id', form.id)
-        : supabase.from('promotions').insert(promotionPayload)
-
-    let { error } = await persistPromotion(payload)
-
-    if (
-      error &&
-      (isMissingPromotionColumnError(error.message, 'published_month') ||
-        isMissingPromotionColumnError(error.message, 'source_promotion_id'))
-    ) {
-      const fallbackPayload = {
-        id: payload.id,
-        business_id: payload.business_id,
-        title: payload.title,
-        description: payload.description,
-        discount: payload.discount,
-        category: payload.category,
-        expiration_date: payload.expiration_date,
-        building_id: payload.building_id,
-        image_path: payload.image_path,
-        is_active: payload.is_active,
-      }
-
-      ;({ error } = await persistPromotion(fallbackPayload))
-    }
+    const { error } = form.id
+      ? await supabase.from('promotions').update(payload).eq('id', form.id)
+      : await supabase.from('promotions').insert(payload)
 
     if (error) {
       toast.error(error.message)
@@ -1108,7 +1131,11 @@ export function BusinessDashboard({
               <span className="font-semibold text-primary">{activePromotionsCount} promos activas</span>
               {' · '}
               <span className={monthlyStatus.isCompliant ? 'font-semibold text-primary' : 'font-semibold text-amber-600'}>
-                {monthlyStatus.isCompliant ? `${monthlyStatus.monthLabel} al día` : `${monthlyStatus.monthLabel} pendiente`}
+                {monthlyStatus.isAutoRenewed
+                  ? `${monthlyStatus.monthLabel} auto-renovada`
+                  : monthlyStatus.isCompliant
+                    ? `${monthlyStatus.monthLabel} al día`
+                    : `${monthlyStatus.monthLabel} pendiente`}
               </span>
             </p>
           </div>
@@ -1154,7 +1181,7 @@ export function BusinessDashboard({
                     <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Promocion mensual</p>
                     <h2 className="mt-2 font-serif text-2xl text-foreground">Estado de {monthlyStatus.monthLabel}</h2>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Tu negocio debe publicar al menos una promocion nueva por mes. Puedes crearla desde cero o repetir la del mes anterior y editarla en minutos.
+                      Tu negocio debe publicar al menos una promoción nueva por mes. Si este mes no cargaste una, CITIFY mantiene activa automáticamente la última promo disponible para que el beneficio no se corte.
                     </p>
                   </div>
                   <div
@@ -1162,9 +1189,15 @@ export function BusinessDashboard({
                       monthlyStatus.isCompliant ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'
                     }`}
                   >
-                    {monthlyStatus.isCompliant ? 'Cumplido' : 'Pendiente'}
+                    {monthlyStatus.isAutoRenewed ? 'Auto-renovada' : monthlyStatus.isCompliant ? 'Cumplido' : 'Pendiente'}
                   </div>
                 </div>
+
+                {monthlyStatus.isAutoRenewed && monthlyStatus.autoRenewedPromotion ? (
+                  <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                    Este mes se reutilizó automáticamente <span className="font-semibold">{monthlyStatus.autoRenewedPromotion.title}</span> para que tu promo siga visible mientras cargas una nueva.
+                  </div>
+                ) : null}
 
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Button onClick={openCreateModal} className="btn-premium gap-2">

@@ -681,6 +681,11 @@ function BusinessDetail({ business, onBack }: { business: SuperAdminBusinessDeta
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-foreground text-lg">{business.name}</h2>
           <p className="text-sm text-muted-foreground mt-0.5">{business.description}</p>
+          {business.ownerEmail ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Mail asociado: <span className="font-medium text-foreground">{business.ownerEmail}</span>
+            </p>
+          ) : null}
           <div className="flex items-center gap-3 mt-3">
             <Badge>{business.category}</Badge>
             <Badge color={business.monthlyStatus?.isCompliant ? 'success' : 'warn'}>

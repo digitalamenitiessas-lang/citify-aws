@@ -13,6 +13,7 @@ import type { UserRole } from '@/lib/types'
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [authResolved, setAuthResolved] = useState(false)
   const [userState, setUserState] = useState<{ fullName: string; role: UserRole } | null>(null)
   const router = useRouter()
   const pathname = usePathname()
@@ -25,6 +26,7 @@ export function Navbar() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) {
+      setAuthResolved(true)
       return
     }
 
@@ -39,6 +41,7 @@ export function Navbar() {
 
       if (!user || !active) {
         setUserState(null)
+        setAuthResolved(true)
         return
       }
 
@@ -49,7 +52,10 @@ export function Navbar() {
 
       if (data?.role) {
         setUserState({ fullName: data.full_name ?? 'Usuario', role: data.role as UserRole })
+      } else {
+        setUserState(null)
       }
+      setAuthResolved(true)
     }
 
     loadSession()
@@ -105,7 +111,7 @@ export function Navbar() {
               </Button>
               <ThemeToggle />
             </>
-          ) : (
+          ) : authResolved ? (
             <>
               <span className="text-xs font-medium px-4 py-2 rounded-full" style={{ background: 'rgba(240, 78, 35, 0.08)', border: '1px solid rgba(240, 78, 35, 0.2)', color: 'var(--muted-foreground)' }}>
                 desarrollado por <span className="font-semibold text-foreground">Digital Amenities</span>
@@ -115,6 +121,11 @@ export function Navbar() {
               </Link>
               <ThemeToggle />
             </>
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-44 animate-pulse rounded-full bg-muted/70" />
+              <ThemeToggle />
+            </div>
           )}
         </nav>
 
@@ -138,7 +149,7 @@ export function Navbar() {
                 Salir
               </Button>
             </>
-          ) : (
+          ) : authResolved ? (
             <>
               <span className="text-sm font-medium text-center py-2 text-muted-foreground">
                 desarrollado por <span className="text-foreground font-semibold">Digital Amenities</span>
@@ -147,6 +158,11 @@ export function Navbar() {
                 <Button className="w-full btn-premium">Ingresar</Button>
               </Link>
             </>
+          ) : (
+            <div className="space-y-3">
+              <div className="h-10 animate-pulse rounded-xl bg-muted/70" />
+              <div className="h-10 animate-pulse rounded-xl bg-muted/70" />
+            </div>
           )}
         </div>
       ) : null}

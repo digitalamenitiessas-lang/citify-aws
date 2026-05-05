@@ -79,7 +79,7 @@ function QRModal({ promotion, onClose }: { promotion: Promotion; onClose: () => 
         </div>
         <h2 className="font-serif text-xl font-bold text-foreground mb-0.5">{promotion.businessName}</h2>
         <p className="text-muted-foreground text-sm mb-6">{promotion.title}</p>
-        <div className="bg-white p-5 rounded-2xl border border-border/50 mb-6 w-52 h-52 flex items-center justify-center">
+        <div className="mb-6 flex h-52 w-52 items-center justify-center rounded-2xl border border-border/50 bg-card p-5 shadow-sm">
           <QrCode className="w-full h-full text-foreground" strokeWidth={1} />
         </div>
         <p className="text-xs text-muted-foreground mb-5">Mostra este código QR en el local para canjear el beneficio.</p>
@@ -111,7 +111,7 @@ function PromotionQrModal({
         </div>
         <h2 className="font-serif text-xl font-bold text-foreground mb-0.5">{promotion.businessName}</h2>
         <p className="text-muted-foreground text-sm mb-6">{promotion.title}</p>
-        <div className="bg-white p-4 rounded-2xl border border-border/50 mb-4 w-56 min-h-56 flex items-center justify-center">
+        <div className="mb-4 flex min-h-56 w-56 items-center justify-center rounded-2xl border border-border/50 bg-card p-4 shadow-sm">
           {loading ? (
             <div className="flex flex-col items-center gap-3 text-muted-foreground">
               <QrCode className="w-12 h-12 text-primary/60" strokeWidth={1.25} />

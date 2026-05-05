@@ -236,17 +236,62 @@ function getPreviousMonthStart(monthStart: string) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
 }
 
+function getMonthEnd(monthStart: string) {
+  const date = new Date(`${monthStart}T00:00:00.000Z`)
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
+}
+
 function formatMonthLabel(monthStart: string) {
   return new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthStart}T00:00:00.000Z`))
 }
 
+function buildAutoRenewedPromotion(promotion: Promotion, referenceMonthStart: string): Promotion {
+  const monthEnd = getMonthEnd(referenceMonthStart)
+  return {
+    ...promotion,
+    publishedMonth: referenceMonthStart,
+    expirationDate: promotion.expirationDate > monthEnd ? promotion.expirationDate : monthEnd,
+    sourcePromotionId: promotion.sourcePromotionId ?? promotion.id,
+  }
+}
+
+function applyPromotionAutoRenewal(promotions: Promotion[], referenceMonthStart = getMonthStart()): Promotion[] {
+  const currentByBusiness = new Set(
+    promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart).map((promotion) => promotion.businessId),
+  )
+
+  const latestActiveByBusiness = new Map<string, Promotion>()
+  for (const promotion of [...promotions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    if (!promotion.isActive || currentByBusiness.has(promotion.businessId) || latestActiveByBusiness.has(promotion.businessId)) continue
+    latestActiveByBusiness.set(promotion.businessId, promotion)
+  }
+
+  if (latestActiveByBusiness.size === 0) {
+    return promotions
+  }
+
+  return promotions.map((promotion) => {
+    const fallbackPromotion = latestActiveByBusiness.get(promotion.businessId)
+    if (!fallbackPromotion || fallbackPromotion.id !== promotion.id) {
+      return promotion
+    }
+    return buildAutoRenewedPromotion(promotion, referenceMonthStart)
+  })
+}
+
 function buildPromotionMonthlyStatus(promotions: Promotion[], referenceMonthStart = getMonthStart()): PromotionMonthlyStatus {
+  const effectivePromotions = applyPromotionAutoRenewal(promotions, referenceMonthStart)
   const previousMonthStart = getPreviousMonthStart(referenceMonthStart)
-  const promotionsThisMonth = promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
+  const promotionsThisMonth = effectivePromotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart)
   const lastMonthPromotion =
-    [...promotions]
+    [...effectivePromotions]
       .filter((promotion) => promotion.publishedMonth === previousMonthStart)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+  const autoRenewedPromotion =
+    promotionsThisMonth.find((promotion) => {
+      const original = promotions.find((item) => item.id === promotion.id)
+      return original ? original.publishedMonth !== referenceMonthStart : false
+    }) ?? null
 
   return {
     monthStart: referenceMonthStart,
@@ -254,6 +299,8 @@ function buildPromotionMonthlyStatus(promotions: Promotion[], referenceMonthStar
     isCompliant: promotionsThisMonth.length > 0,
     promotionsThisMonth: promotionsThisMonth.length,
     lastMonthPromotion,
+    isAutoRenewed: Boolean(autoRenewedPromotion),
+    autoRenewedPromotion,
   }
 }
 
@@ -515,8 +562,10 @@ export async function getHomeData(): Promise<HomeData> {
     .order('created_at', { ascending: false })
     .limit(12)
 
+  const promotions = applyPromotionAutoRenewal((data ?? []).map((row: any) => mapPromotion(supabase, row)))
+
   return {
-    promotions: (data ?? []).map((row: any) => mapPromotion(supabase, row)),
+    promotions: promotions.slice(0, 12),
   }
 }
 
@@ -573,14 +622,15 @@ export async function getBusinessDashboardData(profileId: string): Promise<Busin
       : Promise.resolve({ data: [] }),
   ])
 
-  const promotions = (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row))
+  const rawPromotions = (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row))
+  const promotions = applyPromotionAutoRenewal(rawPromotions)
 
   return {
     business: businessData ? mapBusiness(supabase, businessData) : null,
     promotions,
     consumersCount: count ?? 0,
     availableBuildings: (buildingsData ?? []).map(mapBuilding),
-    monthlyStatus: businessData ? buildPromotionMonthlyStatus(promotions) : null,
+    monthlyStatus: businessData ? buildPromotionMonthlyStatus(rawPromotions) : null,
     redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
   }
 }
@@ -791,7 +841,9 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
   const allBuildings = (buildingsRes.data ?? []).map(mapBuilding)
   const allUsers = (usersRes.data ?? []).map(mapProfile)
   const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase, row))
+  const allPromotionsEffective = applyPromotionAutoRenewal(allPromotionsRaw)
   const buildingNameById = new Map(allBuildings.map((building) => [building.id, building.name]))
+  const userEmailById = new Map(allUsers.map((user) => [user.id, user.email]))
 
   const adminsByBuilding = new Map<string, ConsorcioAdminInfo[]>()
   for (const row of assignmentsRes.data ?? []) {
@@ -829,7 +881,7 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     byBuilding.set(building.id, current)
   }
 
-  const allPromotions: SuperAdminPromotionDetail[] = allPromotionsRaw.map((promotion) => {
+  const allPromotions: SuperAdminPromotionDetail[] = allPromotionsEffective.map((promotion) => {
     const byBuilding = redemptionMap.get(promotion.id)
     const redemptionsByBuilding: PromotionRedemptionByBuilding[] = byBuilding
       ? Array.from(byBuilding.entries())
@@ -924,6 +976,13 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     businessPromoMap.set(promotion.businessId, existing)
   }
 
+  const businessPromoRawMap = new Map<string, Promotion[]>()
+  for (const promotion of allPromotionsRaw) {
+    const existing = businessPromoRawMap.get(promotion.businessId) ?? []
+    existing.push(promotion)
+    businessPromoRawMap.set(promotion.businessId, existing)
+  }
+
   const businesses: SuperAdminBusinessDetail[] = (businessesRes.data ?? []).map((row: any) => {
     const business = mapBusiness(supabase, row)
     const promotions = businessPromoMap.get(business.id) ?? []
@@ -939,10 +998,11 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     const topEntry = Array.from(buildingCounts.values()).sort((a, b) => b.count - a.count)[0]
     return {
       ...business,
+      ownerEmail: business.ownerProfileId ? userEmailById.get(business.ownerProfileId) ?? null : null,
       promotions,
       totalRedemptions,
       topBuilding: topEntry?.name ?? null,
-      monthlyStatus: buildPromotionMonthlyStatus(promotions),
+      monthlyStatus: buildPromotionMonthlyStatus(businessPromoRawMap.get(business.id) ?? []),
     }
   })
 
@@ -1074,8 +1134,8 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
   const complaintCases = complaintCaseDetails
     .map(buildComplaintCaseListItem)
     .sort((a: ComplaintCaseListItem, b: ComplaintCaseListItem) => b.lastEventAt.localeCompare(a.lastEventAt))
-  const promotions = (promotionsData ?? [])
-    .map((row: any) => mapPromotion(supabase, row))
+  const promotions = applyPromotionAutoRenewal((promotionsData ?? [])
+    .map((row: any) => mapPromotion(supabase, row)))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
 
   return {
