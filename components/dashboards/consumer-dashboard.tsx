@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   Building2,
@@ -482,13 +483,25 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
 
 type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household'
 
+const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household']
+
+function isMainView(value: string | null): value is MainView {
+  return Boolean(value && MAIN_VIEW_OPTIONS.includes(value as MainView))
+}
+
 export function ConsumerDashboard({ initialData, profileId, profileName, avatarText }: {
   initialData: ConsumerDashboardData
   profileId: string
   profileName: string
   avatarText: string
 }) {
-  const [mainView, setMainView] = useState<MainView>('home')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const rawView = searchParams.get('view')
+  const urlMainView: MainView = isMainView(rawView) ? rawView : 'home'
+  const urlCouponFilter = searchParams.get('couponFilter') === 'usados' ? 'usados' : 'disponibles'
+  const [mainView, setMainView] = useState<MainView>(urlMainView)
   const [qrPromotion, setQrPromotion] = useState<Promotion | null>(null)
   const [qrToken, setQrToken] = useState<PromotionRedemptionToken | null>(null)
   const [isLoadingQr, setIsLoadingQr] = useState(false)
@@ -497,7 +510,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
-  const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>('disponibles')
+  const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>(urlCouponFilter)
   const [isAddingHousehold, startHouseholdTransition] = useTransition()
   const [householdMembers, setHouseholdMembers] = useState(initialData.householdMembers)
   const [householdDraft, setHouseholdDraft] = useState({
@@ -509,6 +522,36 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
+
+  useEffect(() => {
+    if (mainView !== urlMainView) {
+      setMainView(urlMainView)
+    }
+    if (couponFilter !== urlCouponFilter) {
+      setCouponFilter(urlCouponFilter)
+    }
+  }, [couponFilter, mainView, urlCouponFilter, urlMainView])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (mainView === 'home') {
+      params.delete('view')
+    } else {
+      params.set('view', mainView)
+    }
+
+    if (mainView === 'my-coupons') {
+      params.set('couponFilter', couponFilter)
+    } else {
+      params.delete('couponFilter')
+    }
+
+    const nextQuery = params.toString()
+    const currentQuery = searchParams.toString()
+    if (nextQuery !== currentQuery) {
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
+    }
+  }, [couponFilter, mainView, pathname, router, searchParams])
   const buildingId = initialData.building?.id
   const principalMembership = initialData.unitMemberships.find((membership) => membership.relationshipType === 'vecino_principal')
   const additionalHouseholdCount = householdMembers.filter((membership) => membership.relationshipType === 'vecino_adicional' && membership.active).length
@@ -608,6 +651,12 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     setQrPromotion(null)
   }
 
+  function closePromotionQr() {
+    setQrPromotion(null)
+    setQrToken(null)
+    setIsLoadingQr(false)
+  }
+
   async function handleUse(promotion: Promotion) {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) { toast.error('Supabase no esta configurado.'); return }
@@ -628,14 +677,14 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
     if (error) {
       toast.error(error.message)
-      setQrPromotion(null)
+      closePromotionQr()
       return
     }
 
     const row = Array.isArray(data) ? data[0] : null
     if (!row) {
       toast.error('No se pudo generar el codigo del cupon.')
-      setQrPromotion(null)
+      closePromotionQr()
       return
     }
 
@@ -649,6 +698,60 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       businessName: row.business_name,
     })
   }
+
+  useEffect(() => {
+    if (!qrPromotion || !qrToken) {
+      return
+    }
+
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) {
+      return
+    }
+
+    let active = true
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null
+
+    const checkRedemption = async () => {
+      const { data, error } = await supabase
+        .from('promotion_redemptions')
+        .select('id')
+        .eq('profile_id', profileId)
+        .eq('promotion_id', qrPromotion.id)
+        .eq('status', 'redeemed')
+        .limit(1)
+        .maybeSingle()
+
+      if (!active) {
+        return
+      }
+
+      if (error) {
+        timeoutId = window.setTimeout(checkRedemption, 2500)
+        return
+      }
+
+      if (data?.id) {
+        setUsedCoupons((current) => (current.includes(qrPromotion.id) ? current : [...current, qrPromotion.id]))
+        setMainView('my-coupons')
+        setCouponFilter('usados')
+        closePromotionQr()
+        toast.success('Tu cupon fue canjeado correctamente.')
+        return
+      }
+
+      timeoutId = window.setTimeout(checkRedemption, 2500)
+    }
+
+    timeoutId = window.setTimeout(checkRedemption, 2000)
+
+    return () => {
+      active = false
+      if (timeoutId) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [profileId, qrPromotion, qrToken])
 
   async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) {
     const supabase = getSupabaseBrowserClient()
@@ -1200,7 +1303,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       </nav>
 
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
-      {qrPromotion && <PromotionQrModal promotion={qrPromotion} token={qrToken} loading={isLoadingQr} onClose={() => { setQrPromotion(null); setQrToken(null) }} />}
+      {qrPromotion && <PromotionQrModal promotion={qrPromotion} token={qrToken} loading={isLoadingQr} onClose={closePromotionQr} />}
       {showCreateModal && <CreateMarketplaceModal onClose={() => setShowCreateModal(false)} onSave={createMarketplaceItem} />}
 
       {/* ── AI ASSISTANT ─────────────────────────────────────────────────── */}
