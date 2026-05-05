@@ -1,19 +1,23 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter, Playfair_Display } from 'next/font/google'
+import { Poppins } from 'next/font/google'
 import { Navbar } from '@/components/navbar'
 import { Providers } from '@/components/providers'
 import { PwaInit } from '@/components/pwa/pwa-init'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const playfair = Playfair_Display({ subsets: ['latin'], variable: '--font-playfair' })
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  style: ['normal', 'italic'],
+  variable: '--font-poppins',
+})
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   viewportFit: 'cover',
-  themeColor: '#B85C38',
+  themeColor: '#F04E23',
 }
 
 export const metadata: Metadata = {
@@ -25,9 +29,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Citify',
   },
-  icons: {
-    apple: '/apple-icon.png',
-  },
 }
 
 export default function RootLayout({
@@ -36,8 +37,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className="bg-background" suppressHydrationWarning>
-      <body className={`${inter.variable} ${playfair.variable} font-sans antialiased`}>
+    <html lang="es" className="dark bg-background" suppressHydrationWarning>
+      <body className={`${poppins.variable} font-sans antialiased`}>
         <Providers>
           <Navbar />
           {children}

@@ -956,7 +956,7 @@ function MonthPicker({
         const [y, m] = e.target.value.split('-').map((n) => Number(n))
         onChange(y, m)
       }}
-      className="w-full rounded-md border border-border/50 bg-background px-2 py-1.5 text-sm focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(184,92,56,0.08)] transition-shadow capitalize"
+      className="w-full rounded-md border border-border/50 bg-background px-2 py-1.5 text-sm focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(240, 78, 35,0.08)] transition-shadow capitalize"
     >
       {options.map((o) => (
         <option key={`${o.y}-${o.m}`} value={`${o.y}-${o.m}`}>

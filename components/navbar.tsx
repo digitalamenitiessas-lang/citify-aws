@@ -1,10 +1,12 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { LogOut, Menu, UserRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME, ROLE_LABELS } from '@/lib/constants'
 import type { UserRole } from '@/lib/types'
@@ -76,19 +78,24 @@ export function Navbar() {
   }
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-[#DDD0BB]/60" style={{ backgroundColor: 'rgba(247, 240, 228, 0.92)', backdropFilter: 'blur(16px)' }}>
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
-            <span className="text-xs font-bold text-white">C</span>
-          </div>
-          <span className="font-serif text-lg font-bold tracking-wide text-foreground">CITIFY</span>
+          <Image
+            src="/citify-logo.png"
+            alt="Citify"
+            width={142}
+            height={108}
+            priority
+            className="h-8 w-auto"
+          />
+          <span className="text-lg font-semibold tracking-tight text-foreground">Citify</span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-6">
           {userState ? (
             <>
-              <Link href={ROLE_HOME[userState.role]} className="text-xs font-medium px-4 py-2 rounded-full inline-flex items-center gap-2" style={{ background: 'rgba(184, 92, 56, 0.08)', border: '1px solid rgba(184, 92, 56, 0.2)', color: '#8B6B52' }}>
+              <Link href={ROLE_HOME[userState.role]} className="text-xs font-medium px-4 py-2 rounded-full inline-flex items-center gap-2" style={{ background: 'rgba(240, 78, 35, 0.08)', border: '1px solid rgba(240, 78, 35, 0.2)', color: 'var(--muted-foreground)' }}>
                 <UserRound className="w-3.5 h-3.5" />
                 {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>
               </Link>
@@ -96,26 +103,31 @@ export function Navbar() {
                 <LogOut className="w-4 h-4" />
                 Salir
               </Button>
+              <ThemeToggle />
             </>
           ) : (
             <>
-              <span className="text-xs font-medium px-4 py-2 rounded-full" style={{ background: 'rgba(184, 92, 56, 0.08)', border: '1px solid rgba(184, 92, 56, 0.2)', color: '#8B6B52' }}>
+              <span className="text-xs font-medium px-4 py-2 rounded-full" style={{ background: 'rgba(240, 78, 35, 0.08)', border: '1px solid rgba(240, 78, 35, 0.2)', color: 'var(--muted-foreground)' }}>
                 desarrollado por <span className="font-semibold text-foreground">Digital Amenities</span>
               </span>
               <Link href="/login">
                 <Button size="sm" className="btn-premium">Ingresar</Button>
               </Link>
+              <ThemeToggle />
             </>
           )}
         </nav>
 
-        <button className="md:hidden text-muted-foreground" onClick={() => setMobileOpen(!mobileOpen)}>
-          {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+        <div className="md:hidden flex items-center gap-2">
+          <ThemeToggle />
+          <button className="text-muted-foreground" onClick={() => setMobileOpen(!mobileOpen)}>
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {mobileOpen ? (
-        <div className="md:hidden border-t border-border px-6 py-4 flex flex-col gap-3" style={{ background: 'rgba(247, 240, 228, 0.98)' }}>
+        <div className="md:hidden border-t border-border px-6 py-4 flex flex-col gap-3 bg-background/98">
           {userState ? (
             <>
               <Link href={ROLE_HOME[userState.role]} className="text-sm font-medium text-center py-2 text-muted-foreground">

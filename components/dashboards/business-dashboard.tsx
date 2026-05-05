@@ -514,7 +514,7 @@ function BusinessQrScanner({
   return (
     <div className="space-y-3">
       <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-        <div className="aspect-[4/3] w-full bg-[radial-gradient(circle_at_top,rgba(184,92,56,0.12),transparent_45%),linear-gradient(180deg,rgba(18,18,18,0.92),rgba(34,34,34,0.98))]">
+        <div className="aspect-[4/3] w-full bg-[radial-gradient(circle_at_top,rgba(240, 78, 35,0.12),transparent_45%),linear-gradient(180deg,rgba(18,18,18,0.92),rgba(34,34,34,0.98))]">
           {scannerState === 'scanning' || scannerState === 'starting' || scannerState === 'validating' ? (
             <div className="relative h-full w-full">
               <video ref={videoRef} playsInline muted className="h-full w-full object-cover" style={{ transform: 'scaleX(-1)' }} />
@@ -1057,7 +1057,7 @@ export function BusinessDashboard({
   return (
     <div className="min-h-screen pb-24" style={{ background: 'var(--background)' }}>
       {activeSection === 'home' ? (
-        <div className="relative overflow-hidden px-5 pb-5 pt-3" style={{ background: 'linear-gradient(160deg, #8F4020 0%, #B85C38 45%, #C87B50 100%)' }}>
+        <div className="relative overflow-hidden px-5 pb-5 pt-3" style={{ background: 'linear-gradient(160deg, #C73E15 0%, #F04E23 45%, #C87B50 100%)' }}>
           <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
           <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
 
@@ -1323,7 +1323,7 @@ export function BusinessDashboard({
         ) : null}
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60" style={{ background: 'rgba(251,246,238,0.95)', backdropFilter: 'blur(12px)' }}>
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-around px-2 py-2">
           {navItems.map((item) => {
             const isActive = activeSection === item.key

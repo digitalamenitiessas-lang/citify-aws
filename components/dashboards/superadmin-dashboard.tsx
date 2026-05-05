@@ -75,7 +75,7 @@ const CONSORCIO_WIZARD_STEPS: Array<{
   { id: 'admin', label: 'Administrador inicial', description: 'Cuenta que operara este consorcio.' },
   { id: 'summary', label: 'Resumen', description: 'Verificacion final antes de crear.' },
 ]
-const PIE_COLORS = ['#B85C38', '#C4733D', '#8B6B52', '#D4A882'] as const
+const PIE_COLORS = ['#F04E23', '#C4733D', '#666666', '#F5A55D'] as const
 
 type ImportWizardStep = 'building' | 'upload' | 'review' | 'confirm'
 
@@ -189,7 +189,7 @@ function Badge({ children, color = 'default' }: { children: React.ReactNode; col
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${styles[color]}`}
-      style={color === 'primary' ? { background: 'linear-gradient(135deg, #B85C38, #8F4020)' } : {}}
+      style={color === 'primary' ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : {}}
     >
       {children}
     </span>
@@ -393,7 +393,7 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                 <div key={admin.profileId} className="px-5 py-4 flex items-start gap-3">
                   <div
                     className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
-                    style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+                    style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
                   >
                     {admin.fullName.slice(0, 2).toUpperCase()}
                   </div>
@@ -431,7 +431,7 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                 <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="10" className="text-muted/30" />
                 <circle
                   cx="50" cy="50" r="40" fill="none"
-                  stroke="#B85C38" strokeWidth="10" strokeLinecap="round"
+                  stroke="#F04E23" strokeWidth="10" strokeLinecap="round"
                   strokeDasharray={`${Math.min(building.occupancyRate, 100) * 2.51} 251`}
                 />
               </svg>
@@ -562,7 +562,7 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                       <div className="flex items-center gap-2">
                         <div
                           className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                          style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+                          style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
                         >
                           {neighbor.avatarText}
                         </div>
@@ -800,7 +800,7 @@ function PromotionRow({ promotion }: { promotion: SuperAdminPromotionDetail }) {
                         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                           <div
                             className="h-full rounded-full"
-                            style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #B85C38, #D4784E)' }}
+                            style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #F04E23, #D4784E)' }}
                           />
                         </div>
                         <div className="text-xs text-muted-foreground w-14 text-right">
@@ -896,7 +896,7 @@ function UsersByRoleChart({ data }: { data: DashboardStats['usersByRole'] }) {
             </Pie>
             <Tooltip
               formatter={(value: number, name: string) => [value, name]}
-              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+              contentStyle={{ background: '#FFFFFF', border: '1px solid rgba(240, 78, 35,0.14)', borderRadius: 8, fontSize: 12 }}
             />
           </PieChart>
         </ResponsiveContainer>
@@ -924,13 +924,13 @@ function TopBuildingsChart({ data }: { data: DashboardStats['top5Buildings'] }) 
       <div style={{ height: 200 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
-            <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: '#8B6B52' }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#5C3A1E' }} axisLine={false} tickLine={false} />
+            <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: '#666666' }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#1A1A1A' }} axisLine={false} tickLine={false} />
             <Tooltip
               formatter={(value: number) => [`${value}%`, 'Ocupación']}
-              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+              contentStyle={{ background: '#FFFFFF', border: '1px solid rgba(240, 78, 35,0.14)', borderRadius: 8, fontSize: 12 }}
             />
-            <Bar dataKey="occupancyRate" fill="#B85C38" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="occupancyRate" fill="#F04E23" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -947,11 +947,11 @@ function TopBusinessesChart({ data }: { data: DashboardStats['top5Businesses'] }
       <div style={{ height: 200 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#8B6B52' }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#5C3A1E' }} axisLine={false} tickLine={false} />
+            <XAxis type="number" tick={{ fontSize: 11, fill: '#666666' }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={110} tickFormatter={fmt} tick={{ fontSize: 11, fill: '#1A1A1A' }} axisLine={false} tickLine={false} />
             <Tooltip
               formatter={(value: number) => [value, 'Canjes']}
-              contentStyle={{ background: '#FBF6EE', border: '1px solid rgba(180,120,70,0.14)', borderRadius: 8, fontSize: 12 }}
+              contentStyle={{ background: '#FFFFFF', border: '1px solid rgba(240, 78, 35,0.14)', borderRadius: 8, fontSize: 12 }}
             />
             <Bar dataKey="totalRedemptions" fill="#C4733D" radius={[0, 4, 4, 0]} />
           </BarChart>
@@ -1475,7 +1475,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab.key ? 'text-white' : 'text-muted-foreground hover:text-foreground'
             }`}
-            style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #B85C38, #8F4020)' } : {}}
+            style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : {}}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -2406,7 +2406,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                         <div className="flex items-center gap-2">
                           <div
                             className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                            style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}
+                            style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
                           >
                             {user.avatarText}
                           </div>

@@ -55,7 +55,7 @@ export function MarketplaceCard({ item, onContact }: MarketplaceCardProps) {
 
       <div className="flex items-center gap-3 pt-3 mt-auto border-t border-border/30">
         <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
-          style={{ background: 'linear-gradient(135deg, #B85C38, #8F4020)' }}>
+          style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}>
           {item.sellerAvatar || item.sellerId.substring(0, 2).toUpperCase()}
         </div>
         <div className="flex-1 overflow-hidden">

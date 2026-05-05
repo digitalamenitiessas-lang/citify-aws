@@ -9,6 +9,7 @@ import { ArrowRight, BarChart3, Building2, Shield, Tag, Users, Zap } from 'lucid
 import { Button } from '@/components/ui/button'
 import type { Promotion } from '@/lib/types'
 import { landingFeatures, landingModelAsset, landingScenes, landingStats, type LandingFeature, type LandingSceneDefinition } from '@/lib/landing-scenes'
+import { ScrollVideoBackground } from '@/components/landing/scroll-video-hero'
 
 const SCENE_HEIGHT = 110
 
@@ -966,7 +967,7 @@ function LandingCanvasScene({
         {useRealModel ? <ApartmentGLTF modelPath={modelPath} mobile={mobile} /> : <ApartmentFallbackModel mobile={mobile} reducedDetail={reducedDetail} reducedMotion={reducedMotion} />}
       </Suspense>
 
-      {!mobile && !reducedDetail && !useRealModel ? <ContactShadows position={[0, -0.54, 0]} opacity={0.1} scale={18} blur={1.4} far={12} color="#8f4020" /> : null}
+      {!mobile && !reducedDetail && !useRealModel ? <ContactShadows position={[0, -0.54, 0]} opacity={0.1} scale={18} blur={1.4} far={12} color="#C73E15" /> : null}
 
       <CameraRig scenes={landingScenes} sceneIndex={sceneIndex} localProgress={localProgress} mobile={mobile} reducedMotion={reducedMotion} />
     </Canvas>
@@ -975,16 +976,16 @@ function LandingCanvasScene({
 
 function PromotionMiniCard({ promotion }: { promotion: Promotion }) {
   return (
-    <div className="rounded-3xl border border-[#cdbba5] bg-[rgba(255,249,240,0.92)] p-3 shadow-[0_12px_40px_rgba(60,35,20,0.08)] backdrop-blur-sm">
+    <div className="rounded-3xl border border-white/15 bg-white/8 p-3 backdrop-blur-md">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.25em] text-[#8d634b]">{promotion.category}</p>
-          <h4 className="mt-1 text-sm font-semibold text-[#241a14]">{promotion.title}</h4>
-          <p className="mt-1 text-xs text-[#6d5a4d]">{promotion.businessName}</p>
+          <p className="text-[11px] uppercase tracking-[0.25em] text-white/60">{promotion.category}</p>
+          <h4 className="mt-1 text-sm font-semibold text-white">{promotion.title}</h4>
+          <p className="mt-1 text-xs text-white/70">{promotion.businessName}</p>
         </div>
-        <div className="rounded-2xl border border-[#d2a786] bg-[#b85c38] px-3 py-2 text-center shadow-[0_10px_24px_rgba(184,92,56,0.22)]">
+        <div className="rounded-2xl bg-[#F04E23] px-3 py-2 text-center shadow-[0_10px_24px_rgba(240,78,35,0.35)]">
           <div className="text-lg font-semibold text-white">{promotion.discount}</div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-white/80">DTO</div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-white/85">DTO</div>
         </div>
       </div>
     </div>
@@ -998,31 +999,14 @@ function ScenePanel({
   scene: LandingSceneDefinition
   featuredPromotions: Promotion[]
 }) {
-  const baseCardClass = 'rounded-[2rem] border px-5 py-5 shadow-[0_20px_80px_rgba(20,10,4,0.18)] backdrop-blur-xl'
-
-  const toneClass = (() => {
-    switch (scene.tone) {
-      case 'charcoal':
-        return 'border-white/10 bg-[rgba(29,17,12,0.72)] text-white'
-      case 'olive':
-        return 'border-[#87956b]/30 bg-[rgba(245,239,230,0.82)] text-[#2d241a]'
-      case 'sand':
-        return 'border-[#d4a882]/35 bg-[rgba(251,245,236,0.82)] text-[#2d241a]'
-      case 'cream':
-        return 'border-white/20 bg-[rgba(255,250,243,0.84)] text-[#2d241a]'
-      default:
-        return 'border-[#b85c38]/30 bg-[rgba(46,23,13,0.72)] text-white'
-    }
-  })()
-
   return (
-    <div className="w-full max-w-[34rem]">
-      <div className={`${baseCardClass} ${toneClass}`}>
-        <p className={`text-[11px] uppercase tracking-[0.28em] ${scene.tone === 'charcoal' || scene.tone === 'terracotta' ? 'text-white/65' : 'text-[#7c5a45]'}`}>
+    <div className="w-full max-w-[34rem] text-white [text-shadow:0_2px_18px_rgba(0,0,0,0.55)]">
+      <div className="px-1">
+        <p className="text-[11px] uppercase tracking-[0.28em] text-white/75">
           {scene.eyebrow}
         </p>
         <h2 className="mt-3 font-serif text-4xl leading-tight md:text-5xl">{scene.headline}</h2>
-        <p className={`mt-4 max-w-xl text-sm leading-7 md:text-base ${scene.tone === 'charcoal' || scene.tone === 'terracotta' ? 'text-white/78' : 'text-[#584639]'}`}>
+        <p className="mt-4 max-w-xl text-sm leading-7 text-white/85 md:text-base">
           {scene.body}
         </p>
 
@@ -1030,7 +1014,7 @@ function ScenePanel({
           <div className="mt-8 space-y-6">
             <div className="grid grid-cols-2 gap-3">
               {landingStats.map((stat) => (
-                <div key={stat.label} className="rounded-3xl border border-white/10 bg-white/8 px-4 py-4">
+                <div key={stat.label} className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md px-4 py-4">
                   <div className="text-2xl font-semibold">{stat.value}</div>
                   <div className="mt-1 text-xs uppercase tracking-[0.18em] text-white/60">{stat.label}</div>
                 </div>
@@ -1043,7 +1027,7 @@ function ScenePanel({
                 </Button>
               </Link>
               <Link href="/promotions">
-                <Button size="lg" variant="outline" className="rounded-full border-current/20 bg-transparent px-7 text-current hover:bg-white/10">
+                <Button size="lg" variant="outline" className="rounded-full border-white/40 bg-transparent px-7 text-white hover:bg-white/15">
                   Ver beneficios
                 </Button>
               </Link>
@@ -1056,7 +1040,7 @@ function ScenePanel({
             {landingFeatures.slice(0, 4).map((feature) => {
               const Icon = iconForFeature(feature.icon)
               return (
-                <div key={feature.title} className="rounded-3xl border border-current/10 bg-white/10 px-4 py-4">
+                <div key={feature.title} className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md px-4 py-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15">
                       <Icon className="h-5 w-5" />
@@ -1077,13 +1061,13 @@ function ScenePanel({
             {featuredPromotions.length ? (
               featuredPromotions.map((promotion) => <PromotionMiniCard key={promotion.id} promotion={promotion} />)
             ) : (
-              <div className="rounded-3xl border border-current/10 bg-white/10 p-5 text-sm opacity-80">
+              <div className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md p-5 text-sm opacity-80">
                 CITIFY tambien ayuda a descubrir nuevas oportunidades cerca de casa y a activar una red local con mas valor para el edificio.
               </div>
             )}
             <div className="flex flex-wrap gap-3 pt-2">
               <Link href="/admin">
-                <Button variant="outline" className="rounded-full border-current/20 bg-transparent text-current hover:bg-white/10">Quiero sumar mi comercio</Button>
+                <Button variant="outline" className="rounded-full border-white/40 bg-transparent text-white hover:bg-white/15">Quiero sumar mi comercio</Button>
               </Link>
               <Link href="/promotions">
                 <Button className="btn-premium rounded-full px-6">Explorar CITIFY</Button>
@@ -1094,7 +1078,7 @@ function ScenePanel({
 
         {scene.contentKey === 'consorcio' ? (
           <div className="mt-8 grid gap-3">
-            <div className="rounded-3xl border border-current/10 bg-white/10 p-5">
+            <div className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md p-5">
               <div className="text-sm font-semibold">Una comunidad que se mueve mejor</div>
               <p className="mt-2 text-sm leading-7 opacity-80">
                 CITIFY acerca conversaciones, seguimiento y vida compartida en una experiencia mas simple para quienes administran y para quienes habitan el edificio.
@@ -1104,7 +1088,7 @@ function ScenePanel({
               {landingFeatures.slice(3).map((feature) => {
                 const Icon = iconForFeature(feature.icon)
                 return (
-                  <div key={feature.title} className="rounded-3xl border border-current/10 bg-white/10 px-4 py-4">
+                  <div key={feature.title} className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md px-4 py-4">
                     <div className="flex items-start gap-3">
                       <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15">
                         <Icon className="h-5 w-5" />
@@ -1128,7 +1112,7 @@ function ScenePanel({
 
         {scene.contentKey === 'infrastructure' ? (
           <div className="mt-8 space-y-4">
-            <div className="rounded-3xl border border-current/10 bg-white/10 p-5">
+            <div className="rounded-3xl border border-white/15 bg-white/10 backdrop-blur-md p-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   'Mas valor para vecinos y comunidad',
@@ -1147,7 +1131,7 @@ function ScenePanel({
                 <Button className="btn-premium rounded-full px-6">Sumate a CITIFY</Button>
               </Link>
               <Link href="/promotions">
-                <Button variant="outline" className="rounded-full border-current/20 bg-transparent text-current hover:bg-white/10">Conocer beneficios</Button>
+                <Button variant="outline" className="rounded-full border-white/40 bg-transparent text-white hover:bg-white/15">Conocer beneficios</Button>
               </Link>
             </div>
           </div>
@@ -1212,26 +1196,33 @@ export function LandingExperience3D({
   return (
     <div className="relative min-h-[calc(100vh-4rem)] overflow-x-clip bg-background">
       <div className="fixed inset-0 top-16 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(212,168,130,0.34),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(184,92,56,0.18),transparent_34%),linear-gradient(180deg,#f7f0e4_0%,#f4ead8_54%,#efe2ce_100%)]" />
-        <LandingCanvasScene
-          sceneIndex={sceneIndex}
-          localProgress={localProgress}
-          mobile={isMobile}
-          reducedMotion={prefersReducedMotion}
-          modelPath={modelPath}
-          useRealModel={modelAvailable}
-          reducedDetail={reducedDetail}
-        />
+        <ScrollVideoBackground />
       </div>
 
       <div className="relative z-20">
-        {landingScenes.map((scene, index) => (
-          <section key={scene.id} id={scene.id} className="relative flex min-h-screen items-center px-5 py-20 md:px-10" style={{ minHeight: `${SCENE_HEIGHT}vh` }}>
-            <div className={`mx-auto flex w-full max-w-7xl ${index % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-              <ScenePanel scene={scene} featuredPromotions={featuredPromotions} />
-            </div>
-          </section>
-        ))}
+        {landingScenes.map((scene, index) => {
+          const onLeft = index % 2 === 0
+          return (
+            <section
+              key={scene.id}
+              id={scene.id}
+              className="relative flex min-h-screen items-center px-5 py-20 md:px-10"
+              style={{ minHeight: `${SCENE_HEIGHT}vh` }}
+            >
+              <div
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 ${
+                  onLeft
+                    ? 'bg-[linear-gradient(90deg,rgba(8,6,4,0.78)_0%,rgba(8,6,4,0.45)_28%,rgba(8,6,4,0.12)_55%,transparent_75%)]'
+                    : 'bg-[linear-gradient(270deg,rgba(8,6,4,0.78)_0%,rgba(8,6,4,0.45)_28%,rgba(8,6,4,0.12)_55%,transparent_75%)]'
+                }`}
+              />
+              <div className={`relative mx-auto flex w-full max-w-7xl ${onLeft ? 'justify-start' : 'justify-end'}`}>
+                <ScenePanel scene={scene} featuredPromotions={featuredPromotions} />
+              </div>
+            </section>
+          )
+        })}
       </div>
     </div>
   )

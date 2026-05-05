@@ -59,7 +59,7 @@ export function PromotionsBrowser({ promotions }: { promotions: Promotion[] }) {
                   ? 'text-white border border-primary/50'
                   : 'text-muted-foreground border border-border/50 hover:border-primary/30 hover:text-foreground'
               }`}
-              style={selectedCategory === category ? { background: 'linear-gradient(135deg, #B85C38, #8F4020)' } : { background: 'rgba(184,92,56,0.05)' }}
+              style={selectedCategory === category ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : { background: 'rgba(240, 78, 35,0.05)' }}
             >
               {category}
             </button>
