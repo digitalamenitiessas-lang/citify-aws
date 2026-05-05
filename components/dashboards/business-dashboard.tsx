@@ -1057,20 +1057,28 @@ export function BusinessDashboard({
   return (
     <div className="min-h-screen pb-24" style={{ background: 'var(--background)' }}>
       {activeSection === 'home' ? (
-        <div className="relative overflow-hidden px-5 pb-5 pt-3" style={{ background: 'linear-gradient(160deg, #C73E15 0%, #F04E23 45%, #C87B50 100%)' }}>
-          <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full opacity-20" style={{ background: 'rgba(255,220,180,0.3)' }} />
-          <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }} />
+        <div className="relative overflow-hidden border-b border-border/60 bg-background px-5 pt-4 pb-4">
+          <div className="pointer-events-none absolute -top-16 -right-16 w-56 h-56 rounded-full opacity-60" style={{ background: 'radial-gradient(circle, rgba(240,78,35,0.18), transparent 70%)' }} />
 
           <div className="relative z-10">
-            <p className="mb-0.5 text-sm font-medium text-white/70">Panel negocio</p>
-            <h1 className="text-2xl font-bold text-white">{business.name}</h1>
-            <p className="mt-1 max-w-2xl text-sm text-white/80">{business.description}</p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">
-                {monthlyStatus.isCompliant ? 'Promocion mensual al dia' : 'Promocion mensual pendiente'}
-              </span>
-              <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">{monthlyStatus.monthLabel}</span>
+            <div className="flex items-baseline flex-wrap gap-x-2 gap-y-0.5">
+              <h1 className="text-foreground text-xl font-semibold tracking-tight leading-tight">
+                Hola, {business.name} <span aria-hidden>👋</span>
+              </h1>
+              {business.category && (
+                <span className="inline-flex items-center gap-1 text-muted-foreground text-xs font-medium">
+                  <Store className="w-3 h-3" />
+                  {business.category}
+                </span>
+              )}
             </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              <span className="font-semibold text-primary">{activePromotionsCount} promos activas</span>
+              {' · '}
+              <span className={monthlyStatus.isCompliant ? 'font-semibold text-primary' : 'font-semibold text-amber-600'}>
+                {monthlyStatus.isCompliant ? `${monthlyStatus.monthLabel} al día` : `${monthlyStatus.monthLabel} pendiente`}
+              </span>
+            </p>
           </div>
         </div>
       ) : null}
