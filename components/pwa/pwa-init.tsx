@@ -18,11 +18,7 @@ export function PwaInit() {
     navigator.serviceWorker.register('/sw.js').then(async (reg) => {
       if (!VAPID_PUBLIC_KEY || !('PushManager' in window)) return
 
-      const permission = Notification.permission === 'granted'
-        ? 'granted'
-        : await Notification.requestPermission()
-
-      if (permission !== 'granted') return
+      if (!('Notification' in window) || Notification.permission !== 'granted') return
 
       try {
         const existing = await reg.pushManager.getSubscription()
