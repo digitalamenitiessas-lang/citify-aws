@@ -70,6 +70,14 @@ function getCurrentMonthStart() {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10)
 }
 
+function isMissingPromotionColumnError(message: string, columnName: 'published_month' | 'source_promotion_id') {
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes(`could not find the ${columnName} column`) ||
+    normalized.includes(`column "${columnName}" does not exist`)
+  )
+}
+
 function getPreviousMonthStart(monthStart: string) {
   const date = new Date(`${monthStart}T00:00:00.000Z`)
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
@@ -849,9 +857,33 @@ export function BusinessDashboard({
       is_active: true,
     }
 
-    const { error } = form.id
-      ? await supabase.from('promotions').update(payload).eq('id', form.id)
-      : await supabase.from('promotions').insert(payload)
+    const persistPromotion = (promotionPayload: typeof payload) =>
+      form.id
+        ? supabase.from('promotions').update(promotionPayload).eq('id', form.id)
+        : supabase.from('promotions').insert(promotionPayload)
+
+    let { error } = await persistPromotion(payload)
+
+    if (
+      error &&
+      (isMissingPromotionColumnError(error.message, 'published_month') ||
+        isMissingPromotionColumnError(error.message, 'source_promotion_id'))
+    ) {
+      const fallbackPayload = {
+        id: payload.id,
+        business_id: payload.business_id,
+        title: payload.title,
+        description: payload.description,
+        discount: payload.discount,
+        category: payload.category,
+        expiration_date: payload.expiration_date,
+        building_id: payload.building_id,
+        image_path: payload.image_path,
+        is_active: payload.is_active,
+      }
+
+      ;({ error } = await persistPromotion(fallbackPayload))
+    }
 
     if (error) {
       toast.error(error.message)
