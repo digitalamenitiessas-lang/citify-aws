@@ -417,7 +417,7 @@ export function MesaAssistant({
   }
 
   return (
-    <aside className="mesa-card overflow-hidden mesa-fade-in">
+    <aside className="mesa-card mesa-fade-in overflow-hidden rounded-2xl border border-border/50 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
       <header className="px-5 py-3 border-b border-border/30 flex items-center justify-between bg-gradient-to-r from-primary/8 to-primary/0">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
@@ -444,7 +444,7 @@ export function MesaAssistant({
       </header>
 
       {tab === 'menu' ? (
-        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 p-4 lg:grid-cols-3">
           <AssistantCard
             icon={TrendingUp}
             title="Sugerir montos del mes"
@@ -504,7 +504,7 @@ export function MesaAssistant({
               ) : null}
 
               {extractError ? (
-                <div className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                <div className="flex items-start gap-2 rounded-lg border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/70 dark:bg-rose-950/45 dark:text-rose-100">
                   <AlertTriangle className="w-3.5 h-3.5 mt-0.5" />
                   <span>{extractError}</span>
                 </div>
@@ -797,11 +797,11 @@ function ProviderMatchCard({
 }) {
   if (!extractedName) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+      <div className="rounded-lg border border-amber-300/60 bg-amber-500/10 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
         La IA no detectó el nombre del proveedor. Escribilo para continuar:
         <input
           type="text"
-          className="mt-1.5 w-full rounded-md border border-amber-300 bg-background px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground dark:border-amber-800/70"
+          className="mt-1.5 w-full rounded-md border border-amber-300/70 bg-background px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground dark:border-amber-800/70"
           placeholder="Nombre del proveedor"
           onChange={(e) => onChangeChoice({ kind: 'new', name: e.target.value })}
           value={choice?.kind === 'new' ? choice.name : ''}
@@ -813,7 +813,7 @@ function ProviderMatchCard({
   const tone = match?.exact ? 'success' : 'neutral'
   const toneClass =
     tone === 'success'
-      ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30'
+      ? 'border-emerald-300/50 bg-emerald-500/10 dark:border-emerald-900/60 dark:bg-emerald-950/30'
       : 'border-border/40 bg-muted/10'
 
   return (
@@ -986,16 +986,16 @@ function ImportSuccess({
 }) {
   return (
     <div className="mesa-fade-in space-y-3">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="rounded-xl border border-emerald-300/50 bg-emerald-500/10 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/30">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-100">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-serif text-sm font-semibold text-emerald-900">
+            <h4 className="font-serif text-sm font-semibold text-emerald-900 dark:text-emerald-100">
               {result.imputed ? 'Gasto imputado' : 'Gasto en revisión'}
             </h4>
-            <p className="text-xs text-emerald-900/80 mt-0.5">
+            <p className="mt-0.5 text-xs text-emerald-900/80 dark:text-emerald-100/80">
               {result.providerName ? (
                 <>
                   <span className="font-medium">{result.providerName}</span>
@@ -1005,22 +1005,22 @@ function ImportSuccess({
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
               <div>
-                <span className="text-emerald-900/60 uppercase tracking-[0.08em] text-[9px] font-medium">
+                <span className="text-[9px] font-medium uppercase tracking-[0.08em] text-emerald-900/60 dark:text-emerald-100/60">
                   Período
                 </span>
-                <p className="font-medium text-emerald-900 capitalize">{periodLabel}</p>
+                <p className="font-medium capitalize text-emerald-900 dark:text-emerald-100">{periodLabel}</p>
               </div>
               <div className="text-right">
-                <span className="text-emerald-900/60 uppercase tracking-[0.08em] text-[9px] font-medium">
+                <span className="text-[9px] font-medium uppercase tracking-[0.08em] text-emerald-900/60 dark:text-emerald-100/60">
                   Monto
                 </span>
-                <p className="font-medium text-emerald-900 tabular-nums">
+                <p className="font-medium tabular-nums text-emerald-900 dark:text-emerald-100">
                   $ {formatARSCompact(amount)}
                 </p>
               </div>
             </div>
             {!result.imputed ? (
-              <p className="mt-2 text-[11px] text-emerald-900/70 italic">
+              <p className="mt-2 text-[11px] italic text-emerald-900/70 dark:text-emerald-100/70">
                 Tu rol no puede imputar directamente. El gasto quedó en revisión para un administrador con permiso de aprobación.
               </p>
             ) : null}
@@ -1072,9 +1072,12 @@ function DuplicateWarning({
   const tone = check.hasExact ? 'hard' : 'soft'
   const cardClass =
     tone === 'hard'
-      ? 'border-rose-300 bg-rose-50'
-      : 'border-amber-300 bg-amber-50'
-  const iconBg = tone === 'hard' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+      ? 'border-rose-300/60 bg-rose-500/10 dark:border-rose-900/70 dark:bg-rose-950/45'
+      : 'border-amber-300/60 bg-amber-500/10 dark:border-amber-900/70 dark:bg-amber-950/45'
+  const iconBg =
+    tone === 'hard'
+      ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-100'
+      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-100'
   const title = check.hasExact
     ? 'Posible factura duplicada'
     : 'Posible factura ya cargada en este mes'

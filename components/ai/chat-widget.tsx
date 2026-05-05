@@ -76,7 +76,7 @@ function renderInline(text: string): React.ReactNode {
         }
         if (/^`(.+)`$/.test(part)) {
           return (
-            <code key={idx} className="px-1 py-0.5 rounded text-xs font-mono" style={{ background: 'rgba(0,0,0,0.08)' }}>
+            <code key={idx} className="rounded bg-muted px-1 py-0.5 text-xs font-mono text-foreground">
               {part.slice(1, -1)}
             </code>
           )
@@ -102,16 +102,12 @@ function MessageBubble({ msg }: { msg: Message }) {
         </div>
       )}
       <div
-        className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+        className={`max-w-[88%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed sm:max-w-[80%] ${
           isUser
             ? 'text-white rounded-tr-sm whitespace-pre-wrap'
-            : 'text-foreground rounded-tl-sm border border-border/40'
+            : 'text-foreground rounded-tl-sm border border-border bg-card shadow-sm'
         }`}
-        style={
-          isUser
-            ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' }
-            : { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(8px)' }
-        }
+        style={isUser ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : undefined}
       >
         {isUser ? msg.content : renderMarkdown(msg.content)}
       </div>
@@ -130,13 +126,12 @@ const DEFAULT_SUGGESTIONS = [
 
 function Suggestions({ onSelect, items }: { onSelect: (text: string) => void; items: string[] }) {
   return (
-    <div className="flex flex-wrap gap-2 p-3 border-t border-border/30">
+    <div className="flex flex-wrap gap-2 border-t border-border/40 bg-muted/10 p-3">
       {items.map((s) => (
         <button
           key={s}
           onClick={() => onSelect(s)}
-          className="px-3 py-1.5 rounded-full text-xs font-medium border border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all"
-          style={{ background: 'rgba(240, 78, 35,0.05)' }}
+          className="rounded-full border border-border/50 bg-background/90 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
         >
           {s}
         </button>
@@ -247,7 +242,7 @@ export function ChatWidget({
         id="ai-chat-toggle"
         onClick={() => setOpen((v) => !v)}
         aria-label="Abrir asistente IA"
-        className="fixed bottom-24 right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95"
+        className="fixed bottom-24 right-3 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-all hover:scale-110 active:scale-95 sm:right-4"
         style={{
           background: 'linear-gradient(135deg, #F04E23, #C73E15)',
           boxShadow: '0 8px 32px rgba(199, 62, 21,0.45)',
@@ -262,20 +257,14 @@ export function ChatWidget({
 
       {/* ── Chat panel ──────────────────────────────────────────────────────── */}
       <div
-        className={`fixed bottom-40 right-4 z-50 w-[min(380px,calc(100vw-2rem))] rounded-2xl overflow-hidden flex flex-col transition-all duration-300 ${
+        className={`fixed inset-x-3 bottom-20 z-50 flex max-h-[min(76vh,42rem)] flex-col overflow-hidden rounded-[1.6rem] border border-border bg-background/95 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl transition-all duration-300 sm:inset-x-auto sm:bottom-40 sm:right-4 sm:w-[min(380px,calc(100vw-2rem))] ${
           open ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
-        style={{
-          height: '520px',
-          background: 'rgba(255,255,255,0.72)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(240, 78, 35,0.18)',
-          boxShadow: '0 24px 80px rgba(199, 62, 21,0.22)',
-        }}
+        style={{ boxShadow: '0 24px 80px rgba(199, 62, 21,0.16)' }}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+          className="flex flex-shrink-0 items-center justify-between px-4 py-3"
           style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
         >
           <div className="flex items-center gap-2.5">
@@ -297,11 +286,11 @@ export function ChatWidget({
         </div>
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {isEmpty && (
-            <div className="flex flex-col items-center justify-center h-full text-center gap-3 pb-4">
+            <div className="flex h-full flex-col items-center justify-center gap-3 pb-4 text-center">
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                className="flex h-14 w-14 items-center justify-center rounded-2xl"
                 style={{ background: 'linear-gradient(135deg, rgba(240, 78, 35,0.15), rgba(199, 62, 21,0.1))' }}
               >
                 <Sparkles className="w-7 h-7 text-primary" />
@@ -327,7 +316,7 @@ export function ChatWidget({
           )}
 
           {error && (
-            <div className="mx-1 mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs">
+            <div className="mx-1 mb-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
             </div>
           )}
@@ -340,8 +329,7 @@ export function ChatWidget({
 
         {/* Input */}
         <div
-          className="flex items-end gap-2 px-3 py-3 flex-shrink-0 border-t border-border/30"
-          style={{ background: 'rgba(255,255,255,0.8)' }}
+          className="flex flex-shrink-0 items-end gap-2 border-t border-border/40 bg-background/90 px-3 py-3"
         >
           <textarea
             ref={inputRef}
@@ -352,7 +340,7 @@ export function ChatWidget({
             placeholder="Escribí tu pregunta..."
             rows={1}
             disabled={isStreaming}
-            className="flex-1 resize-none text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground leading-relaxed max-h-28 overflow-y-auto"
+            className="max-h-28 flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
             style={{ minHeight: '24px' }}
             onInput={(e) => {
               const el = e.currentTarget

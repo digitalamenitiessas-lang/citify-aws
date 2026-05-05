@@ -836,7 +836,7 @@ export function BusinessDashboard({
     if (activeSection !== urlSection) {
       setActiveSection(urlSection)
     }
-  }, [activeSection, urlSection])
+  }, [urlSection])
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString())
