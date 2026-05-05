@@ -22,7 +22,8 @@
       "Bash(node install.js)",
       "Bash(node scripts/encode-video.mjs)",
       "Bash(node install/check.js)",
-      "Bash(node scripts/build-favicons.mjs)"
+      "Bash(node scripts/build-favicons.mjs)",
+      "Bash(node scripts/encode-video-mobile.mjs)"
     ]
   }
 }
