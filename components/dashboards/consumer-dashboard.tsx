@@ -530,7 +530,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     if (couponFilter !== urlCouponFilter) {
       setCouponFilter(urlCouponFilter)
     }
-  }, [couponFilter, mainView, urlCouponFilter, urlMainView])
+  }, [urlCouponFilter, urlMainView])
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString())
@@ -833,7 +833,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   ] as const
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: 'var(--background)' }}>
+    <div className="min-h-screen pb-28" style={{ background: 'var(--background)' }}>
 
       {/* ── HERO HEADER ──────────────────────────────────────────────────── */}
       {mainView === 'home' && (
@@ -1284,15 +1284,26 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
       {/* ── BOTTOM NAVIGATION ────────────────────────────────────────────── */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
-        <div className="flex items-center justify-around px-2 py-2 max-w-5xl mx-auto">
+        <div className="mx-auto flex max-w-5xl gap-2 overflow-x-auto px-3 py-2.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {nav.map(item => {
             const isActive = mainView === item.key
             return (
-              <button key={item.key} onClick={() => setMainView(item.key as MainView)} className="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all">
-                <item.icon className="w-5 h-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
-                <span className="text-[10px] font-medium" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}>{item.label}</span>
+              <button
+                key={item.key}
+                onClick={() => setMainView(item.key as MainView)}
+                className={`relative flex min-w-[78px] shrink-0 flex-col items-center gap-1 rounded-2xl px-3 py-2 transition-all ${
+                  isActive ? 'bg-primary/10 shadow-sm' : 'hover:bg-muted/50'
+                }`}
+              >
+                <item.icon className="h-5 w-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
+                <span
+                  className="text-center text-[10px] font-medium leading-tight"
+                  style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}
+                >
+                  {item.label}
+                </span>
                 {item.key === 'my-coupons' && savedCoupons.length > 0 && (
-                  <span className="absolute top-0 right-0 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center translate-x-1/4 -translate-y-1/4" style={{ background: 'var(--primary)' }}>
+                  <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: 'var(--primary)' }}>
                     {savedCoupons.length}
                   </span>
                 )}
