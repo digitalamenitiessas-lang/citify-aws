@@ -2,17 +2,32 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-export function ScrollVideoBackground({ src = '/edificios.mp4' }: { src?: string }) {
+export function ScrollVideoBackground({
+  desktopSrc = '/edificios.mp4',
+  mobileSrc = '/edificios-mobile.mp4',
+}: {
+  desktopSrc?: string
+  mobileSrc?: string
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const targetTimeRef = useRef(0)
   const seekingRef = useRef(false)
   const lastSeekedRef = useRef(0)
   const [ready, setReady] = useState(false)
   const [bufferProgress, setBufferProgress] = useState(0)
+  const [src, setSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    const pick = () => {
+      const isMobile = window.matchMedia('(max-width: 767px)').matches
+      setSrc(isMobile ? mobileSrc : desktopSrc)
+    }
+    pick()
+  }, [desktopSrc, mobileSrc])
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !src) return
 
     const updateBuffer = () => {
       const duration = video.duration
@@ -76,20 +91,22 @@ export function ScrollVideoBackground({ src = '/edificios.mp4' }: { src?: string
       video.removeEventListener('seeked', onSeeked)
       video.removeEventListener('loadeddata', onScroll)
     }
-  }, [])
+  }, [src])
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-black">
-      <video
-        ref={videoRef}
-        src={src}
-        className="absolute inset-0 h-full w-full object-cover"
-        muted
-        playsInline
-        preload="auto"
-        // @ts-expect-error iOS hint
-        disablePictureInPicture
-      />
+      {src ? (
+        <video
+          ref={videoRef}
+          src={src}
+          className="absolute inset-0 h-full w-full object-cover"
+          muted
+          playsInline
+          preload="auto"
+          // @ts-expect-error iOS hint
+          disablePictureInPicture
+        />
+      ) : null}
       <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-transparent to-black/30" />
       {!ready ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs uppercase tracking-[0.28em] text-white/65">
