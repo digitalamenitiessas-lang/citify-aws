@@ -428,17 +428,16 @@
   font-family: var(--font-mono), monospace;
 }
 
-/* Scrollbar — warm toned */
-::-webkit-scrollbar {
-  width: 6px;
+/* Hide document scrollbar on desktop to keep the landing cleaner */
+html,
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-::-webkit-scrollbar-track {
-  background: var(--background);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--citify-tan-1);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--citify-tan-2);
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }

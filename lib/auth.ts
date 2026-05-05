@@ -71,7 +71,7 @@ export async function requireProfile(allowedRoles?: UserRole[]) {
   }
 
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
-    redirect('/')
+    redirect('/login')
   }
 
   return { profile }
@@ -182,13 +182,13 @@ export async function requireIAdmin(options: {
   const { profile } = await requireProfile()
 
   if (profile.role !== 'super_admin' && profile.role !== 'consorcio_admin') {
-    redirect('/')
+    redirect('/login')
   }
 
   const context = await getIAdminContext(profile)
 
   if (!context.isSuperAdmin && context.memberships.length === 0) {
-    redirect('/')
+    redirect('/login')
   }
 
   if (options.capability) {
@@ -202,7 +202,7 @@ export async function requireIAdmin(options: {
         })
 
     if (!allowed) {
-      redirect('/')
+      redirect('/login')
     }
   }
 

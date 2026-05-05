@@ -797,11 +797,11 @@ function ProviderMatchCard({
 }) {
   if (!extractedName) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
         La IA no detectó el nombre del proveedor. Escribilo para continuar:
         <input
           type="text"
-          className="mt-1.5 w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-sm"
+          className="mt-1.5 w-full rounded-md border border-amber-300 bg-background px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground dark:border-amber-800/70"
           placeholder="Nombre del proveedor"
           onChange={(e) => onChangeChoice({ kind: 'new', name: e.target.value })}
           value={choice?.kind === 'new' ? choice.name : ''}
@@ -813,7 +813,7 @@ function ProviderMatchCard({
   const tone = match?.exact ? 'success' : 'neutral'
   const toneClass =
     tone === 'success'
-      ? 'border-emerald-200 bg-emerald-50'
+      ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30'
       : 'border-border/40 bg-muted/10'
 
   return (

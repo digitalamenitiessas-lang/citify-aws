@@ -651,8 +651,8 @@ declare
 begin
   select *
   into current_profile
-  from public.profiles
-  where id = auth.uid()
+  from public.profiles p
+  where p.id = auth.uid()
   limit 1;
 
   if current_profile.id is null then
@@ -667,8 +667,8 @@ begin
 
   select *
   into promotion_row
-  from public.promotions
-  where id = target_promotion_id
+  from public.promotions p
+  where p.id = target_promotion_id
   limit 1;
 
   if promotion_row.id is null then
@@ -711,8 +711,8 @@ begin
 
   select *
   into business_row
-  from public.businesses
-  where id = promotion_row.business_id
+  from public.businesses b
+  where b.id = promotion_row.business_id
   limit 1;
 
   if existing_token.id is null then

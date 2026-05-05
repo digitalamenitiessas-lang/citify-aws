@@ -5,13 +5,26 @@ import Link from 'next/link'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { ContactShadows, PerspectiveCamera, RoundedBox, useGLTF } from '@react-three/drei'
 import { Group, MathUtils, Mesh, MeshStandardMaterial, Vector3 } from 'three'
-import { ArrowRight, BarChart3, Building2, Shield, Tag, Users, Zap } from 'lucide-react'
+import { ArrowRight, BarChart3, Building2, Facebook, Instagram, Linkedin, Mail, Shield, Tag, Users, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Promotion } from '@/lib/types'
 import { landingFeatures, landingModelAsset, landingScenes, landingStats, type LandingFeature, type LandingSceneDefinition } from '@/lib/landing-scenes'
 import { ScrollVideoBackground } from '@/components/landing/scroll-video-hero'
 
 const SCENE_HEIGHT = 110
+const CONTACT_EMAIL = 'micitify@gmail.com'
+
+const CONTACT_LINKS = {
+  business: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quiero sumar mi comercio a CITIFY')}`,
+  building: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quiero llevar CITIFY a mi edificio')}`,
+  general: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Quiero sumarme a CITIFY')}`,
+}
+
+const SOCIAL_LINKS = [
+  { label: 'Instagram', href: '#', icon: Instagram },
+  { label: 'Facebook', href: '#', icon: Facebook },
+  { label: 'LinkedIn', href: '#', icon: Linkedin },
+]
 
 function iconForFeature(icon: LandingFeature['icon']) {
   switch (icon) {
@@ -992,6 +1005,50 @@ function PromotionMiniCard({ promotion }: { promotion: Promotion }) {
   )
 }
 
+function LandingFooter() {
+  return (
+    <footer className="relative border-t border-border/60 bg-[radial-gradient(circle_at_top_left,rgba(240,78,35,0.12),transparent_32%),linear-gradient(180deg,color-mix(in_srgb,var(--background)_88%,black_12%),var(--background))] px-5 py-10 text-foreground md:px-10">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-muted-foreground">CITIFY</p>
+          <h3 className="mt-3 font-serif text-3xl leading-tight md:text-4xl">
+            Conectamos vecinos, comercios y edificios en una experiencia mas simple.
+          </h3>
+          <p className="mt-4 max-w-xl text-sm leading-7 text-muted-foreground">
+            Si queres sumar tu comercio o llevar CITIFY a tu edificio, escribinos y te contamos como empezar.
+          </p>
+          <a
+            href={CONTACT_LINKS.general}
+            className="mt-5 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-5 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+          >
+            <Mail className="h-4 w-4" />
+            {CONTACT_EMAIL}
+          </a>
+        </div>
+
+        <div className="flex flex-col gap-5 md:items-end">
+          <div className="flex items-center gap-3">
+            {SOCIAL_LINKS.map((item) => {
+              const Icon = item.icon
+              return (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  aria-label={item.label}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border/60 bg-background/70 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
+                >
+                  <Icon className="h-4 w-4" />
+                </a>
+              )
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">Desarrollado por Digital Amenities</p>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
 function ScenePanel({
   scene,
   featuredPromotions,
@@ -1066,9 +1123,9 @@ function ScenePanel({
               </div>
             )}
             <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/admin">
-                <Button variant="outline" className="rounded-full border-white/40 bg-transparent text-white hover:bg-white/15">Quiero sumar mi comercio</Button>
-              </Link>
+              <Button asChild variant="outline" className="rounded-full border-white/40 bg-transparent text-white hover:bg-white/15">
+                <a href={CONTACT_LINKS.business}>Quiero sumar mi comercio</a>
+              </Button>
               <Link href="/promotions">
                 <Button className="btn-premium rounded-full px-6">Explorar CITIFY</Button>
               </Link>
@@ -1103,9 +1160,9 @@ function ScenePanel({
               })}
             </div>
             <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/consorcio">
-                <Button className="btn-premium rounded-full px-6">Quiero llevar CITIFY a mi edificio</Button>
-              </Link>
+              <Button asChild className="btn-premium rounded-full px-6">
+                <a href={CONTACT_LINKS.building}>Quiero llevar CITIFY a mi edificio</a>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -1127,9 +1184,9 @@ function ScenePanel({
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/usuario">
-                <Button className="btn-premium rounded-full px-6">Sumate a CITIFY</Button>
-              </Link>
+              <Button asChild className="btn-premium rounded-full px-6">
+                <a href={CONTACT_LINKS.general}>Sumate a CITIFY</a>
+              </Button>
               <Link href="/promotions">
                 <Button variant="outline" className="rounded-full border-white/40 bg-transparent text-white hover:bg-white/15">Conocer beneficios</Button>
               </Link>
@@ -1223,6 +1280,8 @@ export function LandingExperience3D({
             </section>
           )
         })}
+
+        <LandingFooter />
       </div>
     </div>
   )

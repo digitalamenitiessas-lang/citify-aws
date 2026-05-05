@@ -63,6 +63,8 @@ export interface PromotionMonthlyStatus {
   isCompliant: boolean
   promotionsThisMonth: number
   lastMonthPromotion: Promotion | null
+  isAutoRenewed: boolean
+  autoRenewedPromotion: Promotion | null
 }
 
 export interface PromotionRedemptionToken {
@@ -381,6 +383,7 @@ export interface SuperAdminPromotionDetail extends Promotion {
 }
 
 export interface SuperAdminBusinessDetail extends Business {
+  ownerEmail: string | null
   promotions: SuperAdminPromotionDetail[]
   totalRedemptions: number
   topBuilding: string | null
@@ -435,6 +438,58 @@ export interface SuperAdminCreateManagedPropertyResult {
   buildingId: string
   administrationId: string
   managedPropertyId: string
+}
+
+export type InitialOccupancyImportRowStatus = 'ready' | 'pending' | 'error'
+export type InitialOccupancyUnitDecision = 'reuse' | 'create' | 'unresolved'
+
+export interface InitialOccupancyImportRowDraft {
+  id: string
+  sourceSheet: string
+  sourceRowNumber: number
+  status: InitialOccupancyImportRowStatus
+  statusReason: string | null
+  confidence: number
+  fullName: string
+  email: string
+  phone: string
+  unitCode: string
+  floor: string | null
+  relationshipType: UnitProfileRelationship
+  isPrimary: boolean
+  unitKind: IAdminUnitKind
+  existingUnitId: string | null
+  unitDecision: InitialOccupancyUnitDecision
+  rawPreview: string
+}
+
+export interface InitialOccupancyImportPreviewSummary {
+  totalRows: number
+  readyRows: number
+  pendingRows: number
+  errorRows: number
+  unitsToCreate: number
+  unitsToReuse: number
+  usersToCreateEstimate: number
+  membershipsToUpsert: number
+}
+
+export interface InitialOccupancyImportPreview {
+  buildingId: string
+  buildingName: string
+  fileName: string
+  detectedColumns: Record<string, string | null>
+  warnings: string[]
+  rows: InitialOccupancyImportRowDraft[]
+  summary: InitialOccupancyImportPreviewSummary
+}
+
+export interface InitialOccupancyImportConfirmResult {
+  createdUsers: number
+  createdUnits: number
+  linkedMemberships: number
+  updatedMemberships: number
+  errors: string[]
 }
 
 export interface ConsumerDashboardData {

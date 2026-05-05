@@ -321,7 +321,7 @@ function HeroStat({ label, value, hint }: { label: string; value: string; hint?:
   const numeric = numericMatch ? Number(numericMatch[0].replace(/[^\d-]/g, '')) : 0
 
   return (
-    <div className="rounded-lg bg-white/60 border border-white/80 px-3 py-2 backdrop-blur-sm">
+    <div className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 backdrop-blur-sm">
       <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground font-medium">{label}</p>
       <p className="stat-value font-serif text-[16px] font-semibold text-foreground tabular-nums leading-tight mt-0.5">
         <AnimatedNumber value={numeric} format={() => value} duration={620} />

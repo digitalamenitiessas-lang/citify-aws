@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Banknote, Bell, BellRing, Building2 } from 'lucide-react'
+import { Banknote, Bell, BellRing, Building2, Receipt, ScrollText, Wallet } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -13,6 +13,9 @@ const NAV_ITEMS: ReadonlyArray<{
   matchPrefix?: string
 }> = [
   { href: '/iadmin/cartera', label: 'Cartera', icon: Building2, need: 'portfolio.view', matchPrefix: '/iadmin/cartera' },
+  { href: '/iadmin/gastos', label: 'Gastos', icon: Receipt, need: 'expenses.view', matchPrefix: '/iadmin/gastos' },
+  { href: '/iadmin/liquidaciones', label: 'Liquidaciones', icon: ScrollText, need: 'liquidations.view', matchPrefix: '/iadmin/liquidaciones' },
+  { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
   { href: '/iadmin/recordatorios', label: 'Recordatorios', icon: BellRing, need: 'reminders.generate', matchPrefix: '/iadmin/recordatorios' },
 ]
 
