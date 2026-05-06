@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { LogOut, Menu, UserRound, X } from 'lucide-react'
+import { CircleAlert, LogOut, UserRound, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -148,8 +148,12 @@ export function Navbar() {
 
         <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
-          <button className="text-muted-foreground" onClick={() => setMobileOpen((current) => !current)}>
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          <button
+            className="rounded-full border border-border/60 bg-background/80 p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => setMobileOpen((current) => !current)}
+            aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú de usuario'}
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <UserRound className="h-5 w-5" />}
           </button>
         </div>
       </div>
@@ -164,6 +168,22 @@ export function Navbar() {
               <Link href={ROLE_HOME[userState.role]} className="w-full" onClick={closeMobileMenu}>
                 <Button className="w-full btn-premium">Ir a mi panel</Button>
               </Link>
+              {userState.role === 'vecino' ? (
+                <>
+                  <Link href="/usuario?view=household" className="w-full" onClick={closeMobileMenu}>
+                    <Button variant="outline" className="w-full justify-start gap-2">
+                      <Users className="h-4 w-4" />
+                      Mi unidad
+                    </Button>
+                  </Link>
+                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu}>
+                    <Button variant="outline" className="w-full justify-start gap-2">
+                      <CircleAlert className="h-4 w-4" />
+                      Expedientes
+                    </Button>
+                  </Link>
+                </>
+              ) : null}
               <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" />
                 Salir

@@ -839,6 +839,10 @@ export function BusinessDashboard({
   }, [urlSection])
 
   useEffect(() => {
+    if (activeSection !== urlSection) {
+      return
+    }
+
     const params = new URLSearchParams(searchParams.toString())
     if (activeSection === 'home') {
       params.delete('section')
