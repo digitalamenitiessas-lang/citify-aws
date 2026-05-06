@@ -160,6 +160,7 @@ export function Navbar() {
         <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
           <button
+            data-tour="neighbor-mobile-menu-toggle"
             className="rounded-full border border-border/60 bg-background/80 p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setMobileOpen((current) => !current)}
             aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú de usuario'}
@@ -181,13 +182,13 @@ export function Navbar() {
               </Link>
               {userState.role === 'vecino' ? (
                 <>
-                  <Link href="/usuario?view=household" className="w-full" onClick={closeMobileMenu}>
+                  <Link href="/usuario?view=household" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-household">
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <Users className="h-4 w-4" />
                       Mi unidad
                     </Button>
                   </Link>
-                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu}>
+                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-complaints">
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <CircleAlert className="h-4 w-4" />
                       Expedientes

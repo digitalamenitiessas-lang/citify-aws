@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   Building2,
+  CircleHelp,
   ChevronRight,
   CircleAlert,
   Flame,
@@ -502,6 +503,96 @@ function FullPromotionsView({ promotions, savedCoupons, usedCoupons, onSaveToggl
 type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household'
 
 const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household']
+const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v1'
+
+const NEIGHBOR_TOUR_STEPS_DESKTOP: Array<{
+  selector: string
+  title: string
+  description: string
+}> = [
+  {
+    selector: '[data-tour="neighbor-nav-home"]',
+    title: 'Inicio',
+    description: 'Aqui ves un resumen rapido con destacados, promos y accesos directos.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-all-promos"]',
+    title: 'Beneficios',
+    description: 'Explora todas las promociones disponibles y filtralas por categoria.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-my-coupons"]',
+    title: 'Mis Cupones',
+    description: 'Gestiona tu billetera de cupones guardados, disponibles y ya usados.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-marketplace"]',
+    title: 'Mercado',
+    description: 'Publica o encuentra articulos dentro de tu comunidad de vecinos.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-stores"]',
+    title: 'Ubicaciones',
+    description: 'Mira el mapa de locales y ubica los comercios cercanos a tu edificio.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-household"]',
+    title: 'Mi unidad',
+    description: 'Gestiona tu grupo familiar y datos vinculados a tu unidad.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-complaints"]',
+    title: 'Expedientes',
+    description: 'Sigue tus reportes y el estado de cada gestion con el consorcio.',
+  },
+]
+
+const NEIGHBOR_TOUR_STEPS_MOBILE: Array<{
+  selector: string
+  title: string
+  description: string
+}> = [
+  {
+    selector: '[data-tour="neighbor-nav-home"]',
+    title: 'Inicio',
+    description: 'Aqui ves un resumen rapido con destacados, promos y accesos directos.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-all-promos"]',
+    title: 'Beneficios',
+    description: 'Explora todas las promociones disponibles y filtralas por categoria.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-my-coupons"]',
+    title: 'Mis Cupones',
+    description: 'Gestiona tu billetera de cupones guardados, disponibles y ya usados.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-marketplace"]',
+    title: 'Mercado',
+    description: 'Publica o encuentra articulos dentro de tu comunidad de vecinos.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-stores"]',
+    title: 'Ubicaciones',
+    description: 'Mira el mapa de locales y ubica los comercios cercanos a tu edificio.',
+  },
+  {
+    selector: '[data-tour="neighbor-mobile-menu-toggle"]',
+    title: 'Menu de usuario',
+    description: 'En celular, abre este menu para acceder a otras secciones de tu perfil.',
+  },
+  {
+    selector: '[data-tour="neighbor-mobile-household"]',
+    title: 'Mi unidad',
+    description: 'Dentro del menu, aqui puedes gestionar convivientes y datos de tu unidad.',
+  },
+  {
+    selector: '[data-tour="neighbor-mobile-complaints"]',
+    title: 'Expedientes',
+    description: 'Dentro del menu, aqui ingresas y haces seguimiento de tus casos.',
+  },
+]
 
 function isMainView(value: string | null): value is MainView {
   return Boolean(value && MAIN_VIEW_OPTIONS.includes(value as MainView))
@@ -529,6 +620,10 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
   const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>(urlCouponFilter)
+  const [tourOpen, setTourOpen] = useState(false)
+  const [tourStep, setTourStep] = useState(0)
+  const [tourRect, setTourRect] = useState<DOMRect | null>(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [isAddingHousehold, startHouseholdTransition] = useTransition()
   const [householdMembers, setHouseholdMembers] = useState(initialData.householdMembers)
   const [householdDraft, setHouseholdDraft] = useState({
@@ -540,6 +635,81 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
+  const tourSteps = useMemo(
+    () => (isMobileViewport ? NEIGHBOR_TOUR_STEPS_MOBILE : NEIGHBOR_TOUR_STEPS_DESKTOP),
+    [isMobileViewport],
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const updateViewport = () => setIsMobileViewport(window.innerWidth < 768)
+    updateViewport()
+    window.addEventListener('resize', updateViewport)
+    return () => window.removeEventListener('resize', updateViewport)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const alreadySeen = window.localStorage.getItem(NEIGHBOR_TOUR_STORAGE_KEY) === 'seen'
+    if (alreadySeen) return
+    const timer = window.setTimeout(() => {
+      setTourOpen(true)
+      setTourStep(0)
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!tourOpen) {
+      setTourRect(null)
+      return
+    }
+
+    const step = tourSteps[tourStep]
+    if (!step) return
+
+    const updateRect = () => {
+      const element = document.querySelector(step.selector) as HTMLElement | null
+      if (!element) {
+        if (isMobileViewport && (step.selector === '[data-tour="neighbor-mobile-household"]' || step.selector === '[data-tour="neighbor-mobile-complaints"]')) {
+          const toggle = document.querySelector('[data-tour="neighbor-mobile-menu-toggle"]') as HTMLElement | null
+          toggle?.click()
+          window.setTimeout(() => {
+            const retry = document.querySelector(step.selector) as HTMLElement | null
+            setTourRect(retry ? retry.getBoundingClientRect() : null)
+          }, 120)
+          return
+        }
+        setTourRect(null)
+        return
+      }
+      setTourRect(element.getBoundingClientRect())
+    }
+
+    updateRect()
+    window.addEventListener('resize', updateRect)
+    window.addEventListener('scroll', updateRect, true)
+    return () => {
+      window.removeEventListener('resize', updateRect)
+      window.removeEventListener('scroll', updateRect, true)
+    }
+  }, [isMobileViewport, tourOpen, tourStep, tourSteps])
+
+  function closeTour(markAsSeen = true) {
+    setTourOpen(false)
+    setTourRect(null)
+    if (markAsSeen && typeof window !== 'undefined') {
+      window.localStorage.setItem(NEIGHBOR_TOUR_STORAGE_KEY, 'seen')
+    }
+  }
+
+  function goToNextTourStep() {
+    if (tourStep >= tourSteps.length - 1) {
+      closeTour(true)
+      return
+    }
+    setTourStep((prev) => prev + 1)
+  }
 
   useEffect(() => {
     if (mainView !== urlMainView) {
@@ -890,6 +1060,19 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
               <span className="font-semibold text-primary">{allPromos.length} promos</span> disponibles
               {buildingPromos.length > 0 && <> · <span className="font-semibold text-primary">{buildingPromos.length}</span> exclusivas de tu edificio</>}
             </p>
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTourStep(0)
+                  setTourOpen(true)
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+                Ver recorrido
+              </button>
+            </div>
 
             {/* Search bar */}
             <div className="mt-3 relative">
@@ -965,6 +1148,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 ))}
               </div>
             </section>
+
           </div>
         )}
 
@@ -1325,6 +1509,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             return (
               <button
                 key={item.key}
+                data-tour={`neighbor-nav-${item.key}`}
                 onClick={() => setMainView(item.key as MainView)}
                 className={`relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 transition-all sm:px-3 ${
                   isActive ? 'bg-primary/10 shadow-sm' : 'hover:bg-muted/50'
@@ -1350,6 +1535,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             return (
               <button
                 key={item.key}
+                data-tour={`neighbor-nav-${item.key}`}
                 onClick={() => setMainView(item.key as MainView)}
                 className={`relative hidden min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 transition-all md:flex md:px-3 ${
                   isActive ? 'bg-primary/10 shadow-sm' : 'hover:bg-muted/50'
@@ -1371,6 +1557,43 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
       {qrPromotion && <PromotionQrModal promotion={qrPromotion} token={qrToken} loading={isLoadingQr} onClose={closePromotionQr} />}
       {showCreateModal && <CreateMarketplaceModal onClose={() => setShowCreateModal(false)} onSave={createMarketplaceItem} />}
+      {tourOpen ? (
+        <div className="fixed inset-0 z-[90]">
+          <div className="absolute inset-0 bg-black/60" />
+          {tourRect ? (
+            <div
+              className="pointer-events-none absolute rounded-2xl border-2 border-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+              style={{
+                top: `${Math.max(tourRect.top - 6, 0)}px`,
+                left: `${Math.max(tourRect.left - 6, 0)}px`,
+                width: `${tourRect.width + 12}px`,
+                height: `${tourRect.height + 12}px`,
+              }}
+            />
+          ) : null}
+
+          <div className="absolute inset-x-4 bottom-24 mx-auto w-full max-w-sm rounded-2xl border border-border/60 bg-background p-4 shadow-2xl sm:bottom-8">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+              Tour del rol vecino · Paso {tourStep + 1}/{tourSteps.length}
+            </p>
+            <h3 className="mt-2 text-base font-semibold text-foreground">{tourSteps[tourStep]?.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{tourSteps[tourStep]?.description}</p>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <Button variant="ghost" size="sm" onClick={() => closeTour(true)}>
+                Omitir
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setTourStep((prev) => Math.max(prev - 1, 0))} disabled={tourStep === 0}>
+                  Anterior
+                </Button>
+                <Button size="sm" className="btn-premium" onClick={goToNextTourStep}>
+                  {tourStep === tourSteps.length - 1 ? 'Finalizar' : 'Siguiente'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── AI ASSISTANT ─────────────────────────────────────────────────── */}
       <ChatWidget />
