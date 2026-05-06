@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CircleAlert, LogOut, UserRound, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ export function Navbar() {
   const [userState, setUserState] = useState<{ fullName: string; role: UserRole } | null>(null)
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   if (pathname?.startsWith('/print') || pathname?.startsWith('/l/')) {
     return null
@@ -93,6 +94,10 @@ export function Navbar() {
   function closeMobileMenu() {
     setMobileOpen(false)
   }
+
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname, searchParams])
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">

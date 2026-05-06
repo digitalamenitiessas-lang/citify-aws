@@ -8,6 +8,7 @@ import {
   Building2,
   Camera,
   CheckCircle2,
+  CircleHelp,
   CircleUserRound,
   Gift,
   History,
@@ -63,7 +64,52 @@ type WindowWithBarcodeDetector = Window & {
   BarcodeDetector?: new (options?: { formats?: string[] }) => BarcodeDetectorLike
 }
 
-const BUSINESS_SECTION_OPTIONS: BusinessDashboardSection[] = ['home', 'promotions', 'history', 'profile']
+const BUSINESS_SECTION_OPTIONS: BusinessDashboardSection[] = ['home', 'promotions', 'scanner', 'history', 'profile']
+const BUSINESS_TOUR_STORAGE_KEY = 'citify-business-tour-v1'
+
+const BUSINESS_TOUR_STEPS_DESKTOP: Array<{
+  selector: string
+  title: string
+  description: string
+}> = [
+  {
+    selector: '[data-tour="business-tour-relaunch"]',
+    title: 'Tour guiado',
+    description: 'Puedes volver a abrir este recorrido cuando quieras para repasar el panel del negocio.',
+  },
+  {
+    selector: '[data-tour="business-nav-home"]',
+    title: 'Inicio',
+    description: 'Aqui ves el estado del mes, el cumplimiento de promociones y un resumen rapido de actividad.',
+  },
+  {
+    selector: '[data-tour="business-nav-promotions"]',
+    title: 'Promos',
+    description: 'Desde esta seccion creas, editas y repites promociones para mantener tu negocio activo.',
+  },
+  {
+    selector: '[data-tour="business-nav-scanner"]',
+    title: 'Escanear',
+    description: 'Este acceso central abre directamente el scanner QR para validar canjes al instante.',
+  },
+  {
+    selector: '[data-tour="business-scanner-section"]',
+    title: 'Validacion express',
+    description: 'Aqui puedes escanear el QR del vecino o ingresar el codigo manualmente sin distraerte con otras tareas.',
+  },
+  {
+    selector: '[data-tour="business-nav-history"]',
+    title: 'Historial',
+    description: 'Aqui revisas canjes validados y promociones anteriores para reutilizarlas despues.',
+  },
+  {
+    selector: '[data-tour="business-nav-profile"]',
+    title: 'Perfil',
+    description: 'Actualiza la identidad de tu negocio, su logo y la ubicacion visible para los vecinos.',
+  },
+]
+
+const BUSINESS_TOUR_STEPS_MOBILE = BUSINESS_TOUR_STEPS_DESKTOP
 
 function isBusinessDashboardSection(value: string | null): value is BusinessDashboardSection {
   return Boolean(value && BUSINESS_SECTION_OPTIONS.includes(value as BusinessDashboardSection))
@@ -622,40 +668,38 @@ function RedemptionHub({
           Escanea el QR del vecino o ingresa el código manualmente. Ambos caminos validan el mismo canje y respetan el uso único por promoción.
         </p>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {!scannerOpen ? (
           <button
             onClick={() => onStartScanner('starting')}
-            className="glass-card glass-card-hover flex items-center gap-3 rounded-2xl p-4 text-left"
+            className="mt-5 glass-card glass-card-hover flex w-full items-center justify-center gap-3 rounded-2xl p-4 text-center"
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Camera className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Escanear QR</p>
-              <p className="text-xs text-muted-foreground">Usa la cámara y valida el canje en el momento.</p>
+              <p className="text-sm font-semibold text-foreground">Abrir escáner QR</p>
+              <p className="text-xs text-muted-foreground">La cámara se activa al instante para validar el cupón del vecino.</p>
             </div>
           </button>
-
-          <div className="glass-card rounded-2xl p-4">
-            <p className="text-sm font-semibold text-foreground">Ingresar código</p>
-            <p className="mt-1 text-xs text-muted-foreground">Fallback instantáneo si no hay cámara o el vecino comparte el token.</p>
-          </div>
-        </div>
+        ) : null}
 
         {scannerOpen ? (
-          <div className="mt-5 space-y-4 rounded-2xl border border-border/60 bg-background/70 p-4">
+          <div className="mt-5 space-y-4 rounded-3xl border border-border/60 bg-background/70 p-4 md:p-5">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-foreground">Escaner activo</p>
               <button onClick={() => onStartScanner('idle')} className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                 Cerrar
               </button>
             </div>
-            <BusinessQrScanner open={scannerOpen} scannerState={scannerState} onStateChange={onStartScanner} onCodeDetected={onDetectedCode} />
+            <div className="mx-auto max-w-xl">
+              <BusinessQrScanner open={scannerOpen} scannerState={scannerState} onStateChange={onStartScanner} onCodeDetected={onDetectedCode} />
+            </div>
           </div>
         ) : null}
 
-        <div className="mt-5 space-y-3">
+        <div className="mt-5 rounded-2xl border border-border/60 bg-muted/20 p-4 space-y-3">
           <Label>Codigo de canje</Label>
+          <p className="text-xs text-muted-foreground">Si no quieres usar la cámara o el navegador no la habilita, puedes validar el mismo cupón pegando el código manual.</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               value={validationCode}
@@ -795,6 +839,20 @@ function RedemptionHistorySection({
   )
 }
 
+function TourRelaunchButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      data-tour="business-tour-relaunch"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <CircleHelp className="h-3.5 w-3.5" />
+      Ver tour
+    </button>
+  )
+}
+
 export function BusinessDashboard({
   initialData,
   profileId,
@@ -821,18 +879,84 @@ export function BusinessDashboard({
   const [validationResult, setValidationResult] = useState<PromotionRedemptionValidationResult | null>(null)
   const [scannerState, setScannerState] = useState<BusinessScannerState>('idle')
   const [redemptionHistory, setRedemptionHistory] = useState<PromotionRedemptionHistoryItem[]>(initialData.redemptionHistory)
+  const [tourOpen, setTourOpen] = useState(false)
+  const [tourStep, setTourStep] = useState(0)
+  const [tourRect, setTourRect] = useState<DOMRect | null>(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [mapLocation, setMapLocation] = useState<[number, number] | null>(
     business?.latitude && business?.longitude ? [business.latitude, business.longitude] : null,
   )
   const [address, setAddress] = useState(business?.address ?? '')
   const [locationSaving, setLocationSaving] = useState(false)
   const [isLocationEditing, setIsLocationEditing] = useState(false)
+  const tourSteps = useMemo(
+    () => (isMobileViewport ? BUSINESS_TOUR_STEPS_MOBILE : BUSINESS_TOUR_STEPS_DESKTOP),
+    [isMobileViewport],
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const updateViewport = () => setIsMobileViewport(window.innerWidth < 768)
+    updateViewport()
+    window.addEventListener('resize', updateViewport)
+    return () => window.removeEventListener('resize', updateViewport)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const alreadySeen = window.localStorage.getItem(BUSINESS_TOUR_STORAGE_KEY) === 'seen'
+    if (alreadySeen) return
+    const timer = window.setTimeout(() => {
+      setTourOpen(true)
+      setTourStep(0)
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!tourOpen) {
+      setTourRect(null)
+      return
+    }
+
+    const step = tourSteps[tourStep]
+    if (!step) return
+
+    const updateRect = () => {
+      const element = document.querySelector(step.selector) as HTMLElement | null
+      setTourRect(element ? element.getBoundingClientRect() : null)
+    }
+
+    updateRect()
+    window.addEventListener('resize', updateRect)
+    window.addEventListener('scroll', updateRect, true)
+    return () => {
+      window.removeEventListener('resize', updateRect)
+      window.removeEventListener('scroll', updateRect, true)
+    }
+  }, [tourOpen, tourStep, tourSteps])
 
   useEffect(() => {
     if (activeSection !== urlSection) {
       setActiveSection(urlSection)
     }
   }, [urlSection])
+
+  function closeTour(markAsSeen = true) {
+    setTourOpen(false)
+    setTourRect(null)
+    if (markAsSeen && typeof window !== 'undefined') {
+      window.localStorage.setItem(BUSINESS_TOUR_STORAGE_KEY, 'seen')
+    }
+  }
+
+  function goToNextTourStep() {
+    if (tourStep >= tourSteps.length - 1) {
+      closeTour(true)
+      return
+    }
+    setTourStep((prev) => prev + 1)
+  }
 
   useEffect(() => {
     if (activeSection !== urlSection) {
@@ -852,6 +976,19 @@ export function BusinessDashboard({
       router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
     }
   }, [activeSection, pathname, router, searchParams])
+
+  useEffect(() => {
+    if (activeSection === 'scanner') {
+      if (scannerState === 'idle' && !validationResult) {
+        setScannerState('starting')
+      }
+      return
+    }
+
+    if (scannerState !== 'idle') {
+      setScannerState('idle')
+    }
+  }, [activeSection, scannerState, validationResult])
 
   const referenceMonthStart = initialData.monthlyStatus?.monthStart ?? getCurrentMonthStart()
   const effectivePromotions = useMemo(() => applyPromotionAutoRenewal(promotions, referenceMonthStart), [promotions, referenceMonthStart])
@@ -874,6 +1011,25 @@ export function BusinessDashboard({
     [redemptionHistory, monthlyStatus.monthStart],
   )
   const recentRedemptions = useMemo(() => redemptionHistory.slice(0, 5), [redemptionHistory])
+
+  function openScannerSection() {
+    setValidationCode('')
+    setValidationResult(null)
+    setActiveSection('scanner')
+    setScannerState('starting')
+  }
+
+  function goToSection(nextSection: BusinessDashboardSection) {
+    if (nextSection === 'scanner') {
+      openScannerSection()
+      return
+    }
+
+    setActiveSection(nextSection)
+    if (scannerState !== 'idle') {
+      setScannerState('idle')
+    }
+  }
 
   function openCreateModal() {
     setModalMode('create')
@@ -1143,6 +1299,7 @@ export function BusinessDashboard({
   const navItems: Array<{ key: BusinessDashboardSection; label: string; icon: typeof Home }> = [
     { key: 'home', label: 'Inicio', icon: Home },
     { key: 'promotions', label: 'Promos', icon: Gift },
+    { key: 'scanner', label: 'Escanear', icon: Camera },
     { key: 'history', label: 'Historial', icon: History },
     { key: 'profile', label: 'Perfil', icon: CircleUserRound },
   ]
@@ -1176,11 +1333,29 @@ export function BusinessDashboard({
                     : `${monthlyStatus.monthLabel} pendiente`}
               </span>
             </p>
+            <div className="mt-3">
+              <TourRelaunchButton
+                onClick={() => {
+                  setTourStep(0)
+                  setTourOpen(true)
+                }}
+              />
+            </div>
           </div>
         </div>
       ) : null}
 
       <div className="mx-auto max-w-5xl px-4 pt-5">
+        {activeSection !== 'home' ? (
+          <div className="mb-4 flex justify-end">
+            <TourRelaunchButton
+              onClick={() => {
+                setTourStep(0)
+                setTourOpen(true)
+              }}
+            />
+          </div>
+        ) : null}
         {activeSection === 'home' ? (
           <div className="space-y-8">
             <section>
@@ -1197,19 +1372,6 @@ export function BusinessDashboard({
                   </div>
                 ))}
               </div>
-            </section>
-
-            <section>
-              <RedemptionHub
-                scannerState={scannerState}
-                validationCode={validationCode}
-                validatingCode={validatingCode}
-                validationResult={validationResult}
-                onValidationCodeChange={setValidationCode}
-                onValidateRedemption={() => runValidation(validationCode)}
-                onStartScanner={setScannerState}
-                onDetectedCode={runValidation}
-              />
             </section>
 
             <section>
@@ -1285,7 +1447,7 @@ export function BusinessDashboard({
 
         {activeSection === 'promotions' ? (
           <div>
-            <SectionHeader title="Promociones del negocio" onBack={() => setActiveSection('home')} />
+            <SectionHeader title="Promociones del negocio" onBack={() => goToSection('home')} />
             <div className="space-y-8">
               <PromoSection
                 title={`Promos del mes · ${monthlyStatus.monthLabel}`}
@@ -1300,9 +1462,33 @@ export function BusinessDashboard({
           </div>
         ) : null}
 
+        {activeSection === 'scanner' ? (
+          <div data-tour="business-scanner-section">
+            <SectionHeader title="Escanear y validar canjes" onBack={() => goToSection('home')} />
+            <div className="space-y-6">
+              <RedemptionHub
+                scannerState={scannerState}
+                validationCode={validationCode}
+                validatingCode={validatingCode}
+                validationResult={validationResult}
+                onValidationCodeChange={setValidationCode}
+                onValidateRedemption={() => runValidation(validationCode)}
+                onStartScanner={setScannerState}
+                onDetectedCode={runValidation}
+              />
+
+              <RedemptionHistorySection
+                title="Canjes más recientes"
+                subtitle="Después de validar un QR, el movimiento aparece aquí para que tengas trazabilidad inmediata."
+                items={recentRedemptions}
+              />
+            </div>
+          </div>
+        ) : null}
+
         {activeSection === 'history' ? (
           <div>
-            <SectionHeader title="Historial del negocio" onBack={() => setActiveSection('home')} />
+            <SectionHeader title="Historial del negocio" onBack={() => goToSection('home')} />
             <div className="space-y-8">
               <RedemptionHistorySection
                 title="Canjes registrados"
@@ -1323,7 +1509,7 @@ export function BusinessDashboard({
 
         {activeSection === 'profile' ? (
           <div>
-            <SectionHeader title="Perfil del negocio" onBack={() => setActiveSection('home')} />
+            <SectionHeader title="Perfil del negocio" onBack={() => goToSection('home')} />
             <div className="space-y-6">
               <div className="glass-card rounded-2xl p-6">
                 <div className="flex items-start justify-between gap-4">
@@ -1467,14 +1653,33 @@ export function BusinessDashboard({
         ) : null}
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-center justify-around px-2 py-2">
+      <nav className="pointer-events-none fixed inset-x-0 bottom-3 z-40 px-3">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-md items-end justify-around gap-1 rounded-[1.75rem] border border-border/60 bg-background/92 px-2 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.16)] backdrop-blur-xl sm:max-w-lg sm:px-3">
           {navItems.map((item) => {
             const isActive = activeSection === item.key
+            const isScanner = item.key === 'scanner'
             return (
-              <button key={item.key} onClick={() => setActiveSection(item.key)} className="relative flex flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 transition-all">
-                <item.icon className="h-5 w-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
-                <span className="text-[10px] font-medium" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}>{item.label}</span>
+              <button
+                key={item.key}
+                data-tour={`business-nav-${item.key}`}
+                onClick={() => goToSection(item.key)}
+                className={`relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-2 transition-all ${isScanner ? 'pb-0 pt-0' : 'py-1'}`}
+              >
+                <div
+                  className={`flex items-center justify-center rounded-2xl transition-all ${
+                    isScanner
+                      ? `h-14 w-14 -translate-y-7 border shadow-lg ${isActive ? 'bg-primary text-primary-foreground border-primary/40' : 'bg-background text-primary border-primary/25'}`
+                      : ''
+                  }`}
+                  style={
+                    isScanner && isActive
+                      ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' }
+                      : undefined
+                  }
+                >
+                  <item.icon className={`${isScanner ? 'h-6 w-6' : 'h-5 w-5'}`} style={!isScanner ? { color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' } : undefined} />
+                </div>
+                <span className={`text-[10px] font-medium ${isScanner ? '-mt-3' : ''}`} style={{ color: isScanner ? (isActive ? 'var(--primary)' : 'var(--muted-foreground)') : (isActive ? 'var(--primary)' : 'var(--muted-foreground)') }}>{item.label}</span>
                 {item.key === 'home' && !monthlyStatus.isCompliant ? (
                   <span className="absolute right-0 top-0 h-2.5 w-2.5 -translate-y-1/4 translate-x-1/4 rounded-full bg-amber-500" />
                 ) : null}
@@ -1513,6 +1718,44 @@ export function BusinessDashboard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {tourOpen ? (
+        <div className="fixed inset-0 z-[90]">
+          <div className="absolute inset-0 bg-black/60" />
+          {tourRect ? (
+            <div
+              className="pointer-events-none absolute rounded-2xl border-2 border-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+              style={{
+                top: `${Math.max(tourRect.top - 6, 0)}px`,
+                left: `${Math.max(tourRect.left - 6, 0)}px`,
+                width: `${tourRect.width + 12}px`,
+                height: `${tourRect.height + 12}px`,
+              }}
+            />
+          ) : null}
+
+          <div className="absolute inset-x-4 bottom-24 mx-auto w-full max-w-sm rounded-2xl border border-border/60 bg-background p-4 shadow-2xl sm:bottom-8">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+              Tour del negocio · Paso {tourStep + 1}/{tourSteps.length}
+            </p>
+            <h3 className="mt-2 text-base font-semibold text-foreground">{tourSteps[tourStep]?.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{tourSteps[tourStep]?.description}</p>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <Button variant="ghost" size="sm" onClick={() => closeTour(true)}>
+                Omitir
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setTourStep((prev) => Math.max(prev - 1, 0))} disabled={tourStep === 0}>
+                  Anterior
+                </Button>
+                <Button size="sm" className="btn-premium" onClick={goToNextTourStep}>
+                  {tourStep === tourSteps.length - 1 ? 'Finalizar' : 'Siguiente'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ChatWidget />
     </div>
