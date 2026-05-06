@@ -1502,8 +1502,8 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       </div>
 
       {/* ── BOTTOM NAVIGATION ────────────────────────────────────────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-stretch gap-1.5 px-2 py-2.5 sm:px-3">
+      <nav className="pointer-events-none fixed inset-x-0 bottom-3 z-40 px-3">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-md items-stretch gap-1.5 rounded-[1.75rem] border border-border/60 bg-background/92 px-2 py-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.16)] backdrop-blur-xl sm:max-w-2xl sm:px-3">
           {primaryNav.map(item => {
             const isActive = mainView === item.key
             return (

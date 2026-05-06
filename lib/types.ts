@@ -142,7 +142,7 @@ export interface BuildingInformationItem {
   updatedAt: string
 }
 
-export type BusinessDashboardSection = 'home' | 'promotions' | 'history' | 'profile'
+export type BusinessDashboardSection = 'home' | 'promotions' | 'scanner' | 'history' | 'profile'
 
 export type BusinessScannerState =
   | 'idle'
