@@ -860,6 +860,11 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     { key: 'stores', label: 'Ubicaciones', icon: MapPin },
   ] as const
 
+  const desktopExtraNav = [
+    { key: 'household', label: 'Unidad', icon: Users },
+    { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
+  ] as const
+
   return (
     <div className="min-h-screen pb-28" style={{ background: 'var(--background)' }}>
 
@@ -1337,6 +1342,26 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                     {savedCoupons.length}
                   </span>
                 )}
+              </button>
+            )
+          })}
+          {desktopExtraNav.map(item => {
+            const isActive = mainView === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => setMainView(item.key as MainView)}
+                className={`relative hidden min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 transition-all md:flex md:px-3 ${
+                  isActive ? 'bg-primary/10 shadow-sm' : 'hover:bg-muted/50'
+                }`}
+              >
+                <item.icon className="h-5 w-5" style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }} />
+                <span
+                  className="text-center text-[10px] font-medium leading-tight"
+                  style={{ color: isActive ? 'var(--primary)' : 'var(--muted-foreground)' }}
+                >
+                  {item.label}
+                </span>
               </button>
             )
           })}

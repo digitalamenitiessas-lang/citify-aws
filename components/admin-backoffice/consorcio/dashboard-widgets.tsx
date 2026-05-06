@@ -92,14 +92,14 @@ export function BalancesWidget({
           <li key={b.label} className="flex items-center justify-between px-5 py-3 text-sm">
             <span className="text-slate-300">{b.label}</span>
             <span className={`font-medium tabular-nums ${b.amount < 0 ? 'text-rose-300' : 'text-slate-100'}`}>
-              <Money amount={b.amount} />
+              <Money amount={b.amount} minimumFractionDigits={0} maximumFractionDigits={0} />
             </span>
           </li>
         ))}
         <li className="flex items-center justify-between px-5 py-3 text-sm bg-slate-950/40">
           <span className="font-semibold">Total</span>
           <span className={`font-serif text-xl font-bold tabular-nums ${totalBalance < 0 ? 'text-rose-300' : 'text-slate-100'}`}>
-            <Money amount={totalBalance} />
+            <Money amount={totalBalance} minimumFractionDigits={0} maximumFractionDigits={0} />
           </span>
         </li>
       </ul>
@@ -146,14 +146,14 @@ export function AccountsPayableWidget({
                 </div>
               </div>
               <span className="font-medium tabular-nums text-slate-100 shrink-0">
-                <Money amount={p.amount} />
+                <Money amount={p.amount} minimumFractionDigits={0} maximumFractionDigits={0} />
               </span>
             </li>
           ))}
           <li className="flex items-center justify-between px-5 py-3 text-sm bg-slate-950/40">
             <span className="font-semibold">Total</span>
             <span className="font-serif text-xl font-bold tabular-nums">
-              <Money amount={totalPayable} />
+              <Money amount={totalPayable} minimumFractionDigits={0} maximumFractionDigits={0} />
             </span>
           </li>
         </ul>
@@ -233,7 +233,7 @@ function KpiRow({
           emphasize ? 'font-serif text-lg font-bold text-foreground' : muted ? 'text-muted-foreground' : 'text-foreground'
         }`}
       >
-        <Money amount={value} />
+        <Money amount={value} minimumFractionDigits={0} maximumFractionDigits={0} />
       </span>
     </div>
   )
@@ -281,14 +281,14 @@ export function OverdueWidget({
                 </div>
               </div>
               <span className="font-medium tabular-nums text-rose-700">
-                <Money amount={b.totalAmount} />
+                <Money amount={b.totalAmount} minimumFractionDigits={0} maximumFractionDigits={0} />
               </span>
             </li>
           ))}
           <li className="flex items-center justify-between px-5 py-3 text-sm bg-muted/40">
             <span className="font-semibold">Total</span>
             <span className="font-serif text-xl font-bold tabular-nums text-rose-800">
-              <Money amount={totalAmount} />
+              <Money amount={totalAmount} minimumFractionDigits={0} maximumFractionDigits={0} />
             </span>
           </li>
         </ul>
@@ -316,7 +316,7 @@ export function DashboardQuickStats({
     { label: 'Unidades activas', value: activeUnits.toString(), icon: Banknote },
     { label: 'Gastos a revisar', value: pendingExpenses.toString(), icon: Receipt },
     { label: 'Docs por validar', value: pendingDocuments.toString(), icon: AlertTriangle },
-    { label: 'Saldo total', value: <Money amount={totalBalance} />, icon: Wallet },
+    { label: 'Saldo total', value: <Money amount={totalBalance} minimumFractionDigits={0} maximumFractionDigits={0} />, icon: Wallet },
   ]
   return (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">

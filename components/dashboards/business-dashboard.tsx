@@ -9,7 +9,6 @@ import {
   Camera,
   CheckCircle2,
   CircleUserRound,
-  Copy,
   Gift,
   History,
   Home,
@@ -28,6 +27,16 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { PromotionCard } from '@/components/promotion-card'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
@@ -163,19 +172,6 @@ function emptyPromotionState(monthStart: string): PromotionFormState {
   }
 }
 
-function duplicatePromotionState(promotion: Promotion, monthStart: string): PromotionFormState {
-  return {
-    title: promotion.title,
-    description: promotion.description,
-    discount: promotion.discount,
-    category: promotion.category,
-    expirationDate: getMonthEnd(monthStart),
-    buildingId: promotion.buildingId,
-    publishedMonth: monthStart,
-    sourcePromotionId: promotion.id,
-  }
-}
-
 function buildStoragePath(kind: 'business' | 'promotion', ownerId: string, recordId: string, file: File) {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
   const timestamp = Date.now()
@@ -264,7 +260,7 @@ function PromotionModal({
 }: {
   buildings: Building[]
   initial: PromotionFormState
-  mode: 'create' | 'edit' | 'duplicate'
+  mode: 'create' | 'edit'
   monthLabel: string
   onClose: () => void
   onSave: (state: PromotionFormState, file: File | null) => Promise<void>
@@ -284,7 +280,7 @@ function PromotionModal({
     }
   }
 
-  const title = mode === 'edit' ? 'Editar promocion' : mode === 'duplicate' ? 'Repetir promocion del mes anterior' : 'Nueva promocion del mes'
+  const title = mode === 'edit' ? 'Editar promocion' : 'Nueva promocion del mes'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(10,6,2,0.75)', backdropFilter: 'blur(6px)' }}>
@@ -308,9 +304,7 @@ function PromotionModal({
           </div>
           <h2 className="text-xl font-bold text-foreground">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {mode === 'duplicate'
-              ? `Tomamos la promo anterior como base para ${monthLabel}. Puedes ajustarla antes de publicarla.`
-              : `Publica una promocion para ${monthLabel} con imagen, alcance y vencimiento persistidos en Supabase.`}
+            {`Publica una promocion para ${monthLabel} con imagen, alcance y vencimiento persistidos en Supabase.`}
           </p>
         </div>
 
@@ -818,7 +812,8 @@ export function BusinessDashboard({
   const [activeSection, setActiveSection] = useState<BusinessDashboardSection>(urlSection)
   const [showModal, setShowModal] = useState(false)
   const [modalState, setModalState] = useState<PromotionFormState | null>(null)
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'duplicate'>('create')
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
+  const [deleteDialogPromotion, setDeleteDialogPromotion] = useState<Promotion | null>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoUploading, setLogoUploading] = useState(false)
   const [validationCode, setValidationCode] = useState('')
@@ -831,6 +826,7 @@ export function BusinessDashboard({
   )
   const [address, setAddress] = useState(business?.address ?? '')
   const [locationSaving, setLocationSaving] = useState(false)
+  const [isLocationEditing, setIsLocationEditing] = useState(false)
 
   useEffect(() => {
     if (activeSection !== urlSection) {
@@ -882,16 +878,6 @@ export function BusinessDashboard({
   function openCreateModal() {
     setModalMode('create')
     setModalState(emptyPromotionState(monthlyStatus.monthStart))
-    setShowModal(true)
-  }
-
-  function openDuplicateModal() {
-    if (!monthlyStatus.lastMonthPromotion) {
-      toast.error('No hay una promocion del mes anterior para repetir.')
-      return
-    }
-    setModalMode('duplicate')
-    setModalState(duplicatePromotionState(monthlyStatus.lastMonthPromotion, monthlyStatus.monthStart))
     setShowModal(true)
   }
 
@@ -988,6 +974,21 @@ export function BusinessDashboard({
 
     setPromotions((prev) => prev.filter((promotion) => promotion.id !== id))
     toast.success('Promocion eliminada.')
+  }
+
+  function requestDeletePromotion(id: string) {
+    const promotion = promotions.find((item) => item.id === id) ?? null
+    if (!promotion) {
+      toast.error('No encontramos la promocion que quieres eliminar.')
+      return
+    }
+    setDeleteDialogPromotion(promotion)
+  }
+
+  async function confirmDeletePromotion() {
+    if (!deleteDialogPromotion) return
+    await handleDelete(deleteDialogPromotion.id)
+    setDeleteDialogPromotion(null)
   }
 
   async function handleLogoUpload() {
@@ -1241,10 +1242,10 @@ export function BusinessDashboard({
                     <Plus className="h-4 w-4" />
                     Crear promocion del mes
                   </Button>
-                  <Button variant="outline" onClick={openDuplicateModal} className="gap-2" disabled={!monthlyStatus.lastMonthPromotion}>
-                    <Copy className="h-4 w-4" />
-                    Repetir la del mes anterior
-                  </Button>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Si no cargas promociones nuevas, CITIFY repetira automaticamente la ultima promocion activa para que no se corte el beneficio.
                 </div>
 
                 {monthlyStatus.lastMonthPromotion ? (
@@ -1267,75 +1268,12 @@ export function BusinessDashboard({
             <PromoSection
               title={`Publicadas en ${monthlyStatus.monthLabel}`}
               emptyTitle="Todavia no publicaste una promocion este mes."
-              emptyBody="Crea una nueva o reutiliza la del mes anterior para cumplir rapidamente con la carga mensual."
+              emptyBody="Crea una nueva promocion para mantener actualizado tu contenido mensual en CITIFY."
               promotions={thisMonthPromotions}
               onCreate={openCreateModal}
               onEdit={openEditModal}
-              onDelete={handleDelete}
+              onDelete={requestDeletePromotion}
             />
-
-            <section>
-              <div className="glass-card rounded-2xl p-6 overflow-hidden relative">
-                <div className="flex flex-col gap-6 lg:flex-row">
-                  <div className="flex-1">
-                    <h3 className="font-serif text-xl font-bold text-foreground mb-2 flex items-center gap-2">
-                      <Store className="w-5 h-5 text-primary" />
-                      Ubicacion del negocio
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Ajusta la direccion y el punto en el mapa para que los vecinos encuentren tu local con mas facilidad.
-                    </p>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Direccion</Label>
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <Input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Ej. Av. Sarmiento 2555" />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={async () => {
-                              if (!address.trim()) return
-                              toast.loading('Buscando direccion...', { id: 'geoco' })
-                              try {
-                                const q = encodeURIComponent(`${address}, San Miguel de Tucuman, Argentina`)
-                                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`)
-                                const data = await res.json()
-                                if (data && data.length > 0) {
-                                  setMapLocation([parseFloat(data[0].lat), parseFloat(data[0].lon)])
-                                  toast.success('Ubicacion aproximada encontrada.', { id: 'geoco' })
-                                } else {
-                                  toast.error('No pudimos ubicarla. Puedes marcar el punto manualmente en el mapa.', { id: 'geoco' })
-                                }
-                              } catch {
-                                toast.error('Error buscando la direccion.', { id: 'geoco' })
-                              }
-                            }}
-                          >
-                            Ubicar
-                          </Button>
-                        </div>
-                      </div>
-
-                      <Button onClick={handleLocationSave} className="w-full btn-premium" disabled={locationSaving || !mapLocation}>
-                        {locationSaving ? 'Guardando ubicacion...' : 'Guardar ubicacion y direccion'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="flex-[1.35] overflow-hidden rounded-2xl border border-border/60 bg-background">
-                    <div className="h-[320px]">
-                      <DynamicMap
-                        center={mapLocation ?? [-26.8306, -65.2038]}
-                        zoom={mapLocation ? 16 : 13}
-                        interactive
-                        selectedLocation={mapLocation}
-                        onLocationSelect={(lat, lng) => setMapLocation([lat, lng])}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
 
             <RedemptionHistorySection
               title="Ultimos canjes"
@@ -1352,11 +1290,11 @@ export function BusinessDashboard({
               <PromoSection
                 title={`Promos del mes · ${monthlyStatus.monthLabel}`}
                 emptyTitle="Todavia no hay promociones en el mes actual."
-                emptyBody="Publica una promo nueva o repite la del mes pasado para mantener tu negocio activo dentro de CITIFY."
+                emptyBody="Publica una promo nueva para mantener tu negocio activo dentro de CITIFY."
                 promotions={thisMonthPromotions}
                 onCreate={openCreateModal}
                 onEdit={openEditModal}
-                onDelete={handleDelete}
+                onDelete={requestDeletePromotion}
               />
             </div>
           </div>
@@ -1377,7 +1315,7 @@ export function BusinessDashboard({
                 emptyBody="Cuando cierres un mes con promociones publicadas, apareceran aqui para reutilizarlas despues."
                 promotions={previousPromotions}
                 onEdit={openEditModal}
-                onDelete={handleDelete}
+                onDelete={requestDeletePromotion}
               />
             </div>
           </div>
@@ -1428,6 +1366,102 @@ export function BusinessDashboard({
                   {logoUploading ? 'Subiendo logo...' : 'Actualizar logo'}
                 </Button>
               </div>
+
+              <div className="glass-card rounded-2xl p-6 overflow-hidden relative">
+                <div className="mb-4 rounded-2xl border border-border/60 bg-muted/30 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Ubicacion protegida</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Para evitar cambios accidentales, primero activa el modo de edicion.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant={isLocationEditing ? 'outline' : 'default'}
+                      className={isLocationEditing ? '' : 'btn-premium'}
+                      onClick={() => setIsLocationEditing((prev) => !prev)}
+                    >
+                      {isLocationEditing ? 'Cancelar edicion' : 'Editar ubicacion'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-6 lg:flex-row">
+                  <div className="flex-1">
+                    <h3 className="font-serif text-xl font-bold text-foreground mb-2 flex items-center gap-2">
+                      <Store className="w-5 h-5 text-primary" />
+                      Ubicacion del negocio
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Ajusta la direccion y el punto en el mapa para que los vecinos encuentren tu local con mas facilidad.
+                    </p>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Direccion</Label>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Input
+                            value={address}
+                            onChange={(event) => setAddress(event.target.value)}
+                            placeholder="Ej. Av. Sarmiento 2555"
+                            disabled={!isLocationEditing}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!isLocationEditing}
+                            onClick={async () => {
+                              if (!address.trim()) return
+                              toast.loading('Buscando direccion...', { id: 'geoco' })
+                              try {
+                                const q = encodeURIComponent(`${address}, San Miguel de Tucuman, Argentina`)
+                                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`)
+                                const data = await res.json()
+                                if (data && data.length > 0) {
+                                  setMapLocation([parseFloat(data[0].lat), parseFloat(data[0].lon)])
+                                  toast.success('Ubicacion aproximada encontrada.', { id: 'geoco' })
+                                } else {
+                                  toast.error('No pudimos ubicarla. Puedes marcar el punto manualmente en el mapa.', { id: 'geoco' })
+                                }
+                              } catch {
+                                toast.error('Error buscando la direccion.', { id: 'geoco' })
+                              }
+                            }}
+                          >
+                            Ubicar
+                          </Button>
+                        </div>
+                      </div>
+
+                      <Button
+                        onClick={async () => {
+                          await handleLocationSave()
+                          setIsLocationEditing(false)
+                        }}
+                        className="w-full btn-premium"
+                        disabled={!isLocationEditing || locationSaving || !mapLocation}
+                      >
+                        {locationSaving ? 'Guardando ubicacion...' : 'Guardar ubicacion y direccion'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex-[1.35] overflow-hidden rounded-2xl border border-border/60 bg-background">
+                    <div className="h-[320px]">
+                      <DynamicMap
+                        center={mapLocation ?? [-26.8306, -65.2038]}
+                        zoom={mapLocation ? 16 : 13}
+                        interactive={isLocationEditing}
+                        selectedLocation={mapLocation}
+                        onLocationSelect={(lat, lng) => {
+                          if (!isLocationEditing) return
+                          setMapLocation([lat, lng])
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         ) : null}
@@ -1460,6 +1494,25 @@ export function BusinessDashboard({
           onSave={handlePromotionSave}
         />
       ) : null}
+
+      <AlertDialog open={Boolean(deleteDialogPromotion)} onOpenChange={(open) => (!open ? setDeleteDialogPromotion(null) : undefined)}>
+        <AlertDialogContent className="border-border/60 bg-background">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar promocion</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialogPromotion
+                ? `Esta accion elimina "${deleteDialogPromotion.title}" y no se puede deshacer.`
+                : 'Esta accion no se puede deshacer.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void confirmDeletePromotion()}>
+              Si, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ChatWidget />
     </div>

@@ -85,7 +85,7 @@ export function ConsorcioDetail({ property, units, recentExpenses, currentPeriod
           <div className="text-right shrink-0">
             <div className="text-xs text-muted-foreground">Imputado en el mes</div>
             <div className="font-serif text-xl font-bold text-foreground tabular-nums">
-              <Money amount={totals.monthAmount} />
+              <Money amount={totals.monthAmount} minimumFractionDigits={0} maximumFractionDigits={0} />
             </div>
           </div>
         </div>
