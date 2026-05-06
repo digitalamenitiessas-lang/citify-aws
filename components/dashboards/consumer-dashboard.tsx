@@ -214,9 +214,10 @@ function DiscountBadge({ discount }: { discount: string }) {
 
 // ─── FEATURED BUSINESS CARD (large card for horizontal scroll) ────────────────
 
-function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
+function FeaturedBusinessCard({ promotion, isSaved, isUsed, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
+  isUsed: boolean
   onSaveToggle: (p: Promotion) => void
   onWantCoupon: (p: Promotion) => void
 }) {
@@ -262,6 +263,10 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }
         <div className="flex gap-2 mt-3">
           {isExpired ? (
             <span className="flex-1 text-center py-1.5 rounded-lg text-xs font-medium text-muted-foreground bg-muted">Vencido</span>
+          ) : isUsed ? (
+            <span className="flex-1 text-center py-1.5 rounded-lg text-xs font-medium text-primary bg-primary/10">
+              Ya usado
+            </span>
           ) : (
             <>
               <button
@@ -287,9 +292,10 @@ function FeaturedBusinessCard({ promotion, isSaved, onSaveToggle, onWantCoupon }
 
 // ─── HOT COUPON CARD (compact for "más canjeados") ───────────────────────────
 
-function HotCouponCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
+function HotCouponCard({ promotion, isSaved, isUsed, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
+  isUsed: boolean
   onSaveToggle: (p: Promotion) => void
   onWantCoupon: (p: Promotion) => void
 }) {
@@ -315,6 +321,8 @@ function HotCouponCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
         <div className="mt-2">
           {isExpired ? (
             <span className="block text-center py-1.5 rounded-lg text-xs font-medium text-muted-foreground bg-muted">Vencido</span>
+          ) : isUsed ? (
+            <span className="block text-center py-1.5 rounded-lg text-xs font-medium text-primary bg-primary/10">Ya usado</span>
           ) : (
             <button onClick={() => onWantCoupon(promotion)} className="w-full py-1.5 rounded-lg text-xs font-semibold text-white btn-premium">
               Lo quiero
@@ -328,9 +336,10 @@ function HotCouponCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
 
 // ─── BUILDING EXCLUSIVE CARD ─────────────────────────────────────────────────
 
-function ExclusiveCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
+function ExclusiveCard({ promotion, isSaved, isUsed, onSaveToggle, onWantCoupon }: {
   promotion: Promotion
   isSaved: boolean
+  isUsed: boolean
   onSaveToggle: (p: Promotion) => void
   onWantCoupon: (p: Promotion) => void
 }) {
@@ -359,6 +368,8 @@ function ExclusiveCard({ promotion, isSaved, onSaveToggle, onWantCoupon }: {
         <div className="flex gap-2 mt-3">
           {isExpired ? (
             <span className="flex-1 text-center py-1.5 rounded-lg text-xs font-medium text-muted-foreground bg-muted">Vencido</span>
+          ) : isUsed ? (
+            <span className="flex-1 text-center py-1.5 rounded-lg text-xs font-medium text-primary bg-primary/10">Ya usado</span>
           ) : (
             <button onClick={() => onWantCoupon(promotion)} className="flex-1 py-1.5 rounded-xl text-xs font-bold text-white btn-premium">
               Lo quiero
@@ -390,9 +401,10 @@ function SectionTitle({ icon: Icon, title, onSeeAll }: { icon: typeof Tag; title
 
 // ─── FULL PROMOTIONS VIEW ─────────────────────────────────────────────────────
 
-function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoupon, onBack, title }: {
+function FullPromotionsView({ promotions, savedCoupons, usedCoupons, onSaveToggle, onWantCoupon, onBack, title }: {
   promotions: Promotion[]
   savedCoupons: string[]
+  usedCoupons: string[]
   onSaveToggle: (p: Promotion) => void
   onWantCoupon: (p: Promotion) => void
   onBack: () => void
@@ -461,9 +473,15 @@ function FullPromotionsView({ promotions, savedCoupons, onSaveToggle, onWantCoup
               <div className="p-4">
                 <h3 className="font-semibold text-foreground text-sm">{p.businessName}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
-                <button onClick={() => onWantCoupon(p)} className="w-full py-2.5 rounded-xl text-xs font-bold text-white btn-premium">
-                  Lo quiero
-                </button>
+                {usedCoupons.includes(p.id) ? (
+                  <span className="block w-full rounded-xl bg-primary/10 py-2.5 text-center text-xs font-bold text-primary">
+                    Ya usado
+                  </span>
+                ) : (
+                  <button onClick={() => onWantCoupon(p)} className="w-full py-2.5 rounded-xl text-xs font-bold text-white btn-premium">
+                    Lo quiero
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -533,6 +551,14 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }, [urlCouponFilter, urlMainView])
 
   useEffect(() => {
+    if (mainView !== urlMainView) {
+      return
+    }
+
+    if (mainView === 'my-coupons' && couponFilter !== urlCouponFilter) {
+      return
+    }
+
     const params = new URLSearchParams(searchParams.toString())
     if (mainView === 'home') {
       params.delete('view')
@@ -629,6 +655,10 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }
 
   async function handleWantCoupon(promotion: Promotion) {
+    if (usedCoupons.includes(promotion.id)) {
+      toast.error('Esta promoción ya fue canjeada este mes.')
+      return
+    }
     if (!savedCoupons.includes(promotion.id)) {
       const supabase = getSupabaseBrowserClient()
       if (!supabase) { toast.error('Supabase no está configurado.'); return }
@@ -822,13 +852,11 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     })
   }
 
-  const nav = [
+  const primaryNav = [
     { key: 'home', label: 'Inicio', icon: Home },
     { key: 'all-promos', label: 'Beneficios', icon: Tag },
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
-    { key: 'household', label: 'Unidad', icon: Users },
     { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
-    { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
     { key: 'stores', label: 'Ubicaciones', icon: MapPin },
   ] as const
 
@@ -887,7 +915,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 {featuredPromos.length === 0 ? (
                   <div className="text-muted-foreground text-sm py-4">Sin promociones disponibles aún.</div>
                 ) : featuredPromos.map(p => (
-                  <FeaturedBusinessCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
+                  <FeaturedBusinessCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} isUsed={usedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                 ))}
               </div>
             </section>
@@ -898,7 +926,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <SectionTitle icon={Flame} title="Más canjeados hoy" onSeeAll={() => setMainView('all-promos')} />
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
                   {mostRedeemed.filter(p => p.usageCount > 0).map(p => (
-                    <HotCouponCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
+                    <HotCouponCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} isUsed={usedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                   ))}
                 </div>
               </section>
@@ -910,7 +938,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 <SectionTitle icon={Sparkles} title={`Exclusivos de ${buildingName}`} onSeeAll={() => setMainView('building-promos')} />
                 <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
                   {buildingPromos.map(p => (
-                    <ExclusiveCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
+                    <ExclusiveCard key={p.id} promotion={p} isSaved={savedCoupons.includes(p.id)} isUsed={usedCoupons.includes(p.id)} onSaveToggle={toggleSave} onWantCoupon={handleWantCoupon} />
                   ))}
                 </div>
               </section>
@@ -940,6 +968,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           <FullPromotionsView
             promotions={allPromos}
             savedCoupons={savedCoupons}
+            usedCoupons={usedCoupons}
             onSaveToggle={toggleSave}
             onWantCoupon={handleWantCoupon}
             onBack={() => setMainView('home')}
@@ -952,6 +981,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           <FullPromotionsView
             promotions={buildingPromos}
             savedCoupons={savedCoupons}
+            usedCoupons={usedCoupons}
             onSaveToggle={toggleSave}
             onWantCoupon={handleWantCoupon}
             onBack={() => setMainView('home')}
@@ -1284,14 +1314,14 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
       {/* ── BOTTOM NAVIGATION ────────────────────────────────────────────── */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl gap-2 overflow-x-auto px-3 py-2.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          {nav.map(item => {
+        <div className="mx-auto flex max-w-5xl items-stretch gap-1.5 px-2 py-2.5 sm:px-3">
+          {primaryNav.map(item => {
             const isActive = mainView === item.key
             return (
               <button
                 key={item.key}
                 onClick={() => setMainView(item.key as MainView)}
-                className={`relative flex min-w-[78px] shrink-0 flex-col items-center gap-1 rounded-2xl px-3 py-2 transition-all ${
+                className={`relative flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 transition-all sm:px-3 ${
                   isActive ? 'bg-primary/10 shadow-sm' : 'hover:bg-muted/50'
                 }`}
               >
