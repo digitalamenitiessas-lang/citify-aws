@@ -9,6 +9,7 @@ export const CATEGORIES = [
   'Viajes',
   'Tecnologia',
   'Deportes y Fitness',
+  'Indumentaria',
 ] as const
 
 export const ROLE_LABELS: Record<UserRole, string> = {

@@ -6,6 +6,16 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { IAdminHolderKind, IAdminUnitKind, IAdminUnitWithHolders } from '@/lib/types'
 import {
   createUnitUser,
@@ -56,6 +66,11 @@ type UnitDraft = {
 
 const emptyUnitDraft: UnitDraft = { code: '', kind: 'departamento', floor: '', surfaceM2: '', prorataPct: '' }
 
+type UnitsConfirmAction =
+  | { type: 'deactivate_unit'; unitId: string }
+  | { type: 'end_holder'; holderId: string }
+  | { type: 'deactivate_membership'; membershipId: string }
+
 function unitToDraft(unit: IAdminUnitWithHolders): UnitDraft {
   return {
     code: unit.code,
@@ -92,6 +107,7 @@ function parseDraft(draft: UnitDraft) {
 
 export function UnitsManager({ propertyId, units, canManageUnits, canManageHolders }: Props) {
   const [pending, startTransition] = useTransition()
+  const [confirmAction, setConfirmAction] = useState<UnitsConfirmAction | null>(null)
   const [creating, setCreating] = useState(false)
   const [newDraft, setNewDraft] = useState<UnitDraft>(emptyUnitDraft)
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null)
@@ -155,7 +171,10 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
   }
 
   function handleDeactivate(unitId: string) {
-    if (!window.confirm('Marcar esta unidad como inactiva? No se borra, queda fuera de liquidaciones futuras.')) return
+    setConfirmAction({ type: 'deactivate_unit', unitId })
+  }
+
+  function executeDeactivate(unitId: string) {
     startTransition(async () => {
       try {
         await deactivateUnit({ unitId })
@@ -206,7 +225,10 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
   }
 
   function handleEndHolder(holderId: string) {
-    if (!window.confirm('Finalizar este titular? Queda en historico con fecha fin de hoy.')) return
+    setConfirmAction({ type: 'end_holder', holderId })
+  }
+
+  function executeEndHolder(holderId: string) {
     startTransition(async () => {
       try {
         await endUnitHolder({ holderId })
@@ -251,7 +273,10 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
   }
 
   function handleDeactivateMembership(membershipId: string) {
-    if (!window.confirm('Desvincular este usuario de la unidad?')) return
+    setConfirmAction({ type: 'deactivate_membership', membershipId })
+  }
+
+  function executeDeactivateMembership(membershipId: string) {
     startTransition(async () => {
       try {
         await deactivateUnitMembership({ membershipId })
@@ -263,8 +288,41 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
   }
 
   const totalProrata = units.filter((u) => u.isActive).reduce((sum, u) => sum + (u.prorataCoefficient ?? 0), 0)
+  const confirmCopy =
+    confirmAction?.type === 'deactivate_unit'
+      ? {
+          title: 'Desactivar unidad',
+          description: 'La unidad quedara inactiva y fuera de futuras liquidaciones.',
+          actionLabel: 'Si, desactivar',
+        }
+      : confirmAction?.type === 'end_holder'
+        ? {
+            title: 'Finalizar titular',
+            description: 'El titular pasara al historico con fecha de fin de hoy.',
+            actionLabel: 'Si, finalizar',
+          }
+        : confirmAction?.type === 'deactivate_membership'
+          ? {
+              title: 'Desvincular usuario',
+              description: 'El usuario dejara de estar vinculado a esta unidad.',
+              actionLabel: 'Si, desvincular',
+            }
+          : null
+
+  function confirmCurrentAction() {
+    if (!confirmAction) return
+    if (confirmAction.type === 'deactivate_unit') {
+      executeDeactivate(confirmAction.unitId)
+    } else if (confirmAction.type === 'end_holder') {
+      executeEndHolder(confirmAction.holderId)
+    } else {
+      executeDeactivateMembership(confirmAction.membershipId)
+    }
+    setConfirmAction(null)
+  }
 
   return (
+    <>
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-xs text-muted-foreground">
@@ -593,6 +651,21 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
         )}
       </div>
     </div>
+    <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => (!open ? setConfirmAction(null) : undefined)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{confirmCopy?.title ?? 'Confirmar accion'}</AlertDialogTitle>
+          <AlertDialogDescription>{confirmCopy?.description ?? 'Esta accion no se puede deshacer facilmente.'}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmCurrentAction}>
+            {confirmCopy?.actionLabel ?? 'Confirmar'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 

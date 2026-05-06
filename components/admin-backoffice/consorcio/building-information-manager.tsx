@@ -6,6 +6,16 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { BuildingInformationItem, BuildingInformationVisibility } from '@/lib/types'
 import {
   createBuildingInformation,
@@ -28,6 +38,7 @@ export function BuildingInformationManager({
   canEdit: boolean
 }) {
   const [pending, startTransition] = useTransition()
+  const [confirmItem, setConfirmItem] = useState<BuildingInformationItem | null>(null)
   const [draft, setDraft] = useState({
     title: '',
     category: 'general',
@@ -57,11 +68,21 @@ export function BuildingInformationManager({
   }
 
   function remove(itemId: string) {
-    if (!window.confirm('Ocultar esta informacion del edificio?')) return
+    const selected = items.find((item) => item.id === itemId) ?? null
+    if (!selected) {
+      toast.error('No encontramos el item seleccionado.')
+      return
+    }
+    setConfirmItem(selected)
+  }
+
+  function confirmRemove() {
+    if (!confirmItem) return
     startTransition(async () => {
       try {
-        await deactivateBuildingInformation({ propertyId, itemId })
+        await deactivateBuildingInformation({ propertyId, itemId: confirmItem.id })
         toast.success('Informacion ocultada')
+        setConfirmItem(null)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
       }
@@ -69,6 +90,7 @@ export function BuildingInformationManager({
   }
 
   return (
+    <>
     <div className="space-y-4">
       {canEdit ? (
         <form onSubmit={submit} className="rounded-2xl border border-border/40 bg-muted/20 p-4 space-y-3">
@@ -151,5 +173,22 @@ export function BuildingInformationManager({
         </div>
       )}
     </div>
+    <AlertDialog open={Boolean(confirmItem)} onOpenChange={(open) => (!open ? setConfirmItem(null) : undefined)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Ocultar informacion</AlertDialogTitle>
+          <AlertDialogDescription>
+            {confirmItem ? `Se ocultara "${confirmItem.title}" para los vecinos.` : 'Se ocultara este contenido.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmRemove}>
+            Si, ocultar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

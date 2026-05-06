@@ -6,6 +6,16 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CircleAlert, LogOut, UserRound, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME, ROLE_LABELS } from '@/lib/constants'
@@ -13,6 +23,7 @@ import type { UserRole } from '@/lib/types'
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [authResolved, setAuthResolved] = useState(false)
   const [userState, setUserState] = useState<{ fullName: string; role: UserRole } | null>(null)
   const router = useRouter()
@@ -113,7 +124,7 @@ export function Navbar() {
                 <UserRound className="h-3.5 w-3.5" />
                 {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>
               </Link>
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleLogout}>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setLogoutDialogOpen(true)}>
                 <LogOut className="h-4 w-4" />
                 Salir
               </Button>
@@ -149,6 +160,7 @@ export function Navbar() {
         <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
           <button
+            data-tour="neighbor-mobile-menu-toggle"
             className="rounded-full border border-border/60 bg-background/80 p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setMobileOpen((current) => !current)}
             aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú de usuario'}
@@ -170,13 +182,13 @@ export function Navbar() {
               </Link>
               {userState.role === 'vecino' ? (
                 <>
-                  <Link href="/usuario?view=household" className="w-full" onClick={closeMobileMenu}>
+                  <Link href="/usuario?view=household" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-household">
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <Users className="h-4 w-4" />
                       Mi unidad
                     </Button>
                   </Link>
-                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu}>
+                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-complaints">
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <CircleAlert className="h-4 w-4" />
                       Expedientes
@@ -184,7 +196,7 @@ export function Navbar() {
                   </Link>
                 </>
               ) : null}
-              <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
+              <Button variant="outline" className="w-full gap-2" onClick={() => setLogoutDialogOpen(true)}>
                 <LogOut className="h-4 w-4" />
                 Salir
               </Button>
@@ -206,6 +218,20 @@ export function Navbar() {
           )}
         </div>
       ) : null}
+      <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cerrar sesion</AlertDialogTitle>
+            <AlertDialogDescription>Vas a cerrar tu sesion actual en este dispositivo.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleLogout()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Si, salir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   )
 }

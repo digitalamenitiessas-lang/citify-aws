@@ -30,24 +30,24 @@ export function PortfolioOverview({ portfolio, overview }: Props) {
           <BigStat
             icon={Wallet}
             label="Saldo total en cuentas"
-            value={<Money amount={totals.totalBalance} />}
+            value={<Money amount={totals.totalBalance} minimumFractionDigits={0} maximumFractionDigits={0} />}
             tone={totals.totalBalance < 0 ? 'danger' : undefined}
           />
           <BigStat
             icon={AlertTriangle}
             label="Deuda de vecinos"
-            value={<Money amount={totals.totalOverdue} />}
+            value={<Money amount={totals.totalOverdue} minimumFractionDigits={0} maximumFractionDigits={0} />}
             tone={totals.totalOverdue > 0 ? 'warning' : undefined}
           />
           <BigStat
             icon={Receipt}
             label="Pendiente a proveedores"
-            value={<Money amount={totals.totalPayable} />}
+            value={<Money amount={totals.totalPayable} minimumFractionDigits={0} maximumFractionDigits={0} />}
           />
           <BigStat
             icon={TrendingUp}
             label="Liquidado este mes"
-            value={<Money amount={totals.totalLiquidatedMonth} />}
+            value={<Money amount={totals.totalLiquidatedMonth} minimumFractionDigits={0} maximumFractionDigits={0} />}
           />
           <BigStat
             icon={ShieldAlert}
@@ -196,7 +196,7 @@ function BigStat({
       </div>
       <div className="min-w-0">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className={`mt-0.5 font-serif text-xl font-bold tabular-nums ${toneClass}`}>{value}</div>
+        <div className={`mt-0.5 font-serif text-lg xl:text-xl font-bold tabular-nums leading-none ${toneClass}`}>{value}</div>
       </div>
     </div>
   )
