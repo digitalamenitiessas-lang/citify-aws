@@ -18,6 +18,8 @@ import type {
 } from '@/lib/types'
 import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy-ai'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin'
+import { adminCreateCognitoUser } from '@/lib/aws/cognito'
+import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 
 function avatarFromName(fullName: string) {
   return fullName
@@ -332,43 +334,29 @@ async function findOrCreatePlatformProfile(input: {
   buildingId: string | null
   businessId?: string | null
 }) {
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear usuarios desde superadmin.')
-  }
-
   const normalizedEmail = input.email.toLowerCase()
-  const { data: existingProfile } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('email', normalizedEmail)
-    .maybeSingle()
+  const existing = await findProfileByEmail(normalizedEmail)
 
-  let profileId = existingProfile?.id as string | undefined
+  let profileId = existing?.id
   if (!profileId) {
-    const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+    const { sub } = await adminCreateCognitoUser({
       email: normalizedEmail,
       password: input.password,
-      email_confirm: true,
-      user_metadata: { full_name: input.fullName },
+      fullName: input.fullName,
     })
-    if (createError || !createdUser.user) {
-      throw new Error(createError?.message ?? 'No se pudo crear el usuario.')
-    }
-    profileId = createdUser.user.id
+    profileId = sub
   }
 
-  const { error } = await admin.from('profiles').upsert({
+  await upsertProfile({
     id: profileId,
     email: normalizedEmail,
-    full_name: input.fullName,
-    avatar_text: avatarFromName(input.fullName),
+    fullName: input.fullName,
+    avatarText: avatarFromName(input.fullName),
     role: input.role,
     phone: input.phone,
-    building_id: input.buildingId,
-    business_id: input.businessId ?? null,
+    buildingId: input.buildingId,
+    businessId: input.businessId ?? null,
   })
-  if (error) throw new Error(error.message)
 
   return profileId
 }
