@@ -656,50 +656,6 @@ export async function emitAndNotify(
 }
 
 // ----------------------------------------------------------------------------
-// getExpenseDocumentSignedUrl: abrir el PDF/imagen de una factura desde la Mesa
-// ----------------------------------------------------------------------------
-
-const signedDocSchema = z.object({
-  documentId: z.string().uuid(),
-})
-
-export async function getExpenseDocumentSignedUrl(
-  input: z.input<typeof signedDocSchema>,
-): Promise<{ url: string; fileName: string }> {
-  const parsed = signedDocSchema.parse(input)
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) throw new Error('Supabase no configurado')
-
-  // Traer el documento + gasto + administration para chequear capability
-  const { data: doc, error } = await supabase
-    .from('iadmin_expense_documents')
-    .select('id, storage_path, file_name, iadmin_expenses(id, administration_id, managed_property_id)')
-    .eq('id', parsed.documentId)
-    .maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!doc) throw new Error('Documento no encontrado')
-
-  const expense = Array.isArray(doc.iadmin_expenses) ? doc.iadmin_expenses[0] : doc.iadmin_expenses
-  if (!expense) throw new Error('Gasto no encontrado')
-
-  await requireIAdmin({
-    capability: 'expenses.view',
-    administrationId: expense.administration_id as string,
-  })
-
-  const { data: signed, error: signError } = await supabase.storage
-    .from('iadmin-expense-documents')
-    .createSignedUrl(doc.storage_path as string, 300) // 5 minutos
-
-  if (signError || !signed?.signedUrl) throw new Error(signError?.message ?? 'No se pudo generar URL')
-
-  return {
-    url: signed.signedUrl,
-    fileName: (doc.file_name as string) ?? 'documento',
-  }
-}
-
-// ----------------------------------------------------------------------------
 // getUnitStatement: estado de cuenta del vecino para el drawer
 // ----------------------------------------------------------------------------
 

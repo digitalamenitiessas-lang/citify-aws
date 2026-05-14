@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { getExpenseDocumentSignedUrl } from '@/app/iadmin/consorcios/[id]/planilla/actions'
+import { getExpenseDocumentSignedUrl } from '@/app/iadmin/gastos/actions'
 
 type Props = {
   open: boolean

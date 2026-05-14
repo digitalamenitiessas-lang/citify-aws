@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { can, requireIAdmin } from '@/lib/auth'
+import { buildExpenseDocumentObjectKey, deleteObjectFromS3, uploadBufferToS3 } from '@/lib/aws/s3'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import type { IAdminExpenseStatus } from '@/lib/types'
 
@@ -293,26 +294,20 @@ export async function importExpenseFromExtraction(
   let documentId: string | null = null
   if (parsed.file) {
     try {
-      const randomId = globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const safeName = parsed.file.fileName
-        .normalize('NFKD')
-        .replace(/[^\w.\-]+/g, '_')
-        .replace(/_+/g, '_')
-        .slice(0, 120)
-      const storagePath = `${administrationId}/${expenseId}/${randomId}-${safeName}`
+      const storagePath = buildExpenseDocumentObjectKey(
+        administrationId,
+        expenseId,
+        parsed.file.fileName,
+      )
 
       const base64 = parsed.file.fileBase64.replace(/^data:[^;]+;base64,/, '')
       const bin = Buffer.from(base64, 'base64')
 
-      const { error: uploadError } = await supabase.storage
-        .from('iadmin-expense-documents')
-        .upload(storagePath, bin, {
-          contentType: parsed.file.mimeType,
-          upsert: false,
-        })
-      if (uploadError) throw new Error(uploadError.message)
+      await uploadBufferToS3({
+        objectKey: storagePath,
+        body: bin,
+        contentType: parsed.file.mimeType,
+      })
 
       const { data: docRow, error: docError } = await supabase
         .from('iadmin_expense_documents')
@@ -338,6 +333,8 @@ export async function importExpenseFromExtraction(
           validated_by: profile.id,
           validated_at: new Date().toISOString(),
         })
+      } else {
+        await deleteObjectFromS3(storagePath).catch(() => undefined)
       }
     } catch (docErr) {
       // El gasto ya se creó; loggeamos y seguimos

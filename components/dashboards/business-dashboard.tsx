@@ -54,7 +54,7 @@ import type {
   PromotionRedemptionHistoryItem,
   PromotionRedemptionValidationResult,
 } from '@/lib/types'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { createClientUuid } from '@/lib/utils'
 
 type BarcodeDetectorLike = {
   detect: (source: CanvasImageSource) => Promise<Array<{ rawValue?: string }>>
@@ -218,27 +218,52 @@ function emptyPromotionState(monthStart: string): PromotionFormState {
   }
 }
 
-function buildStoragePath(kind: 'business' | 'promotion', ownerId: string, recordId: string, file: File) {
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
-  const timestamp = Date.now()
-  if (kind === 'business') {
-    return `business/${ownerId}/logo-${timestamp}.${extension}`
+async function uploadBusinessAsset(params: {
+  kind: 'business-logo' | 'promotion-image'
+  businessId: string
+  recordId: string
+  file: File
+}) {
+  const response = await fetch('/api/uploads/business-asset-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kind: params.kind,
+      businessId: params.businessId,
+      recordId: params.recordId,
+      fileName: params.file.name,
+      contentType: params.file.type || 'application/octet-stream',
+    }),
+  })
+
+  const payload = await response.json().catch(() => null)
+
+  if (!response.ok || !payload?.uploadUrl || !payload?.objectKey || !payload?.publicUrl) {
+    throw new Error(payload?.error ?? 'No pudimos preparar la imagen para subir.')
   }
-  return `promotion/${ownerId}/${recordId}-${timestamp}.${extension}`
+
+  const uploadResponse = await fetch(payload.uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': params.file.type || 'application/octet-stream',
+    },
+    body: params.file,
+  })
+
+  if (!uploadResponse.ok) {
+    throw new Error('No pudimos subir la imagen a S3.')
+  }
+
+  return {
+    path: payload.objectKey as string,
+    url: payload.publicUrl as string,
+  }
 }
 
-async function uploadFile(bucket: string, path: string, file: File) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) {
-    throw new Error('Supabase no esta configurado.')
-  }
-
-  const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
-  if (error) {
-    throw error
-  }
-
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl
+async function readJsonResponse<T>(response: Response): Promise<T | null> {
+  return response.json().catch(() => null)
 }
 
 function MonthBadge({ monthStart }: { monthStart: string }) {
@@ -1054,20 +1079,25 @@ export function BusinessDashboard({
   }
 
   async function handlePromotionSave(form: PromotionFormState, file: File | null) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase || !business) {
-      toast.error('Supabase no esta configurado o el negocio no esta asociado.')
+    if (!business) {
+      toast.error('El negocio no esta asociado.')
       return
     }
 
-    const recordId = form.id ?? crypto.randomUUID()
+    const recordId = form.id ?? createClientUuid()
     const currentPromotion = promotions.find((promotion) => promotion.id === form.id) ?? null
     let imagePath = currentPromotion?.imagePath ?? null
     let imageUrl = currentPromotion?.imageUrl ?? null
 
     if (file) {
-      imagePath = buildStoragePath('promotion', business.id, recordId, file)
-      imageUrl = await uploadFile('promotion-images', imagePath, file)
+      const uploadedImage = await uploadBusinessAsset({
+        kind: 'promotion-image',
+        businessId: business.id,
+        recordId,
+        file,
+      })
+      imagePath = uploadedImage.path
+      imageUrl = uploadedImage.url
     }
 
     const payload = {
@@ -1083,12 +1113,17 @@ export function BusinessDashboard({
       is_active: true,
     }
 
-    const { error } = form.id
-      ? await supabase.from('promotions').update(payload).eq('id', form.id)
-      : await supabase.from('promotions').insert(payload)
+    const response = await fetch(`/api/business/promotions?mode=${form.id ? 'update' : 'create'}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+    const result = await readJsonResponse<{ error?: string }>(response)
 
-    if (error) {
-      toast.error(error.message)
+    if (!response.ok) {
+      toast.error(result?.error ?? 'No se pudo guardar la promocion.')
       return
     }
 
@@ -1116,15 +1151,12 @@ export function BusinessDashboard({
   }
 
   async function handleDelete(id: string) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
-    const { error } = await supabase.from('promotions').delete().eq('id', id)
-    if (error) {
-      toast.error(error.message)
+    const response = await fetch(`/api/business/promotions/${id}`, {
+      method: 'DELETE',
+    })
+    const result = await readJsonResponse<{ error?: string }>(response)
+    if (!response.ok) {
+      toast.error(result?.error ?? 'No se pudo eliminar la promocion.')
       return
     }
 
@@ -1153,18 +1185,28 @@ export function BusinessDashboard({
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
     setLogoUploading(true)
     try {
-      const logoPath = buildStoragePath('business', business.id, profileId, logoFile)
-      const logoUrl = await uploadFile('business-logos', logoPath, logoFile)
-      const { error } = await supabase.from('businesses').update({ logo_path: logoPath }).eq('id', business.id)
-      if (error) throw error
+      const uploadedLogo = await uploadBusinessAsset({
+        kind: 'business-logo',
+        businessId: business.id,
+        recordId: profileId,
+        file: logoFile,
+      })
+      const logoPath = uploadedLogo.path
+      const logoUrl = uploadedLogo.url
+      const response = await fetch('/api/business/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          businessId: business.id,
+          logoPath,
+        }),
+      })
+      const result = await readJsonResponse<{ error?: string }>(response)
+      if (!response.ok) throw new Error(result?.error ?? 'No se pudo guardar el logo.')
       setBusiness({ ...business, logoPath, logoUrl })
       toast.success('Logo actualizado.')
     } catch (error) {
@@ -1180,24 +1222,22 @@ export function BusinessDashboard({
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
     setLocationSaving(true)
     try {
-      const { error } = await supabase
-        .from('businesses')
-        .update({
+      const response = await fetch('/api/business/profile', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          businessId: business.id,
           address,
           latitude: mapLocation[0],
           longitude: mapLocation[1],
-        })
-        .eq('id', business.id)
-
-      if (error) throw error
+        }),
+      })
+      const result = await readJsonResponse<{ error?: string }>(response)
+      if (!response.ok) throw new Error(result?.error ?? 'No se pudo guardar la ubicacion.')
 
       setBusiness({ ...business, address, latitude: mapLocation[0], longitude: mapLocation[1] })
       toast.success('Ubicacion actualizada.')
@@ -1215,64 +1255,50 @@ export function BusinessDashboard({
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
     setValidatingCode(true)
-    const { data, error } = await supabase.rpc('validate_promotion_redemption_token', {
-      raw_token: code,
+    const response = await fetch('/api/business/redemptions/validate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        rawToken: code,
+      }),
     })
+    const payload = await readJsonResponse<{ error?: string; result?: PromotionRedemptionValidationResult }>(response)
     setValidatingCode(false)
 
-    if (error) {
+    if (!response.ok || !payload?.result) {
       setScannerState('error')
-      toast.error(error.message)
+      toast.error(payload?.error ?? 'No se pudo validar el codigo.')
       return
     }
 
-    const row = Array.isArray(data) ? data[0] : null
-    if (!row) {
-      setScannerState('error')
-      toast.error('No se pudo validar el codigo.')
-      return
-    }
-
-    const nextResult: PromotionRedemptionValidationResult = {
-      status: row.status,
-      message: row.message,
-      tokenId: row.token_id ?? null,
-      promotionId: row.promotion_id ?? null,
-      promotionTitle: row.promotion_title ?? null,
-      neighborName: row.neighbor_name ?? null,
-      redeemedAt: row.redeemed_at ?? null,
-    }
+    const nextResult = payload.result
 
     setValidationResult(nextResult)
     setValidationCode('')
     setScannerState('idle')
 
-    if (row.status === 'redeemed' && row.promotion_id) {
+    if (nextResult.status === 'redeemed' && nextResult.promotionId) {
       setPromotions((current) =>
         current.map((promotion) =>
-          promotion.id === row.promotion_id ? { ...promotion, usageCount: promotion.usageCount + 1 } : promotion,
+          promotion.id === nextResult.promotionId ? { ...promotion, usageCount: promotion.usageCount + 1 } : promotion,
         ),
       )
       setRedemptionHistory((current) => [
         {
-          id: row.token_id ?? crypto.randomUUID(),
-          promotionId: row.promotion_id,
-          promotionTitle: row.promotion_title ?? 'Promocion',
-          promotionDiscount: promotions.find((promotion) => promotion.id === row.promotion_id)?.discount ?? null,
+          id: nextResult.tokenId ?? createClientUuid(),
+          promotionId: nextResult.promotionId,
+          promotionTitle: nextResult.promotionTitle ?? 'Promocion',
+          promotionDiscount: promotions.find((promotion) => promotion.id === nextResult.promotionId)?.discount ?? null,
           profileId: '',
-          neighborName: row.neighbor_name ?? 'Vecino',
+          neighborName: nextResult.neighborName ?? 'Vecino',
           neighborUnitLabel: null,
           buildingName: null,
-          status: row.status,
-          redeemedAt: row.redeemed_at ?? new Date().toISOString(),
-          createdAt: row.redeemed_at ?? new Date().toISOString(),
+          status: nextResult.status,
+          redeemedAt: nextResult.redeemedAt ?? new Date().toISOString(),
+          createdAt: nextResult.redeemedAt ?? new Date().toISOString(),
         },
         ...current,
       ])
@@ -1289,7 +1315,7 @@ export function BusinessDashboard({
         <div className="glass-card rounded-2xl p-8">
           <h2 className="mb-2 font-serif text-2xl font-bold text-foreground">Todavia no tienes un negocio asociado</h2>
           <p className="text-muted-foreground">
-            El usuario esta autenticado, pero su perfil no tiene `business_id`. Asignalo en Supabase para habilitar este panel.
+            El usuario esta autenticado, pero su perfil no tiene `business_id`. Asigna un negocio al perfil en la base principal para habilitar este panel.
           </p>
         </div>
       </div>

@@ -80,10 +80,24 @@ import type {
   SuperAdminPromotionDetail,
   UnitProfileMembership,
 } from '@/lib/types'
+import { buildPublicS3Url } from '@/lib/aws/s3'
+import { findProfileById } from '@/lib/db/profiles'
+import { getPublicPromotionsFromPostgres } from '@/lib/db/public-home'
+import { isPostgresConfigured } from '@/lib/db/postgres'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 
 function publicUrl(client: any, bucket: string, path: string | null | undefined) {
   if (!path) {
+    return null
+  }
+
+  const s3BaseUrl = process.env.AWS_S3_PUBLIC_BASE_URL?.replace(/\/+$/, '')
+  if (s3BaseUrl && path.startsWith('public/')) {
+    return `${s3BaseUrl}/${path}`
+  }
+
+  if (!client) {
     return null
   }
 
@@ -252,6 +266,29 @@ function buildAutoRenewedPromotion(promotion: Promotion, referenceMonthStart: st
     publishedMonth: referenceMonthStart,
     expirationDate: promotion.expirationDate > monthEnd ? promotion.expirationDate : monthEnd,
     sourcePromotionId: promotion.sourcePromotionId ?? promotion.id,
+  }
+}
+
+function mapPromotionFromPostgresRow(row: Awaited<ReturnType<typeof getPublicPromotionsFromPostgres>>[number]): Promotion {
+  const publishedMonth = row.published_month ?? `${row.created_at.slice(0, 7)}-01`
+
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    businessName: row.business_name || 'Comercio',
+    title: row.title,
+    description: row.description,
+    discount: row.discount,
+    category: row.category,
+    expirationDate: row.expiration_date,
+    usageCount: Number(row.usage_count ?? 0),
+    buildingId: row.building_id ?? null,
+    createdAt: row.created_at,
+    publishedMonth,
+    sourcePromotionId: row.source_promotion_id ?? null,
+    imagePath: row.image_path ?? null,
+    imageUrl: row.image_path?.startsWith('public/') ? buildPublicS3Url(row.image_path) : null,
+    isActive: Boolean(row.is_active),
   }
 }
 
@@ -544,6 +581,20 @@ function mapConsorcioComplaintCaseDetail(row: any, mentionableUsers: ComplaintCa
 }
 
 export async function getHomeData(): Promise<HomeData> {
+  if (isPostgresConfigured()) {
+    try {
+      const promotions = applyPromotionAutoRenewal(
+        (await getPublicPromotionsFromPostgres(12)).map(mapPromotionFromPostgresRow),
+      )
+
+      return {
+        promotions: promotions.slice(0, 12),
+      }
+    } catch (error) {
+      console.error('[getHomeData] Fallback a Supabase tras fallo en RDS:', error)
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
     return { promotions: [] }
@@ -574,13 +625,14 @@ export async function getPromotionsPageData(): Promise<PromotionsPageData> {
 }
 
 export async function getBusinessDashboardData(profileId: string): Promise<BusinessDashboardData> {
-  const supabase = await getSupabaseServerClient()
+  const supabase = getSupabaseAdminClient() ?? (await getSupabaseServerClient())
   if (!supabase) {
     return { business: null, promotions: [], consumersCount: 0, availableBuildings: [], monthlyStatus: null, redemptionHistory: [] }
   }
 
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', profileId).single()
-  const businessId = profile?.business_id
+  const profile = (await findProfileById(profileId))
+    ?? (await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle()).data
+  const businessId = profile?.businessId ?? profile?.business_id ?? null
 
   const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }, { data: redemptionsData }] = await Promise.all([
     businessId ? supabase.from('businesses').select('*').eq('id', businessId).maybeSingle() : Promise.resolve({ data: null }),

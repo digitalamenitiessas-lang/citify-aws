@@ -34,7 +34,7 @@ import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, PromotionRedemptionToken } from '@/lib/types'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { createClientUuid } from '@/lib/utils'
 import { createHouseholdNeighbor } from '@/app/usuario/actions'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import type { MapMarker } from '@/components/map/map-view'
@@ -54,17 +54,45 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 
-function buildMarketplacePath(profileId: string, itemId: string, file: File) {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
-  return `marketplace/${profileId}/${itemId}-${Date.now()}.${ext}`
+async function uploadMarketplaceImage(itemId: string, file: File) {
+  const response = await fetch('/api/uploads/marketplace-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      itemId,
+      fileName: file.name,
+      contentType: file.type || 'application/octet-stream',
+    }),
+  })
+
+  const payload = await response.json().catch(() => null)
+
+  if (!response.ok || !payload?.uploadUrl || !payload?.objectKey || !payload?.publicUrl) {
+    throw new Error(payload?.error ?? 'No pudimos preparar la imagen para subir.')
+  }
+
+  const uploadResponse = await fetch(payload.uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  })
+
+  if (!uploadResponse.ok) {
+    throw new Error('No pudimos subir la imagen a S3.')
+  }
+
+  return {
+    imagePath: payload.objectKey as string,
+    imageUrl: payload.publicUrl as string,
+  }
 }
 
-async function uploadMarketplaceImage(path: string, file: File) {
-  const supabase = getSupabaseBrowserClient()
-  if (!supabase) throw new Error('Supabase no esta configurado.')
-  const { error } = await supabase.storage.from('marketplace-images').upload(path, file, { upsert: true })
-  if (error) throw error
-  return supabase.storage.from('marketplace-images').getPublicUrl(path).data.publicUrl
+async function readJsonResponse<T>(response: Response): Promise<T | null> {
+  return response.json().catch(() => null)
 }
 
 // ─── QR MODAL ───────────────────────────────────────────────────────────────
@@ -809,46 +837,56 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }, [sortedMapBusinesses, initialData.building])
 
   async function toggleSave(promotion: Promotion) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) { toast.error('Supabase no está configurado.'); return }
-    if (savedCoupons.includes(promotion.id)) {
-      const { error } = await supabase.from('saved_promotions').delete().eq('profile_id', profileId).eq('promotion_id', promotion.id)
-      if (error) { toast.error(error.message); return }
-      setSavedCoupons(prev => prev.filter(id => id !== promotion.id))
-      toast.success('Cupón removido de tu billetera.')
-    } else {
-      const { error } = await supabase.from('saved_promotions').insert({ profile_id: profileId, promotion_id: promotion.id })
-      if (error) { toast.error(error.message); return }
-      setSavedCoupons(prev => [...prev, promotion.id])
-      toast.success('Cupón guardado.')
+    const response = await fetch('/api/consumer/saved-promotions/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ promotionId: promotion.id }),
+    })
+    const payload = await readJsonResponse<{ error?: string; saved?: boolean }>(response)
+
+    if (!response.ok) {
+      toast.error(payload?.error ?? 'No pudimos actualizar tu billetera.')
+      return
     }
+
+    if (payload?.saved) {
+      setSavedCoupons((prev) => (prev.includes(promotion.id) ? prev : [...prev, promotion.id]))
+      toast.success('Cup?n guardado.')
+      return
+    }
+
+    setSavedCoupons((prev) => prev.filter((id) => id !== promotion.id))
+    toast.success('Cup?n removido de tu billetera.')
   }
 
   async function handleWantCoupon(promotion: Promotion) {
     if (usedCoupons.includes(promotion.id)) {
-      toast.error('Esta promoción ya fue canjeada este mes.')
+      toast.error('Esta promoci?n ya fue canjeada este mes.')
       return
     }
+
     if (!savedCoupons.includes(promotion.id)) {
-      const supabase = getSupabaseBrowserClient()
-      if (!supabase) { toast.error('Supabase no está configurado.'); return }
-      const { error } = await supabase.from('saved_promotions').insert({ profile_id: profileId, promotion_id: promotion.id })
-      if (error) { toast.error(error.message); return }
-      setSavedCoupons(prev => [...prev, promotion.id])
-      toast.success('Cupón guardado en tu billetera.')
+      const response = await fetch('/api/consumer/saved-promotions/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promotionId: promotion.id }),
+      })
+      const payload = await readJsonResponse<{ error?: string; saved?: boolean }>(response)
+
+      if (!response.ok) {
+        toast.error(payload?.error ?? 'No pudimos guardar el cup?n.')
+        return
+      }
+
+      if (payload?.saved) {
+        setSavedCoupons((prev) => (prev.includes(promotion.id) ? prev : [...prev, promotion.id]))
+      }
+
+      toast.success('Cup?n guardado en tu billetera.')
     }
+
     setMainView('my-coupons')
     setCouponFilter('disponibles')
-  }
-
-  async function markUsed(promotion: Promotion) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) { toast.error('Supabase no está configurado.'); return }
-    const { error } = await supabase.from('promotion_redemptions').insert({ profile_id: profileId, promotion_id: promotion.id, status: 'redeemed' })
-    if (error) { toast.error(error.message); return }
-    setUsedCoupons(prev => prev.includes(promotion.id) ? prev : [...prev, promotion.id])
-    toast.success('Canje registrado.')
-    setQrPromotion(null)
   }
 
   function closePromotionQr() {
@@ -858,10 +896,8 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }
 
   async function handleUse(promotion: Promotion) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) { toast.error('Supabase no esta configurado.'); return }
     if (usedCoupons.includes(promotion.id)) {
-      toast.error('Esta promocion ya fue usada.')
+      toast.error('Esta promoci?n ya fue usada.')
       return
     }
 
@@ -869,34 +905,22 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     setQrToken(null)
     setIsLoadingQr(true)
 
-    const { data, error } = await supabase.rpc('create_promotion_redemption_token', {
-      target_promotion_id: promotion.id,
+    const response = await fetch('/api/consumer/redemptions/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ promotionId: promotion.id }),
     })
+    const payload = await readJsonResponse<{ error?: string; token?: PromotionRedemptionToken }>(response)
 
     setIsLoadingQr(false)
 
-    if (error) {
-      toast.error(error.message)
+    if (!response.ok || !payload?.token) {
+      toast.error(payload?.error ?? 'No se pudo generar el c?digo del cup?n.')
       closePromotionQr()
       return
     }
 
-    const row = Array.isArray(data) ? data[0] : null
-    if (!row) {
-      toast.error('No se pudo generar el codigo del cupon.')
-      closePromotionQr()
-      return
-    }
-
-    setQrToken({
-      id: row.id,
-      token: row.token,
-      qrValue: row.qr_value,
-      expiresAt: row.expires_at,
-      promotionId: row.promotion_id,
-      promotionTitle: row.promotion_title,
-      businessName: row.business_name,
-    })
+    setQrToken(payload.token)
   }
 
   useEffect(() => {
@@ -904,39 +928,30 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      return
-    }
-
     let active = true
     let timeoutId: ReturnType<typeof window.setTimeout> | null = null
 
     const checkRedemption = async () => {
-      const { data, error } = await supabase
-        .from('promotion_redemptions')
-        .select('id')
-        .eq('profile_id', profileId)
-        .eq('promotion_id', qrPromotion.id)
-        .eq('status', 'redeemed')
-        .limit(1)
-        .maybeSingle()
+      const response = await fetch('/api/consumer/redemptions/status?promotionId=' + encodeURIComponent(qrPromotion.id), {
+        cache: 'no-store',
+      })
+      const payload = await readJsonResponse<{ error?: string; redeemed?: boolean }>(response)
 
       if (!active) {
         return
       }
 
-      if (error) {
+      if (!response.ok) {
         timeoutId = window.setTimeout(checkRedemption, 2500)
         return
       }
 
-      if (data?.id) {
+      if (payload?.redeemed) {
         setUsedCoupons((current) => (current.includes(qrPromotion.id) ? current : [...current, qrPromotion.id]))
         setMainView('my-coupons')
         setCouponFilter('usados')
         closePromotionQr()
-        toast.success('Tu cupon fue canjeado correctamente.')
+        toast.success('Tu cup?n fue canjeado correctamente.')
         return
       }
 
@@ -951,22 +966,43 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         window.clearTimeout(timeoutId)
       }
     }
-  }, [profileId, qrPromotion, qrToken])
+  }, [qrPromotion, qrToken])
 
   async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase || !initialData.building) { toast.error('No hay edificio asignado.'); return }
-    const itemId = crypto.randomUUID()
+    if (!initialData.building) { toast.error('No hay edificio asignado.'); return }
+    const itemId = createClientUuid()
     let imagePath: string | null = null
     let imageUrl: string | null = null
-    if (file) { imagePath = buildMarketplacePath(profileId, itemId, file); imageUrl = await uploadMarketplaceImage(imagePath, file) }
-    const { error } = await supabase.from('marketplace_items').insert({ id: itemId, seller_profile_id: profileId, building_id: initialData.building.id, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, image_path: imagePath, is_active: true })
-    if (error) { toast.error(error.message); return }
-    setMarketplaceItems(prev => [{ id: itemId, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, sellerId: profileId, sellerName: profileName, sellerAvatar: avatarText, sellerPhone: null, buildingId: initialData.building!.id, createdAt: new Date().toISOString(), imagePath, imageUrl, isActive: true }, ...prev])
-    toast.success('Publicación creada.')
+    if (file) {
+      const uploadedImage = await uploadMarketplaceImage(itemId, file)
+      imagePath = uploadedImage.imagePath
+      imageUrl = uploadedImage.imageUrl
+    }
+
+    const response = await fetch('/api/consumer/marketplace-items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: itemId,
+        title: payload.title,
+        price: payload.price,
+        description: payload.description,
+        condition: payload.condition,
+        imagePath,
+      }),
+    })
+    const result = await readJsonResponse<{ error?: string }>(response)
+
+    if (!response.ok) {
+      toast.error(result?.error ?? 'No pudimos crear la publicaci?n.')
+      return
+    }
+
+    setMarketplaceItems((prev) => [{ id: itemId, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, sellerId: profileId, sellerName: profileName, sellerAvatar: avatarText, sellerPhone: null, buildingId: initialData.building!.id, createdAt: new Date().toISOString(), imagePath, imageUrl, isActive: true }, ...prev])
+    toast.success('Publicaci?n creada.')
   }
 
-  // ── Bottom nav items
+  // ?????? Bottom nav items
   function submitHouseholdNeighbor(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!principalMembership) {

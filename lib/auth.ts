@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation'
+import { findProfileByEmail, findProfileById } from '@/lib/db/profiles'
+import { getAppSession } from '@/lib/auth/session'
 import type {
   IAdminAdministration,
   IAdminCapability,
@@ -42,6 +44,17 @@ function mapAdministration(row: any): IAdminAdministration {
 }
 
 export async function getCurrentProfile() {
+  const appSession = await getAppSession()
+  if (appSession?.provider === 'cognito') {
+    const profile = appSession.profileId
+      ? await findProfileById(appSession.profileId)
+      : await findProfileByEmail(appSession.email)
+
+    if (profile) {
+      return profile
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
     return null

@@ -17,7 +17,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ThemeToggle } from '@/components/theme-toggle'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME, ROLE_LABELS } from '@/lib/constants'
 import type { UserRole } from '@/lib/types'
 
@@ -34,58 +33,39 @@ export function Navbar() {
   }
 
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      setAuthResolved(true)
-      return
-    }
-
     let active = true
 
     async function loadSession() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      setAuthResolved(false)
+      const response = await fetch('/api/auth/me', { cache: 'no-store' })
+      const payload = await response.json().catch(() => null)
 
-      if (!user || !active) {
+      if (!active) return
+
+      if (!response.ok || !payload?.authenticated || !payload?.profile?.role) {
         setUserState(null)
         setAuthResolved(true)
         return
       }
 
-      const { data } = await supabase.from('profiles').select('full_name, role').eq('id', user.id).maybeSingle()
-      if (!active) {
-        return
-      }
-
-      if (data?.role) {
-        setUserState({ fullName: data.full_name ?? 'Usuario', role: data.role as UserRole })
-      } else {
-        setUserState(null)
-      }
-
+      setUserState({
+        fullName: payload.profile.fullName ?? 'Usuario',
+        role: payload.profile.role as UserRole,
+      })
       setAuthResolved(true)
     }
 
     void loadSession()
 
-    const listener = supabase.auth.onAuthStateChange(() => {
-      void loadSession()
-    })
-
     return () => {
       active = false
-      listener.data.subscription.unsubscribe()
     }
-  }, [])
+  }, [pathname])
 
   async function handleLogout() {
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      return
-    }
-
-    await supabase.auth.signOut()
+    setUserState(null)
+    setAuthResolved(true)
+    await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
     router.refresh()
   }

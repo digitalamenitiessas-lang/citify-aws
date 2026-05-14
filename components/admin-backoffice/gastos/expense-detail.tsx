@@ -128,7 +128,6 @@ export function ExpenseDetail({ expense, documents, payment, cashAccounts, userC
           {canUpload ? (
             <ExpenseDocumentUploader
               expenseId={expense.id}
-              administrationId={expense.administrationId}
             />
           ) : null}
         </header>

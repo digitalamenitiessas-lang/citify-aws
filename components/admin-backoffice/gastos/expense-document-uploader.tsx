@@ -4,23 +4,18 @@ import { useRef, useState, useTransition } from 'react'
 import { UploadCloud } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { attachExpenseDocument } from '@/app/iadmin/gastos/actions'
+import { createClientUuid } from '@/lib/utils'
 
-const BUCKET = 'iadmin-expense-documents'
 const MAX_MB = 15
 
 type Props = {
   expenseId: string
-  administrationId: string
   disabled?: boolean
 }
 
 function randomId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return createClientUuid()
 }
 
 function sanitizeFileName(name: string): string {
@@ -31,7 +26,7 @@ function sanitizeFileName(name: string): string {
     .slice(0, 120)
 }
 
-export function ExpenseDocumentUploader({ expenseId, administrationId, disabled }: Props) {
+export function ExpenseDocumentUploader({ expenseId, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [pending, startTransition] = useTransition()
@@ -46,40 +41,49 @@ export function ExpenseDocumentUploader({ expenseId, administrationId, disabled 
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no configurado')
-      return
-    }
-
     setUploading(true)
     try {
-      const safeName = sanitizeFileName(file.name)
-      const storagePath = `${administrationId}/${expenseId}/${randomId()}-${safeName}`
-
-      const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, file, {
-        cacheControl: '3600',
-        upsert: false,
-        contentType: file.type || 'application/octet-stream',
+      const response = await fetch('/api/uploads/expense-document-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          expenseId,
+          fileName: sanitizeFileName(file.name) || `${randomId()}.bin`,
+          contentType: file.type || 'application/octet-stream',
+        }),
       })
 
-      if (uploadError) {
-        throw new Error(uploadError.message)
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok || !payload?.uploadUrl || !payload?.objectKey) {
+        throw new Error(payload?.error ?? 'No se pudo preparar la carga del comprobante')
+      }
+
+      const uploadResponse = await fetch(payload.uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      })
+
+      if (!uploadResponse.ok) {
+        throw new Error('No se pudo subir el comprobante a S3')
       }
 
       startTransition(async () => {
         try {
           await attachExpenseDocument({
             expenseId,
-            storagePath,
+            storagePath: payload.objectKey,
             fileName: file.name,
             mimeType: file.type || null,
             sizeBytes: file.size,
           })
           toast.success('Documento cargado. Extraccion IA pendiente de validacion.')
         } catch (error) {
-          // revertir el upload si el insert a la DB fallo
-          await supabase.storage.from(BUCKET).remove([storagePath])
           toast.error(error instanceof Error ? error.message : 'No se pudo registrar el documento')
         }
       })

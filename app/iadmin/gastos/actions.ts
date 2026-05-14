@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { findMembership, requireIAdmin } from '@/lib/auth'
+import { buildExpenseDocumentObjectKey, createPrivateS3DownloadUrl, deleteObjectFromS3, uploadBufferToS3 } from '@/lib/aws/s3'
 import { canTransition } from '@/lib/iadmin/expense-status'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import type { IAdminCapability, IAdminExpenseStatus } from '@/lib/types'
@@ -170,28 +171,21 @@ export async function createExpense(input: CreateExpenseInput) {
   // al cargar el form con los sugeridos).
   if (parsed.draftDocument) {
     try {
-      const randomId = globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const safeName = parsed.draftDocument.fileName
-        .normalize('NFKD')
-        .replace(/[^\w.\-]+/g, '_')
-        .replace(/_+/g, '_')
-        .slice(0, 120)
-      const storagePath = `${parsed.administrationId}/${data.id}/${randomId}-${safeName}`
+      const storagePath = buildExpenseDocumentObjectKey(
+        parsed.administrationId,
+        data.id,
+        parsed.draftDocument.fileName,
+      )
 
       // decodificar base64 a Uint8Array
       const base64 = parsed.draftDocument.fileBase64.replace(/^data:[^;]+;base64,/, '')
       const bin = Buffer.from(base64, 'base64')
 
-      const { error: uploadError } = await supabase.storage
-        .from('iadmin-expense-documents')
-        .upload(storagePath, bin, {
-          contentType: parsed.draftDocument.mimeType,
-          upsert: false,
-        })
-
-      if (uploadError) throw new Error(uploadError.message)
+      await uploadBufferToS3({
+        objectKey: storagePath,
+        body: bin,
+        contentType: parsed.draftDocument.mimeType,
+      })
 
       const { data: docRow, error: docError } = await supabase
         .from('iadmin_expense_documents')
@@ -216,6 +210,8 @@ export async function createExpense(input: CreateExpenseInput) {
           validated_by: profile.id,
           validated_at: new Date().toISOString(),
         })
+      } else {
+        await deleteObjectFromS3(storagePath).catch(() => undefined)
       }
     } catch (docErr) {
       // El gasto ya se creó; dejamos un audit y seguimos. El admin puede resubir
@@ -369,6 +365,61 @@ export async function attachExpenseDocument(input: z.input<typeof attachDocument
 
   revalidatePath(`/iadmin/gastos/${parsed.expenseId}`)
   return { id: doc.id as string }
+}
+
+const signedDocSchema = z.object({
+  documentId: z.string().uuid(),
+})
+
+export async function getExpenseDocumentSignedUrl(
+  input: z.input<typeof signedDocSchema>,
+): Promise<{ url: string; fileName: string }> {
+  const parsed = signedDocSchema.parse(input)
+  const { profile, context } = await requireIAdmin({ capability: 'expenses.view' })
+
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) throw new Error('Supabase no configurado')
+
+  const { data: doc, error } = await supabase
+    .from('iadmin_expense_documents')
+    .select('id, storage_path, file_name, iadmin_expenses(id, administration_id)')
+    .eq('id', parsed.documentId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!doc) throw new Error('Documento no encontrado')
+
+  const expense = Array.isArray(doc.iadmin_expenses) ? doc.iadmin_expenses[0] : doc.iadmin_expenses
+  if (!expense?.administration_id) throw new Error('Gasto no encontrado')
+
+  const canView = context.isSuperAdmin || context.memberships.some(
+    (membership) =>
+      membership.administration.id === expense.administration_id
+      && membership.capabilities.includes('expenses.view'),
+  )
+
+  if (!canView && profile.role !== 'super_admin') {
+    throw new Error('No autorizado para ver este comprobante')
+  }
+
+  const storagePath = doc.storage_path as string
+  if (storagePath.startsWith('private/')) {
+    return {
+      url: await createPrivateS3DownloadUrl(storagePath, doc.file_name as string | null | undefined),
+      fileName: (doc.file_name as string) ?? 'documento',
+    }
+  }
+
+  const { data: signed, error: signError } = await supabase.storage
+    .from('iadmin-expense-documents')
+    .createSignedUrl(storagePath, 300)
+
+  if (signError || !signed?.signedUrl) throw new Error(signError?.message ?? 'No se pudo generar URL')
+
+  return {
+    url: signed.signedUrl,
+    fileName: (doc.file_name as string) ?? 'documento',
+  }
 }
 
 const validateExtractionSchema = z.object({

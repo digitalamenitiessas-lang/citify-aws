@@ -38,7 +38,7 @@ export function PromotionsBrowser({ promotions }: { promotions: Promotion[] }) {
             Mercado de Promociones
           </h1>
           <p className="text-muted-foreground mb-8">
-            Beneficios reales cargados desde Supabase para vecinos y comercios de CITIFY.
+            Beneficios reales para vecinos y comercios de CITIFY, servidos desde la infraestructura actual de la plataforma.
           </p>
 
           <div className="relative max-w-md">

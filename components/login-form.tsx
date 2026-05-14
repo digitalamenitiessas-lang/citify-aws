@@ -6,7 +6,6 @@ import { Loader2, LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ROLE_HOME } from '@/lib/constants'
 import type { UserRole } from '@/lib/types'
 
@@ -21,45 +20,24 @@ export function LoginForm() {
     event.preventDefault()
     setError(null)
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      setError('Faltan las variables de entorno de Supabase.')
-      return
-    }
-
     setLoading(true)
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    })
 
-    if (signInError) {
-      setLoading(false)
-      setError(signInError.message)
-      return
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      setLoading(false)
-      setError('No se pudo obtener la sesion del usuario.')
-      return
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
+    const payload = await response.json().catch(() => null)
     setLoading(false)
 
-    if (profileError || !profile?.role) {
-      setError('La cuenta existe, pero aun no tiene un perfil CITIFY asignado.')
+    if (!response.ok || !payload?.profile?.role) {
+      setError(payload?.error ?? 'No se pudo iniciar sesion.')
       return
     }
 
-    router.push(ROLE_HOME[profile.role as UserRole])
+    router.push(ROLE_HOME[payload.profile.role as UserRole])
     router.refresh()
   }
 
