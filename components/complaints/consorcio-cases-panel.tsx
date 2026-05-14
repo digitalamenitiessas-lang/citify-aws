@@ -16,7 +16,6 @@ import {
   sortReasonSummary,
   statusCopy,
 } from '@/components/complaints/case-shared'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type {
   ComplaintCaseDetailConsorcioView,
   ComplaintCaseEvent,
@@ -26,6 +25,15 @@ import type {
   ComplaintCaseStatus,
   ConsorcioDashboardData,
 } from '@/lib/types'
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = typeof data?.error === 'string' ? data.error : 'Ocurrio un error inesperado.'
+    throw new Error(message)
+  }
+  return data as T
+}
 
 function mapMessageMentions(rows: any[] | null | undefined): ComplaintCaseMessageMention[] {
   return (rows ?? []).map((row: any) => ({
@@ -96,25 +104,23 @@ export function ConsorcioCasesPanel({ data }: { data: ConsorcioDashboardData }) 
     if (!selectedCase || nextStatus === selectedCase.status) {
       return
     }
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
     setIsChangingStatus(true)
-    const { data: result, error } = await supabase.rpc('update_complaint_case_status', {
-      target_case_id: selectedCase.id,
-      next_status: nextStatus,
-    })
-    setIsChangingStatus(false)
-
-    if (error) {
-      toast.error(error.message)
+    let row: any = null
+    try {
+      const payload = await readJsonResponse<{ ok: true; result: any }>(
+        await fetch(`/api/complaints/cases/${selectedCase.id}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: nextStatus }),
+        }),
+      )
+      row = payload.result
+    } catch (error) {
+      setIsChangingStatus(false)
+      toast.error(error instanceof Error ? error.message : 'No se pudo actualizar el estado.')
       return
     }
-
-    const row = Array.isArray(result) ? result[0] : null
+    setIsChangingStatus(false)
     const updatedAt = row?.updated_at ?? new Date().toISOString()
     const latestEventSummary = row?.latest_event_summary ?? `Estado actualizado a ${statusCopy(nextStatus).label}`
     const latestEventCreatedAt = row?.latest_event_created_at ?? updatedAt
@@ -186,27 +192,26 @@ export function ConsorcioCasesPanel({ data }: { data: ConsorcioDashboardData }) 
     if (!selectedCase || !messageBody.trim()) {
       return false
     }
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return false
-    }
-
     setIsSendingMessage(true)
-    const { data: result, error } = await supabase.rpc('post_complaint_case_message', {
-      target_case_id: selectedCase.id,
-      message_body: messageBody.trim(),
-      message_kind: 'comment',
-      mentioned_profile_ids: mentionedProfileIds,
-    })
-    setIsSendingMessage(false)
-
-    if (error) {
-      toast.error(error.message)
+    let row: any = null
+    try {
+      const payload = await readJsonResponse<{ ok: true; message: any }>(
+        await fetch(`/api/complaints/cases/${selectedCase.id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            body: messageBody.trim(),
+            mentionedProfileIds,
+          }),
+        }),
+      )
+      row = payload.message
+    } catch (error) {
+      setIsSendingMessage(false)
+      toast.error(error instanceof Error ? error.message : 'No se pudo publicar el comentario.')
       return false
     }
-
-    const row = Array.isArray(result) ? result[0] : null
+    setIsSendingMessage(false)
     const createdAt = row?.created_at ?? new Date().toISOString()
     const message: ComplaintCaseMessageView = {
       id: row?.id ?? `${selectedCase.id}-${createdAt}`,

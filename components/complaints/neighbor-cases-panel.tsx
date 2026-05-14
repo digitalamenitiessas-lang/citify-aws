@@ -17,7 +17,6 @@ import {
   renderMessageWithMentions,
   statusCopy,
 } from '@/components/complaints/case-shared'
-import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type {
   Building,
   ComplaintCaseDetailNeighborView,
@@ -28,6 +27,15 @@ import type {
   ComplaintCaseSection,
   ComplaintReason,
 } from '@/lib/types'
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = typeof data?.error === 'string' ? data.error : 'Ocurrio un error inesperado.'
+    throw new Error(message)
+  }
+  return data as T
+}
 
 function mapNeighborDetail(row: any, mentionableUsers: ComplaintCaseMentionableUser[]): ComplaintCaseDetailNeighborView {
   return {
@@ -174,28 +182,28 @@ export function NeighborCasesPanel({
       return
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return
-    }
-
     setIsSubmitting(true)
-    const { data, error } = await supabase.rpc('create_neighbor_complaint_case', {
-      target_building_id: building.id,
-      case_title: title.trim(),
-      case_description: description.trim(),
-      reason_ids: selectedReasonIds,
-      other_reason_text_input: includesOther ? otherReasonText.trim() : null,
-    })
-    setIsSubmitting(false)
-
-    if (error) {
-      toast.error(error.message)
+    let createdRow: any = null
+    try {
+      const payload = await readJsonResponse<{ ok: true; case: any }>(
+        await fetch('/api/complaints/neighbor/cases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title.trim(),
+            description: description.trim(),
+            reasonIds: selectedReasonIds,
+            otherReasonText: includesOther ? otherReasonText.trim() : null,
+          }),
+        }),
+      )
+      createdRow = payload.case
+    } catch (error) {
+      setIsSubmitting(false)
+      toast.error(error instanceof Error ? error.message : 'No se pudo crear el expediente.')
       return
     }
-
-    const createdRow = Array.isArray(data) ? data[0] : null
+    setIsSubmitting(false)
     if (!createdRow) {
       toast.error('No se pudo recuperar el expediente creado.')
       return
@@ -221,27 +229,26 @@ export function NeighborCasesPanel({
       return false
     }
 
-    const supabase = getSupabaseBrowserClient()
-    if (!supabase) {
-      toast.error('Supabase no esta configurado.')
-      return false
-    }
-
     setIsSendingMessage(true)
-    const { data, error } = await supabase.rpc('post_complaint_case_message', {
-      target_case_id: selectedCase.id,
-      message_body: messageBody.trim(),
-      message_kind: 'comment',
-      mentioned_profile_ids: mentionedProfileIds,
-    })
-    setIsSendingMessage(false)
-
-    if (error) {
-      toast.error(error.message)
+    let messageRow: any = null
+    try {
+      const payload = await readJsonResponse<{ ok: true; message: any }>(
+        await fetch(`/api/complaints/cases/${selectedCase.id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            body: messageBody.trim(),
+            mentionedProfileIds,
+          }),
+        }),
+      )
+      messageRow = payload.message
+    } catch (error) {
+      setIsSendingMessage(false)
+      toast.error(error instanceof Error ? error.message : 'No se pudo publicar el comentario.')
       return false
     }
-
-    const messageRow = Array.isArray(data) ? data[0] : null
+    setIsSendingMessage(false)
     if (!messageRow) {
       toast.error('No se pudo registrar el comentario.')
       return false
