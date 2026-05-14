@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createExpenseDocumentUploadUrl } from '@/lib/aws/s3'
-import { getIAdminContext } from '@/lib/auth'
-import { getSupabaseServerClient } from '@/lib/supabase/server'
+import { getCurrentProfile, getIAdminContext } from '@/lib/auth'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 
 type UploadRequestBody = {
   expenseId?: string
@@ -10,17 +10,14 @@ type UploadRequestBody = {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) {
-    return NextResponse.json({ error: 'Supabase no configurado.' }, { status: 500 })
+  const profile = await getCurrentProfile()
+  if (!profile) {
+    return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+  const supabase = getSupabaseAdminClient()
+  if (!supabase) {
+    return NextResponse.json({ error: 'Supabase admin no configurado.' }, { status: 500 })
   }
 
   let body: UploadRequestBody
@@ -36,16 +33,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Perfil no encontrado.' }, { status: 403 })
-    }
-
     const { data: expense } = await supabase
       .from('iadmin_expenses')
       .select('id, administration_id')
@@ -56,18 +43,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Gasto no encontrado.' }, { status: 404 })
     }
 
-    const context = await getIAdminContext({
-      ...profile,
-      email: '',
-      fullName: '',
-      avatarText: 'IA',
-      businessId: null,
-      buildingId: null,
-      floor: null,
-      unit: null,
-      phone: null,
-      createdAt: '',
-    })
+    const context = await getIAdminContext(profile)
 
     const canUpload = context.isSuperAdmin
       || context.memberships.some(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import webpush from 'web-push'
-import { getSupabaseServerClient } from '@/lib/supabase/server'
+import { getCurrentProfile } from '@/lib/auth'
+import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
@@ -15,15 +16,20 @@ export async function POST(req: NextRequest) {
 
   webpush.setVapidDetails(VAPID_MAILTO, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
 
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return NextResponse.json({ error: 'No configurado' }, { status: 500 })
+  const profile = await getCurrentProfile()
+  if (!profile) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  const supabase = getSupabaseAdminClient()
+  if (!supabase) return NextResponse.json({ error: 'No configurado' }, { status: 500 })
 
   const { profileId, title, body, url, tag } = await req.json()
   if (!profileId || !title || !body) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 })
+  }
+
+  const canSend = profile.role === 'super_admin' || profile.role === 'consorcio_admin' || profile.role === 'negocio_admin'
+  if (!canSend) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
 
   const { data: subs, error } = await supabase

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getSupabaseServerClient } from '@/lib/supabase/server'
+import { getCurrentProfile } from '@/lib/auth'
 import {
   buildVecinoContext,
   buildConsorcioContext,
@@ -14,62 +14,40 @@ const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? 'meta-llama/llama-3.3-8
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://citify.app'
 
 export async function POST(req: NextRequest) {
-  // ── 1. Auth ─────────────────────────────────────────────────────────────────
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) {
-    return new Response(JSON.stringify({ error: 'Supabase no configurado.' }), { status: 500 })
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return new Response(JSON.stringify({ error: 'No autenticado.' }), { status: 401 })
-  }
-
-  // ── 2. Read role from DB (never trust client) ────────────────────────────────
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .single()
-
+  const profile = await getCurrentProfile()
   if (!profile) {
-    return new Response(JSON.stringify({ error: 'Perfil no encontrado.' }), { status: 403 })
+    return new Response(JSON.stringify({ error: 'No autenticado.' }), { status: 401 })
   }
 
   const role = profile.role as 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'propietario' | 'vecino'
 
-  // ── 3. Parse body ────────────────────────────────────────────────────────────
   let messages: { role: 'user' | 'assistant'; content: string }[]
   try {
     const body = await req.json()
     messages = body.messages ?? []
     if (!Array.isArray(messages) || messages.length === 0) throw new Error()
   } catch {
-    return new Response(JSON.stringify({ error: 'Payload inválido.' }), { status: 400 })
+    return new Response(JSON.stringify({ error: 'Payload invalido.' }), { status: 400 })
   }
 
-  // ── 4. Build scoped context for this role ────────────────────────────────────
   let systemPrompt: string
   try {
     let ctx
     switch (role) {
       case 'vecino':
-        ctx = await buildVecinoContext(user.id)
+        ctx = await buildVecinoContext(profile.id)
         break
       case 'consorcio_admin':
-        ctx = await buildConsorcioContext(user.id)
+        ctx = await buildConsorcioContext(profile.id)
         break
       case 'negocio_admin':
-        ctx = await buildNegocioContext(user.id)
+        ctx = await buildNegocioContext(profile.id)
         break
       case 'super_admin':
         ctx = await buildSuperAdminContext()
         break
       case 'propietario':
-        ctx = await buildPropietarioContext(user.id)
+        ctx = await buildPropietarioContext(profile.id)
         break
     }
     if (!ctx) throw new Error('No se pudo construir el contexto.')
@@ -79,7 +57,6 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'Error al construir contexto.' }), { status: 500 })
   }
 
-  // ── 5. Check API key ─────────────────────────────────────────────────────────
   if (!OPENROUTER_API_KEY) {
     return new Response(
       JSON.stringify({ error: 'OPENROUTER_API_KEY no configurada en el servidor.' }),
@@ -87,7 +64,6 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── 6. Call OpenRouter with streaming ────────────────────────────────────────
   const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -99,10 +75,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: OPENROUTER_MODEL,
       stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
       max_tokens: 800,
       temperature: 0.7,
     }),
@@ -114,7 +87,6 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'Error al contactar el modelo de IA.' }), { status: 502 })
   }
 
-  // ── 7. Pipe the SSE stream back to the client ────────────────────────────────
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
   const encoder = new TextEncoder()
@@ -127,7 +99,6 @@ export async function POST(req: NextRequest) {
         const { done, value } = await reader.read()
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
-        // Forward the raw SSE lines as-is
         await writer.write(encoder.encode(chunk))
       }
     } finally {
