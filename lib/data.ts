@@ -26,6 +26,7 @@ import type {
   IAdminAIExtraction,
   IAdminConsorcioDetail,
   IAdminExpenseDocument,
+  IAdminExpenseStatus,
   IAdminExpenseSummary,
   IAdminLiquidationRunSummary,
   IAdminCashAccount,
@@ -40,6 +41,8 @@ import type {
   IAdminDueDate,
   IAdminExpenseLineInRun,
   IAdminLegalInfo,
+  IAdminLiquidationStatus,
+  IAdminPropertyKind,
   IAdminLiquidationItem,
   IAdminLiquidationItemDueAmount,
   IAdminLiquidationRunDetail,
@@ -81,6 +84,14 @@ import type {
   UnitProfileMembership,
 } from '@/lib/types'
 import { buildPublicS3Url } from '@/lib/aws/s3'
+import {
+  getIAdminAdministrationByIdFromPostgres,
+  getIAdminExpensesInboxFromPostgres,
+  getIAdminManagedPropertiesByAdministrationFromPostgres,
+  getIAdminPortfolioOverviewRowsFromPostgres,
+  getIAdminPortfolioStatsFromPostgres,
+  getIAdminProvidersFromPostgres,
+} from '@/lib/db/iadmin-core'
 import { findProfileById } from '@/lib/db/profiles'
 import { getAllBusinessesFromPostgres, getBusinessByIdFromPostgres } from '@/lib/db/businesses'
 import { getPublicPromotionsFromPostgres } from '@/lib/db/public-home'
@@ -1501,6 +1512,26 @@ function mapManagedProperty(row: any): IAdminManagedProperty {
   }
 }
 
+function mapManagedPropertyFromPostgresRow(row: Awaited<ReturnType<typeof getIAdminManagedPropertiesByAdministrationFromPostgres>>[number]): IAdminManagedProperty {
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    buildingId: row.building_id,
+    buildingName: row.building_name ?? 'Edificio',
+    buildingAddress: row.building_address ?? '',
+    displayName: row.display_name ?? null,
+    propertyKind: (row.property_kind ?? 'consorcio') as IAdminPropertyKind,
+    taxId: row.tax_id ?? null,
+    managedSince: row.managed_since ?? null,
+    managementFeePct: row.management_fee_pct !== null ? Number(row.management_fee_pct) : null,
+    notes: row.notes ?? null,
+    isActive: Boolean(row.is_active),
+    totalUnits: Number(row.total_units ?? 0),
+    legalInfo: (row.legal_info ?? {}) as IAdminLegalInfo,
+    createdAt: row.created_at,
+  }
+}
+
 function mapUnit(row: any): IAdminUnit {
   const holder = Array.isArray(row.iadmin_unit_holders)
     ? row.iadmin_unit_holders.find((h: any) => h?.is_active) ?? row.iadmin_unit_holders[0] ?? null
@@ -1573,7 +1604,67 @@ function mapExpenseSummary(row: any, propertyName: string): IAdminExpenseSummary
   }
 }
 
+function mapExpenseSummaryFromPostgresRow(
+  row: Awaited<ReturnType<typeof getIAdminExpensesInboxFromPostgres>>[number],
+): IAdminExpenseSummary {
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    managedPropertyName: row.property_display_name ?? row.building_name ?? 'Consorcio',
+    providerName: row.provider_name ?? null,
+    category: row.category ?? null,
+    description: row.description,
+    amount: Number(row.amount),
+    currency: row.currency ?? 'ARS',
+    issuedAt: row.issued_at ?? null,
+    status: row.status as IAdminExpenseStatus,
+    expenseKind: (row.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+    hasDocuments: Number(row.document_count ?? 0) > 0,
+    pendingExtraction: Number(row.pending_extraction_count ?? 0) > 0,
+    createdAt: row.created_at,
+  }
+}
+
 export async function getIAdminPortfolio(administrationId: string): Promise<IAdminPortfolio | null> {
+  if (isPostgresConfigured()) {
+    try {
+      const [adminData, propertyRows, stats] = await Promise.all([
+        getIAdminAdministrationByIdFromPostgres(administrationId),
+        getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
+        getIAdminPortfolioStatsFromPostgres(administrationId),
+      ])
+
+      if (adminData) {
+        const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
+        const totalUnits = properties.reduce((sum, p) => sum + p.totalUnits, 0)
+
+        return {
+          administration: {
+            id: adminData.id,
+            name: adminData.name,
+            legalName: adminData.legal_name ?? null,
+            taxId: adminData.tax_id ?? null,
+            contactEmail: adminData.contact_email ?? null,
+            contactPhone: adminData.contact_phone ?? null,
+            isActive: Boolean(adminData.is_active),
+            legalInfo: (adminData.legal_info ?? {}) as IAdminLegalInfo,
+            createdAt: adminData.created_at,
+          },
+          properties,
+          stats: {
+            totalProperties: properties.length,
+            totalUnits,
+            openExpenses: Number(stats.open_expenses_count ?? 0),
+            pendingDocs: Number(stats.pending_docs_count ?? 0),
+          },
+        }
+      }
+    } catch {
+      // Fall back to Supabase while iadmin is being migrated incrementally.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return null
 
@@ -1709,6 +1800,17 @@ export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdm
 }
 
 export async function getIAdminExpensesInbox(administrationId: string): Promise<IAdminExpenseSummary[]> {
+  if (isPostgresConfigured()) {
+    try {
+      const rows = await getIAdminExpensesInboxFromPostgres(administrationId)
+      if (rows.length > 0) {
+        return rows.map(mapExpenseSummaryFromPostgresRow)
+      }
+    } catch {
+      // Fall back to Supabase while iadmin data keeps moving to RDS.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return []
 
@@ -1891,6 +1993,28 @@ function mapProvider(row: any): IAdminProvider {
   }
 }
 
+function mapProviderFromPostgresRow(
+  row: Awaited<ReturnType<typeof getIAdminProvidersFromPostgres>>[number],
+): IAdminProvider {
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    name: row.name,
+    taxId: row.tax_id ?? null,
+    category: row.category ?? null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    notes: row.notes ?? null,
+    defaultCategory: row.default_category ?? null,
+    defaultDescription: row.default_description ?? null,
+    isRecurring: Boolean(row.is_recurring),
+    recurringAmount: row.recurring_amount !== null && row.recurring_amount !== undefined ? Number(row.recurring_amount) : null,
+    recurringKind: (row.recurring_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+  }
+}
+
 function mapUnitHolder(row: any): IAdminUnitHolder {
   return {
     id: row.id,
@@ -1908,6 +2032,17 @@ function mapUnitHolder(row: any): IAdminUnitHolder {
 }
 
 export async function getIAdminProviders(administrationId: string): Promise<IAdminProvider[]> {
+  if (isPostgresConfigured()) {
+    try {
+      const rows = await getIAdminProvidersFromPostgres(administrationId)
+      if (rows.length > 0) {
+        return rows.map(mapProviderFromPostgresRow)
+      }
+    } catch {
+      // Fall back to Supabase while iadmin data keeps moving to RDS.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return []
   const { data } = await supabase
@@ -2566,6 +2701,103 @@ export async function getIAdminReminders(
 }
 
 export async function getIAdminPortfolioOverview(administrationId: string): Promise<IAdminPortfolioOverview | null> {
+  if (isPostgresConfigured()) {
+    try {
+      const [admin, propertyRows] = await Promise.all([
+        getIAdminAdministrationByIdFromPostgres(administrationId),
+        getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
+      ])
+
+      if (admin) {
+        const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
+        const now = new Date()
+        const overviewRows = await getIAdminPortfolioOverviewRowsFromPostgres(
+          administrationId,
+          now.getFullYear(),
+          now.getMonth() + 1,
+        )
+        const overviewByProperty = new Map(overviewRows.map((row) => [row.property_id, row]))
+
+        const rows: IAdminPortfolioPropertyRow[] = properties.map((property) => {
+          const overview = overviewByProperty.get(property.id)
+          const totalBalance = Number(overview?.total_balance ?? 0)
+          const pendingExpenses = Number(overview?.pending_expenses ?? 0)
+          const accountsPayableTotal = Number(overview?.accounts_payable_total ?? 0)
+          const overdueAmount = Number(overview?.overdue_amount ?? 0)
+          const currentMonthLiquidated = Number(overview?.current_month_liquidated ?? 0)
+          const currentMonthCollected = Number(overview?.current_month_collected ?? 0)
+          const collectionRatePct = overview?.collection_rate_pct ?? null
+          const hasOpenPeriod = Boolean(overview?.has_open_period)
+          const runStatusThisMonth = (overview?.run_status_this_month ?? null) as IAdminLiquidationStatus | null
+
+          const alerts: string[] = []
+          if (!hasOpenPeriod && !runStatusThisMonth) {
+            alerts.push('Sin período abierto')
+          }
+          if (pendingExpenses > 0) {
+            alerts.push(`${pendingExpenses} gastos a revisar`)
+          }
+          if (collectionRatePct !== null && collectionRatePct < 50) {
+            alerts.push(`Cobranza baja (${collectionRatePct}%)`)
+          }
+          if (totalBalance < 0) {
+            alerts.push('Saldo negativo')
+          }
+
+          return {
+            property,
+            totalBalance: Math.round(totalBalance * 100) / 100,
+            pendingExpenses,
+            accountsPayableTotal: Math.round(accountsPayableTotal * 100) / 100,
+            overdueAmount: Math.round(overdueAmount * 100) / 100,
+            currentMonthLiquidated: Math.round(currentMonthLiquidated * 100) / 100,
+            currentMonthCollected: Math.round(currentMonthCollected * 100) / 100,
+            collectionRatePct,
+            hasOpenPeriod,
+            runStatusThisMonth,
+            alerts,
+          }
+        })
+
+        return {
+          administration: {
+            id: admin.id,
+            name: admin.name,
+            legalName: admin.legal_name ?? null,
+            taxId: admin.tax_id ?? null,
+            contactEmail: admin.contact_email ?? null,
+            contactPhone: admin.contact_phone ?? null,
+            isActive: Boolean(admin.is_active),
+            legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
+            createdAt: admin.created_at,
+          },
+          rows,
+          totals: rows.reduce(
+            (acc, row) => {
+              acc.totalBalance += row.totalBalance
+              acc.totalOverdue += row.overdueAmount
+              acc.totalPayable += row.accountsPayableTotal
+              acc.totalLiquidatedMonth += row.currentMonthLiquidated
+              acc.totalCollectedMonth += row.currentMonthCollected
+              acc.pendingExpenses += row.pendingExpenses
+              return acc
+            },
+            {
+              totalBalance: 0,
+              totalOverdue: 0,
+              totalPayable: 0,
+              totalLiquidatedMonth: 0,
+              totalCollectedMonth: 0,
+              pendingExpenses: 0,
+            },
+          ),
+        }
+      }
+    } catch {
+      // Fall back to Supabase while iadmin data keeps moving to RDS.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return null
 
