@@ -82,7 +82,9 @@ import type {
 } from '@/lib/types'
 import { buildPublicS3Url } from '@/lib/aws/s3'
 import { findProfileById } from '@/lib/db/profiles'
+import { getAllBusinessesFromPostgres, getBusinessByIdFromPostgres } from '@/lib/db/businesses'
 import { getPublicPromotionsFromPostgres } from '@/lib/db/public-home'
+import { getPromotionsForBusinessFromPostgres, type PromotionRow } from '@/lib/db/promotions'
 import { isPostgresConfigured } from '@/lib/db/postgres'
 import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 import { getSupabaseServerClient } from '@/lib/supabase/server'
@@ -270,6 +272,47 @@ function buildAutoRenewedPromotion(promotion: Promotion, referenceMonthStart: st
 }
 
 function mapPromotionFromPostgresRow(row: Awaited<ReturnType<typeof getPublicPromotionsFromPostgres>>[number]): Promotion {
+  const publishedMonth = row.published_month ?? `${row.created_at.slice(0, 7)}-01`
+
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    businessName: row.business_name || 'Comercio',
+    title: row.title,
+    description: row.description,
+    discount: row.discount,
+    category: row.category,
+    expirationDate: row.expiration_date,
+    usageCount: Number(row.usage_count ?? 0),
+    buildingId: row.building_id ?? null,
+    createdAt: row.created_at,
+    publishedMonth,
+    sourcePromotionId: row.source_promotion_id ?? null,
+    imagePath: row.image_path ?? null,
+    imageUrl: row.image_path?.startsWith('public/') ? buildPublicS3Url(row.image_path) : null,
+    isActive: Boolean(row.is_active),
+  }
+}
+
+function mapBusinessFromPostgresRow(row: Awaited<ReturnType<typeof getBusinessByIdFromPostgres>>): Business | null {
+  if (!row) return null
+
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    description: row.description ?? '',
+    address: null,
+    latitude: null,
+    longitude: null,
+    ownerProfileId: row.owner_profile_id ?? null,
+    logoPath: row.logo_path ?? null,
+    logoUrl: row.logo_path?.startsWith('public/') ? buildPublicS3Url(row.logo_path) : null,
+    createdAt: row.created_at,
+  }
+}
+
+function mapPromotionFromBusinessPostgresRow(row: PromotionRow): Promotion {
   const publishedMonth = row.published_month ?? `${row.created_at.slice(0, 7)}-01`
 
   return {
@@ -633,6 +676,59 @@ export async function getBusinessDashboardData(profileId: string): Promise<Busin
   const profile = (await findProfileById(profileId))
     ?? (await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle()).data
   const businessId = profile?.businessId ?? profile?.business_id ?? null
+
+  if (businessId && isPostgresConfigured()) {
+    try {
+      const [{ count }, { data: buildingsData }, { data: redemptionsData }, businessRow, promotionRows] = await Promise.all([
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'vecino'),
+        supabase.from('buildings').select('*').order('name'),
+        supabase
+          .from('promotion_redemptions')
+          .select(`
+            id,
+            profile_id,
+            promotion_id,
+            status,
+            redeemed_at,
+            created_at,
+            profiles (
+              id,
+              full_name,
+              floor,
+              unit,
+              buildings ( id, name )
+            ),
+            promotions (
+              id,
+              title,
+              discount
+            )
+          `)
+          .eq('promotions.business_id', businessId)
+          .order('redeemed_at', { ascending: false })
+          .order('created_at', { ascending: false }),
+        getBusinessByIdFromPostgres(businessId),
+        getPromotionsForBusinessFromPostgres(businessId),
+      ])
+
+      const rawPromotions = promotionRows.map(mapPromotionFromBusinessPostgresRow)
+      const promotions = applyPromotionAutoRenewal(rawPromotions)
+      const business = mapBusinessFromPostgresRow(businessRow)
+
+      if (business) {
+        return {
+          business,
+          promotions,
+          consumersCount: count ?? 0,
+          availableBuildings: (buildingsData ?? []).map(mapBuilding),
+          monthlyStatus: buildPromotionMonthlyStatus(rawPromotions),
+          redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
+        }
+      }
+    } catch (error) {
+      console.error('[getBusinessDashboardData] Fallback a Supabase tras fallo en RDS:', error)
+    }
+  }
 
   const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }, { data: redemptionsData }] = await Promise.all([
     businessId ? supabase.from('businesses').select('*').eq('id', businessId).maybeSingle() : Promise.resolve({ data: null }),
@@ -1186,13 +1282,26 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
   const complaintCases = complaintCaseDetails
     .map(buildComplaintCaseListItem)
     .sort((a: ComplaintCaseListItem, b: ComplaintCaseListItem) => b.lastEventAt.localeCompare(a.lastEventAt))
-  const promotions = applyPromotionAutoRenewal((promotionsData ?? [])
+  let promotions = applyPromotionAutoRenewal((promotionsData ?? [])
     .map((row: any) => mapPromotion(supabase, row)))
     .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
+  let businesses = (businessesData ?? []).map((row: any) => mapBusiness(supabase, row))
+
+  if (isPostgresConfigured()) {
+    try {
+      promotions = applyPromotionAutoRenewal((await getPublicPromotionsFromPostgres(500)).map(mapPromotionFromPostgresRow))
+        .filter((promotion) => !promotion.buildingId || promotion.buildingId === buildingId)
+      businesses = (await getAllBusinessesFromPostgres())
+        .map((row) => mapBusinessFromPostgresRow(row))
+        .filter((row): row is Business => Boolean(row))
+    } catch (error) {
+      console.error('[getConsumerDashboardData] Fallback a Supabase tras fallo en RDS:', error)
+    }
+  }
 
   return {
     building: buildingData ? mapBuilding(buildingData) : null,
-    businesses: (businessesData ?? []).map((row: any) => mapBusiness(supabase, row)),
+    businesses,
     promotions,
     marketplaceItems: (marketplaceData ?? []).map((row: any) => mapMarketplaceItem(supabase, row)),
     savedPromotionIds: (savedRows ?? []).map((row: any) => row.promotion_id),
