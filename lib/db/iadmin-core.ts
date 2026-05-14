@@ -352,6 +352,126 @@ export async function getIAdminExpensesInboxFromPostgres(
   return result.rows
 }
 
+export async function getIAdminProviderByIdFromPostgres(
+  providerId: string,
+): Promise<{ id: string; administration_id: string } | null> {
+  const result = await pgQuery<{ id: string; administration_id: string }>(
+    `select id, administration_id from public.iadmin_providers where id = $1 limit 1`,
+    [providerId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function createIAdminProviderInPostgres(input: {
+  administrationId: string
+  name: string
+  taxId: string | null
+  category: string | null
+  email: string | null
+  phone: string | null
+  notes: string | null
+  isRecurring: boolean
+  recurringAmount: number | null
+  recurringKind: 'ordinaria' | 'extraordinaria'
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_providers (
+        administration_id, name, tax_id, category, email, phone, notes,
+        is_recurring, recurring_amount, recurring_kind, is_active
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::iadmin_expense_kind, true)
+      returning id
+    `,
+    [
+      input.administrationId,
+      input.name,
+      input.taxId,
+      input.category,
+      input.email,
+      input.phone,
+      input.notes,
+      input.isRecurring,
+      input.recurringAmount,
+      input.recurringKind,
+    ],
+  )
+  return { id: result.rows[0].id }
+}
+
+export async function updateIAdminProviderInPostgres(
+  providerId: string,
+  patch: Partial<{
+    name: string
+    taxId: string | null
+    category: string | null
+    email: string | null
+    phone: string | null
+    notes: string | null
+    isRecurring: boolean
+    recurringAmount: number | null
+    recurringKind: 'ordinaria' | 'extraordinaria'
+    isActive: boolean
+  }>,
+): Promise<void> {
+  const columns: string[] = []
+  const values: unknown[] = []
+  const map: Record<string, { col: string; cast?: string }> = {
+    name: { col: 'name' },
+    taxId: { col: 'tax_id' },
+    category: { col: 'category' },
+    email: { col: 'email' },
+    phone: { col: 'phone' },
+    notes: { col: 'notes' },
+    isRecurring: { col: 'is_recurring' },
+    recurringAmount: { col: 'recurring_amount' },
+    recurringKind: { col: 'recurring_kind', cast: 'iadmin_expense_kind' },
+    isActive: { col: 'is_active' },
+  }
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    const meta = map[key]
+    if (!meta) continue
+    values.push(value)
+    columns.push(meta.cast ? `${meta.col} = $${values.length}::${meta.cast}` : `${meta.col} = $${values.length}`)
+  }
+
+  if (columns.length === 0) return
+
+  values.push(providerId)
+  await pgQuery(
+    `update public.iadmin_providers set ${columns.join(', ')} where id = $${values.length}`,
+    values,
+  )
+}
+
+export async function insertIAdminAuditLogInPostgres(input: {
+  administrationId: string
+  actorProfileId: string
+  entityType: string
+  entityId: string | null
+  action: string
+  metadata?: Record<string, unknown> | null
+}): Promise<void> {
+  await pgQuery(
+    `
+      insert into public.iadmin_audit_logs (
+        administration_id, actor_profile_id, entity_type, entity_id, action, metadata
+      )
+      values ($1, $2, $3, $4, $5, $6::jsonb)
+    `,
+    [
+      input.administrationId,
+      input.actorProfileId,
+      input.entityType,
+      input.entityId,
+      input.action,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+    ],
+  )
+}
+
 export async function getIAdminPortfolioOverviewRowsFromPostgres(
   administrationId: string,
   currentYear: number,
