@@ -391,6 +391,301 @@ export async function existingExpensePaymentMovementInPostgres(expenseId: string
 }
 
 // ----------------------------------------------------------------------------
+// Liquidations
+// ----------------------------------------------------------------------------
+
+export async function getLiquidationRunWithAdminFromPostgres(runId: string): Promise<{
+  id: string
+  status: string
+  administration_id: string
+  managed_property_id: string
+  accounting_period_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    status: string
+    administration_id: string
+    managed_property_id: string
+    accounting_period_id: string
+  }>(
+    `select id, status::text as status, administration_id, managed_property_id, accounting_period_id from public.iadmin_liquidation_runs where id = $1 limit 1`,
+    [runId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getAccountingPeriodFromPostgres(periodId: string): Promise<{
+  id: string
+  managed_property_id: string
+  status: string
+  period_year: number
+  period_month: number
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    managed_property_id: string
+    status: string
+    period_year: number
+    period_month: number
+  }>(
+    `select id, managed_property_id, status::text as status, period_year, period_month from public.iadmin_accounting_periods where id = $1 limit 1`,
+    [periodId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getExistingLiquidationRunForPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<{ id: string; status: string } | null> {
+  const result = await pgQuery<{ id: string; status: string }>(
+    `select id, status::text as status from public.iadmin_liquidation_runs where managed_property_id = $1 and accounting_period_id = $2 limit 1`,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function listImputedExpensesByPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<Array<{ id: string; amount: string; expense_kind: string | null }>> {
+  const result = await pgQuery<{ id: string; amount: string; expense_kind: string | null }>(
+    `
+      select id, amount::text as amount, expense_kind::text as expense_kind
+      from public.iadmin_expenses
+      where managed_property_id = $1
+        and accounting_period_id = $2
+        and status = 'imputed'
+    `,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rows
+}
+
+export async function listActiveUnitsWithProrataFromPostgres(propertyId: string): Promise<
+  Array<{ id: string; code: string; prorata_coefficient: string | null }>
+> {
+  const result = await pgQuery<{ id: string; code: string; prorata_coefficient: string | null }>(
+    `
+      select id, code, prorata_coefficient::text as prorata_coefficient
+      from public.iadmin_units
+      where managed_property_id = $1 and is_active = true
+      order by code
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function sumLivePaymentsByItemIdsFromPostgres(
+  itemIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (itemIds.length === 0) return out
+  const result = await pgQuery<{ liquidation_item_id: string; amount: string }>(
+    `
+      select liquidation_item_id, amount::text as amount
+      from public.iadmin_payments
+      where liquidation_item_id = any($1::uuid[]) and is_void = false
+    `,
+    [itemIds],
+  )
+  for (const row of result.rows) {
+    out.set(row.liquidation_item_id, (out.get(row.liquidation_item_id) ?? 0) + Number(row.amount))
+  }
+  return out
+}
+
+export async function getMostRecentPriorRunWithItemsFromPostgres(input: {
+  managedPropertyId: string
+  excludeRunId?: string | null
+}): Promise<Array<{
+  item_id: string
+  unit_id: string
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+}>> {
+  const priorRun = await pgQuery<{ id: string }>(
+    `
+      select id
+      from public.iadmin_liquidation_runs
+      where managed_property_id = $1
+        and ($2::uuid is null or id <> $2)
+        and status in ('calculated', 'issued', 'closed')
+      order by generated_at desc
+      limit 1
+    `,
+    [input.managedPropertyId, input.excludeRunId ?? null],
+  )
+  const runId = priorRun.rows[0]?.id
+  if (!runId) return []
+
+  const items = await pgQuery<{
+    item_id: string
+    unit_id: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+  }>(
+    `
+      select id as item_id, unit_id, ordinary_amount::text as ordinary_amount,
+             extraordinary_amount::text as extraordinary_amount, previous_balance::text as previous_balance
+      from public.iadmin_liquidation_items
+      where liquidation_run_id = $1
+    `,
+    [runId],
+  )
+  return items.rows
+}
+
+export async function upsertLiquidationRunInPostgres(input: {
+  administrationId: string
+  managedPropertyId: string
+  accountingPeriodId: string
+  totalExpenses: number
+  ordinaryTotal: number
+  extraordinaryTotal: number
+  previousBalance: number
+  dueDates: unknown
+  totalUnits: number
+  generatedBy: string
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_liquidation_runs (
+        administration_id, managed_property_id, accounting_period_id, status,
+        total_expenses, ordinary_total, extraordinary_total, previous_balance,
+        due_dates, total_units, generated_by, generated_at,
+        issued_by, issued_at, closed_by, closed_at
+      )
+      values (
+        $1, $2, $3, 'calculated'::iadmin_liquidation_status,
+        $4, $5, $6, $7, $8::jsonb, $9, $10, now(),
+        null, null, null, null
+      )
+      on conflict (managed_property_id, accounting_period_id) do update set
+        status = 'calculated'::iadmin_liquidation_status,
+        total_expenses = excluded.total_expenses,
+        ordinary_total = excluded.ordinary_total,
+        extraordinary_total = excluded.extraordinary_total,
+        previous_balance = excluded.previous_balance,
+        due_dates = excluded.due_dates,
+        total_units = excluded.total_units,
+        generated_by = excluded.generated_by,
+        generated_at = now(),
+        issued_by = null,
+        issued_at = null,
+        closed_by = null,
+        closed_at = null
+      returning id
+    `,
+    [
+      input.administrationId,
+      input.managedPropertyId,
+      input.accountingPeriodId,
+      input.totalExpenses,
+      input.ordinaryTotal,
+      input.extraordinaryTotal,
+      input.previousBalance,
+      JSON.stringify(input.dueDates),
+      input.totalUnits,
+      input.generatedBy,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function deleteLiquidationItemsForRunInPostgres(runId: string): Promise<void> {
+  await pgQuery(`delete from public.iadmin_liquidation_items where liquidation_run_id = $1`, [runId])
+}
+
+export async function bulkInsertLiquidationItemsInPostgres(
+  items: Array<{
+    liquidation_run_id: string
+    unit_id: string
+    prorata_coefficient: number
+    amount: number
+    ordinary_amount: number
+    extraordinary_amount: number
+    previous_balance: number
+  }>,
+): Promise<void> {
+  if (items.length === 0) return
+  const values: unknown[] = []
+  const placeholders: string[] = []
+  for (const item of items) {
+    const idx = values.length
+    values.push(
+      item.liquidation_run_id,
+      item.unit_id,
+      item.prorata_coefficient,
+      item.amount,
+      item.ordinary_amount,
+      item.extraordinary_amount,
+      item.previous_balance,
+    )
+    placeholders.push(`($${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5}, $${idx + 6}, $${idx + 7})`)
+  }
+  await pgQuery(
+    `
+      insert into public.iadmin_liquidation_items (
+        liquidation_run_id, unit_id, prorata_coefficient, amount,
+        ordinary_amount, extraordinary_amount, previous_balance
+      )
+      values ${placeholders.join(', ')}
+    `,
+    values,
+  )
+}
+
+export async function updateLiquidationRunStatusInPostgres(input: {
+  runId: string
+  nextStatus: string
+  actorProfileId: string
+}): Promise<void> {
+  if (input.nextStatus === 'issued') {
+    await pgQuery(
+      `
+        update public.iadmin_liquidation_runs
+        set status = $1::iadmin_liquidation_status,
+            issued_at = now(),
+            issued_by = $2,
+            closed_at = null,
+            closed_by = null
+        where id = $3
+      `,
+      [input.nextStatus, input.actorProfileId, input.runId],
+    )
+  } else if (input.nextStatus === 'closed') {
+    await pgQuery(
+      `
+        update public.iadmin_liquidation_runs
+        set status = $1::iadmin_liquidation_status,
+            closed_at = now(),
+            closed_by = $2
+        where id = $3
+      `,
+      [input.nextStatus, input.actorProfileId, input.runId],
+    )
+  } else {
+    // draft / calculated → reset issued + closed
+    await pgQuery(
+      `
+        update public.iadmin_liquidation_runs
+        set status = $1::iadmin_liquidation_status,
+            issued_at = null,
+            issued_by = null,
+            closed_at = null,
+            closed_by = null
+        where id = $2
+      `,
+      [input.nextStatus, input.runId],
+    )
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Reminders
 // ----------------------------------------------------------------------------
 
