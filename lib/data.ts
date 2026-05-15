@@ -110,6 +110,14 @@ import {
   getUnitProfileMembershipsForProfileFromPostgres,
 } from '@/lib/db/iadmin-core'
 import {
+  getExpenseDetailRowFromPostgres,
+  getExpensePaymentInfoFromPostgres,
+  listCashAccountsWithBalanceFromPostgres,
+  listCashMovementsFromPostgres,
+  listExpenseDocumentsWithExtractionFromPostgres,
+  listRemindersWithContextFromPostgres,
+} from '@/lib/db/iadmin-reads'
+import {
   listAllBuildingsFromPostgres,
   listAllBusinessesFromPostgres,
   listAllProfilesFromPostgres,
@@ -2157,80 +2165,63 @@ export async function getIAdminExpenseDetail(
     }
   | null
 > {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return null
-
-  const { data: row } = await supabase
-    .from('iadmin_expenses')
-    .select(`
-      *,
-      iadmin_providers ( id, name ),
-      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
-      iadmin_expense_documents (
-        id,
-        storage_path,
-        file_name,
-        mime_type,
-        size_bytes,
-        uploaded_at,
-        iadmin_ai_document_extractions ( * )
-      )
-    `)
-    .eq('id', expenseId)
-    .maybeSingle()
-
+  const row = await getExpenseDetailRowFromPostgres(expenseId)
   if (!row) return null
 
-  const property = Array.isArray(row.iadmin_managed_properties)
-    ? row.iadmin_managed_properties[0]
-    : row.iadmin_managed_properties
-  const building = property?.buildings
-    ? Array.isArray(property.buildings)
-      ? property.buildings[0]
-      : property.buildings
-    : null
-  const propertyName = property?.display_name ?? building?.name ?? 'Consorcio'
+  const propertyName = row.property_display_name ?? row.building_name ?? 'Consorcio'
 
-  const documents: IAdminExpenseDocument[] = (row.iadmin_expense_documents ?? []).map((doc: any) => {
-    const extraction = Array.isArray(doc.iadmin_ai_document_extractions)
-      ? doc.iadmin_ai_document_extractions[0]
-      : doc.iadmin_ai_document_extractions
-    return {
-      id: doc.id,
-      expenseId: row.id,
-      storagePath: doc.storage_path,
-      fileName: doc.file_name,
-      mimeType: doc.mime_type ?? null,
-      sizeBytes: doc.size_bytes ?? null,
-      uploadedAt: doc.uploaded_at,
-      extraction: extraction ? mapAIExtraction(extraction) : null,
-    }
-  })
+  const [docRows, paymentRow, cashAccounts] = await Promise.all([
+    listExpenseDocumentsWithExtractionFromPostgres(expenseId),
+    getExpensePaymentInfoFromPostgres(expenseId),
+    getIAdminCashAccounts(row.managed_property_id),
+  ])
 
-  // Estado de pago: movimiento expense_payment para este gasto
-  const { data: paymentRow } = await supabase
-    .from('iadmin_bank_movements')
-    .select(`movement_date, iadmin_cash_accounts ( name )`)
-    .eq('expense_id', expenseId)
-    .eq('movement_kind', 'expense_payment')
-    .maybeSingle()
-
-  const paymentAccount = paymentRow
-    ? Array.isArray(paymentRow.iadmin_cash_accounts)
-      ? paymentRow.iadmin_cash_accounts[0]
-      : paymentRow.iadmin_cash_accounts
-    : null
+  const documents: IAdminExpenseDocument[] = docRows.map((doc) => ({
+    id: doc.id,
+    expenseId: row.id,
+    storagePath: doc.storage_path,
+    fileName: doc.file_name,
+    mimeType: doc.mime_type,
+    sizeBytes: doc.size_bytes,
+    uploadedAt: doc.uploaded_at,
+    extraction: doc.extraction_id
+      ? mapAIExtraction({
+          id: doc.extraction_id,
+          status: doc.extraction_status,
+          provider: doc.extraction_provider,
+          suggested_fields: doc.extraction_suggested_fields,
+          confidence: doc.extraction_confidence,
+          validated_by: doc.extraction_validated_by,
+          validated_at: doc.extraction_validated_at,
+          validation_notes: doc.extraction_validation_notes,
+        })
+      : null,
+  }))
 
   const payment = {
     paid: Boolean(paymentRow),
     paidAt: paymentRow?.movement_date ?? null,
-    paidFromAccountName: paymentAccount?.name ?? null,
+    paidFromAccountName: paymentRow?.cash_account_name ?? null,
   }
 
-  const cashAccounts = await getIAdminCashAccounts(row.managed_property_id)
-
   return {
-    expense: mapExpenseSummary(row, propertyName),
+    expense: mapExpenseSummary(
+      {
+        id: row.id,
+        administration_id: row.administration_id,
+        managed_property_id: row.managed_property_id,
+        iadmin_providers: row.provider_name ? { name: row.provider_name } : null,
+        category: row.category,
+        description: row.description,
+        amount: row.amount,
+        currency: row.currency,
+        issued_at: row.issued_at,
+        status: row.status,
+        expense_kind: row.expense_kind,
+        created_at: row.created_at,
+      },
+      propertyName,
+    ),
     documents,
     payment,
     cashAccounts,
@@ -2942,68 +2933,34 @@ export async function getIAdminReminders(
   administrationId: string,
   options: { status?: IAdminReminderStatus | 'all'; limit?: number } = {},
 ): Promise<IAdminReminder[]> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-
-  let query = supabase
-    .from('iadmin_reminders')
-    .select(`
-      *,
-      iadmin_managed_properties(display_name, buildings(name)),
-      iadmin_liquidation_items!inner(
-        iadmin_units(code, iadmin_unit_holders(full_name, phone, email, is_active)),
-        iadmin_liquidation_runs(id)
-      ),
-      iadmin_item_share_tokens(token)
-    `)
-    .eq('administration_id', administrationId)
-    .order('generated_at', { ascending: false })
-    .limit(options.limit ?? 200)
-
-  if (options.status && options.status !== 'all') {
-    query = query.eq('status', options.status)
-  }
-
-  const { data } = await query
-
-  return (data ?? []).map((row: any): IAdminReminder => {
-    const property = Array.isArray(row.iadmin_managed_properties) ? row.iadmin_managed_properties[0] : row.iadmin_managed_properties
-    const building = property?.buildings
-      ? Array.isArray(property.buildings)
-        ? property.buildings[0]
-        : property.buildings
-      : null
-    const item = Array.isArray(row.iadmin_liquidation_items) ? row.iadmin_liquidation_items[0] : row.iadmin_liquidation_items
-    const unit = item?.iadmin_units ? (Array.isArray(item.iadmin_units) ? item.iadmin_units[0] : item.iadmin_units) : null
-    const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
-    const holder = holders.find((h: any) => h?.is_active) ?? holders[0] ?? null
-    const tokens = Array.isArray(row.iadmin_item_share_tokens) ? row.iadmin_item_share_tokens : []
-    const firstToken = tokens[0]?.token ?? null
-    const base = process.env.NEXT_PUBLIC_APP_BASE_URL ?? ''
-    const shareUrl = firstToken ? `${base}/l/${firstToken}` : null
-
-    return {
-      id: row.id,
-      administrationId: row.administration_id,
-      managedPropertyId: row.managed_property_id ?? null,
-      propertyName: property?.display_name ?? building?.name ?? null,
-      liquidationItemId: row.liquidation_item_id,
-      unitCode: unit?.code ?? '—',
-      holderName: holder?.full_name ?? null,
-      holderPhone: holder?.phone ?? null,
-      holderEmail: holder?.email ?? null,
-      reminderKind: row.reminder_kind,
-      status: row.status,
-      messageBody: row.message_body ?? null,
-      amountDue: row.amount_due !== null && row.amount_due !== undefined ? Number(row.amount_due) : null,
-      dueLabel: row.due_label ?? null,
-      dueDate: row.due_date ?? null,
-      generatedAt: row.generated_at,
-      sentAt: row.sent_at ?? null,
-      dismissedAt: row.dismissed_at ?? null,
-      shareUrl,
-    }
+  const rows = await listRemindersWithContextFromPostgres({
+    administrationId,
+    status: options.status && options.status !== 'all' ? options.status : null,
+    limit: options.limit ?? 200,
   })
+
+  const base = process.env.NEXT_PUBLIC_APP_BASE_URL ?? ''
+  return rows.map((row): IAdminReminder => ({
+    id: row.id,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    propertyName: row.property_display_name ?? row.building_name ?? null,
+    liquidationItemId: row.liquidation_item_id,
+    unitCode: row.unit_code ?? '—',
+    holderName: row.holder_full_name,
+    holderPhone: row.holder_phone,
+    holderEmail: row.holder_email,
+    reminderKind: row.reminder_kind as IAdminReminder['reminderKind'],
+    status: row.status as IAdminReminderStatus,
+    messageBody: row.message_body,
+    amountDue: row.amount_due !== null ? Number(row.amount_due) : null,
+    dueLabel: row.due_label,
+    dueDate: row.due_date,
+    generatedAt: row.generated_at,
+    sentAt: row.sent_at,
+    dismissedAt: row.dismissed_at,
+    shareUrl: row.share_token ? `${base}/l/${row.share_token}` : null,
+  }))
 }
 
 export async function getIAdminPortfolioOverview(administrationId: string): Promise<IAdminPortfolioOverview | null> {
@@ -3377,90 +3334,51 @@ function mapCashAccount(row: any): IAdminCashAccount {
 }
 
 export async function getIAdminCashAccounts(propertyId: string): Promise<IAdminCashAccountWithBalance[]> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-
-  const { data: accounts } = await supabase
-    .from('iadmin_cash_accounts')
-    .select('*')
-    .eq('managed_property_id', propertyId)
-    .order('is_active', { ascending: false })
-    .order('created_at')
-
-  if (!accounts || accounts.length === 0) return []
-
-  const accountIds = accounts.map((a: any) => a.id)
-
-  // Traemos todos los movimientos de esas cuentas y calculamos sumas
-  const { data: moves } = await supabase
-    .from('iadmin_bank_movements')
-    .select('cash_account_id, amount')
-    .in('cash_account_id', accountIds)
-
-  const sumByAccount = new Map<string, { sum: number; count: number }>()
-  for (const m of moves ?? []) {
-    const existing = sumByAccount.get(m.cash_account_id) ?? { sum: 0, count: 0 }
-    existing.sum += Number(m.amount)
-    existing.count += 1
-    sumByAccount.set(m.cash_account_id, existing)
-  }
-
-  return accounts.map((row: any): IAdminCashAccountWithBalance => {
-    const base = mapCashAccount(row)
-    const sum = sumByAccount.get(base.id) ?? { sum: 0, count: 0 }
-    return {
-      ...base,
-      currentBalance: Math.round(sum.sum * 100) / 100,
-      movementsCount: sum.count,
-    }
-  })
+  const rows = await listCashAccountsWithBalanceFromPostgres(propertyId)
+  return rows.map((row): IAdminCashAccountWithBalance => ({
+    id: row.id,
+    managedPropertyId: row.managed_property_id,
+    name: row.name,
+    kind: row.kind as IAdminCashAccountWithBalance['kind'],
+    bankName: row.bank_name,
+    accountNumber: row.account_number,
+    cbu: row.cbu,
+    alias: row.alias,
+    openingBalance: row.opening_balance !== null ? Number(row.opening_balance) : 0,
+    openingBalanceAt: row.opening_balance_at,
+    notes: row.notes,
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+    currentBalance: Math.round(Number(row.current_balance) * 100) / 100,
+    movementsCount: row.movements_count,
+  }))
 }
 
 export async function getIAdminCashMovements(
   propertyId: string,
   options: { accountId?: string; limit?: number } = {},
 ): Promise<IAdminCashMovement[]> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-
-  let query = supabase
-    .from('iadmin_bank_movements')
-    .select(`
-      *,
-      iadmin_cash_accounts ( id, name ),
-      iadmin_expenses ( id, description )
-    `)
-    .eq('managed_property_id', propertyId)
-    .order('movement_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(options.limit ?? 100)
-
-  if (options.accountId) {
-    query = query.eq('cash_account_id', options.accountId)
-  }
-
-  const { data } = await query
-
-  return (data ?? []).map((row: any): IAdminCashMovement => {
-    const account = Array.isArray(row.iadmin_cash_accounts) ? row.iadmin_cash_accounts[0] : row.iadmin_cash_accounts
-    const expense = Array.isArray(row.iadmin_expenses) ? row.iadmin_expenses[0] : row.iadmin_expenses
-    return {
-      id: row.id,
-      cashAccountId: row.cash_account_id ?? null,
-      cashAccountName: account?.name ?? null,
-      administrationId: row.administration_id,
-      managedPropertyId: row.managed_property_id ?? null,
-      movementDate: row.movement_date,
-      description: row.description ?? null,
-      amount: Number(row.amount),
-      balance: row.balance !== null && row.balance !== undefined ? Number(row.balance) : null,
-      externalRef: row.external_ref ?? null,
-      movementKind: (row.movement_kind ?? 'manual') as IAdminCashMovement['movementKind'],
-      expenseId: row.expense_id ?? null,
-      expenseDescription: expense?.description ?? null,
-      createdAt: row.created_at,
-    }
+  const rows = await listCashMovementsFromPostgres({
+    managedPropertyId: propertyId,
+    accountId: options.accountId ?? null,
+    limit: options.limit ?? 100,
   })
+  return rows.map((row): IAdminCashMovement => ({
+    id: row.id,
+    cashAccountId: row.cash_account_id,
+    cashAccountName: row.cash_account_name,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    movementDate: row.movement_date,
+    description: row.description,
+    amount: Number(row.amount),
+    balance: row.balance !== null ? Number(row.balance) : null,
+    externalRef: row.external_ref,
+    movementKind: (row.movement_kind ?? 'manual') as IAdminCashMovement['movementKind'],
+    expenseId: row.expense_id,
+    expenseDescription: row.expense_description,
+    createdAt: row.created_at,
+  }))
 }
 
 /**
