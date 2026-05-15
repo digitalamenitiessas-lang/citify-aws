@@ -114,8 +114,12 @@ import {
   getExpensePaymentInfoFromPostgres,
   listCashAccountsWithBalanceFromPostgres,
   listCashMovementsFromPostgres,
+  getLiquidationRunHeaderFromPostgres,
   listExpenseDocumentsWithExtractionFromPostgres,
   listHoldersByUnitsFromPostgres,
+  listImputedExpenseLinesByPeriodFromPostgres,
+  listLiquidationItemsDetailedFromPostgres,
+  listLivePaymentsByRunDetailedFromPostgres,
   listMembershipsWithProfileByUnitsFromPostgres,
   listRemindersWithContextFromPostgres,
   listUnitsBasicByPropertyFromPostgres,
@@ -2488,63 +2492,8 @@ function computeDueAmountsForItem(
 }
 
 export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdminLiquidationRunDetail | null> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return null
-
-  const { data: row } = await supabase
-    .from('iadmin_liquidation_runs')
-    .select(`
-      *,
-      iadmin_administrations ( id, name, legal_info ),
-      iadmin_managed_properties ( id, display_name, legal_info, buildings ( name, address ) ),
-      iadmin_accounting_periods ( id, period_year, period_month ),
-      generated_by_profile:profiles!iadmin_liquidation_runs_generated_by_fkey ( id, full_name ),
-      issued_by_profile:profiles!iadmin_liquidation_runs_issued_by_fkey ( id, full_name ),
-      closed_by_profile:profiles!iadmin_liquidation_runs_closed_by_fkey ( id, full_name ),
-      iadmin_liquidation_items (
-        id,
-        unit_id,
-        prorata_coefficient,
-        amount,
-        ordinary_amount,
-        extraordinary_amount,
-        previous_balance,
-        iadmin_units (
-          id,
-          code,
-          kind,
-          iadmin_unit_holders ( id, full_name, holder_kind, is_active )
-        )
-      )
-    `)
-    .eq('id', runId)
-    .maybeSingle()
-
+  const row = await getLiquidationRunHeaderFromPostgres(runId)
   if (!row) return null
-
-  const administration = Array.isArray(row.iadmin_administrations)
-    ? row.iadmin_administrations[0]
-    : row.iadmin_administrations
-  const property = Array.isArray(row.iadmin_managed_properties)
-    ? row.iadmin_managed_properties[0]
-    : row.iadmin_managed_properties
-  const building = property?.buildings
-    ? Array.isArray(property.buildings)
-      ? property.buildings[0]
-      : property.buildings
-    : null
-  const period = Array.isArray(row.iadmin_accounting_periods)
-    ? row.iadmin_accounting_periods[0]
-    : row.iadmin_accounting_periods
-  const generatedBy = Array.isArray(row.generated_by_profile)
-    ? row.generated_by_profile[0]
-    : row.generated_by_profile
-  const issuedBy = Array.isArray(row.issued_by_profile)
-    ? row.issued_by_profile[0]
-    : row.issued_by_profile
-  const closedBy = Array.isArray(row.closed_by_profile)
-    ? row.closed_by_profile[0]
-    : row.closed_by_profile
 
   const dueDates = ((row.due_dates ?? []) as any[]).map(
     (d: any): IAdminDueDate => ({
@@ -2554,19 +2503,36 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     }),
   )
 
-  // Traer pagos vivos (no anulados) de esta run para calcular saldo por item
-  const { data: paymentsRows } = await supabase
-    .from('iadmin_payments')
-    .select(`
-      *,
-      iadmin_cash_accounts ( id, name ),
-      iadmin_units ( id, code )
-    `)
-    .eq('liquidation_run_id', row.id)
-    .eq('is_void', false)
-    .order('paid_at', { ascending: false })
+  const [itemRows, paymentRows, expenseRows] = await Promise.all([
+    listLiquidationItemsDetailedFromPostgres(runId),
+    listLivePaymentsByRunDetailedFromPostgres(runId),
+    listImputedExpenseLinesByPeriodFromPostgres(row.accounting_period_id),
+  ])
 
-  const payments: IAdminPayment[] = (paymentsRows ?? []).map(mapPayment)
+  const payments: IAdminPayment[] = paymentRows.map((p): IAdminPayment => ({
+    id: p.id,
+    administrationId: p.administration_id,
+    managedPropertyId: p.managed_property_id,
+    liquidationRunId: p.liquidation_run_id,
+    liquidationItemId: p.liquidation_item_id,
+    unitId: p.unit_id,
+    unitCode: p.unit_code,
+    cashAccountId: p.cash_account_id,
+    cashAccountName: p.cash_account_name,
+    bankMovementId: p.bank_movement_id,
+    amount: Number(p.amount),
+    surchargeAmount: Number(p.surcharge_amount ?? 0),
+    paidAt: p.paid_at,
+    method: p.method,
+    reference: p.reference,
+    receiptNumber: p.receipt_number,
+    dueLabel: p.due_label,
+    notes: p.notes,
+    isVoid: Boolean(p.is_void),
+    voidedAt: p.voided_at,
+    voidReason: p.void_reason,
+    createdAt: p.created_at,
+  }))
   const paymentsByItem = new Map<string, IAdminPayment[]>()
   for (const p of payments) {
     if (!p.liquidationItemId) continue
@@ -2575,11 +2541,8 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     paymentsByItem.set(p.liquidationItemId, arr)
   }
 
-  const items: IAdminLiquidationItem[] = (row.iadmin_liquidation_items ?? [])
-    .map((item: any): IAdminLiquidationItem => {
-      const unit = Array.isArray(item.iadmin_units) ? item.iadmin_units[0] : item.iadmin_units
-      const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
-      const activeHolder = holders.find((h: any) => h?.is_active) ?? null
+  const items: IAdminLiquidationItem[] = itemRows
+    .map((item): IAdminLiquidationItem => {
       const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
       const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
       const previousBalance = Number(item.previous_balance ?? 0)
@@ -2590,10 +2553,10 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
       return {
         id: item.id,
         unitId: item.unit_id,
-        unitCode: unit?.code ?? '—',
-        unitKind: unit?.kind ?? 'otro',
-        activeHolderName: activeHolder?.full_name ?? null,
-        activeHolderKind: activeHolder?.holder_kind ?? null,
+        unitCode: item.unit_code ?? '—',
+        unitKind: (item.unit_kind ?? 'otro') as IAdminUnitKind,
+        activeHolderName: item.active_holder_full_name,
+        activeHolderKind: (item.active_holder_kind ?? null) as IAdminHolderKind | null,
         prorataCoefficient: Number(item.prorata_coefficient),
         ordinaryAmount,
         extraordinaryAmount,
@@ -2608,29 +2571,15 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     })
     .sort((a: IAdminLiquidationItem, b: IAdminLiquidationItem) => a.unitCode.localeCompare(b.unitCode))
 
-  // Lineas de egresos: gastos imputados del periodo
-  const { data: expenseRows } = await supabase
-    .from('iadmin_expenses')
-    .select(`
-      id, description, amount, category, issued_at, expense_kind,
-      iadmin_providers ( name )
-    `)
-    .eq('accounting_period_id', row.accounting_period_id)
-    .eq('status', 'imputed')
-    .order('issued_at', { ascending: true })
-
-  const expenseLines: IAdminExpenseLineInRun[] = (expenseRows ?? []).map((e: any) => {
-    const provider = Array.isArray(e.iadmin_providers) ? e.iadmin_providers[0] : e.iadmin_providers
-    return {
-      id: e.id,
-      issuedAt: e.issued_at ?? null,
-      providerName: provider?.name ?? null,
-      description: e.description,
-      category: e.category ?? null,
-      amount: Number(e.amount),
-      kind: (e.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
-    }
-  })
+  const expenseLines: IAdminExpenseLineInRun[] = expenseRows.map((e) => ({
+    id: e.id,
+    issuedAt: e.issued_at,
+    providerName: e.provider_name,
+    description: e.description,
+    category: e.category,
+    amount: Number(e.amount),
+    kind: (e.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+  }))
 
   const ordinaryExpenses = round2(
     expenseLines.filter((l) => l.kind === 'ordinaria').reduce((s, l) => s + l.amount, 0),
@@ -2666,27 +2615,27 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
   return {
     id: row.id,
     administrationId: row.administration_id,
-    administrationName: administration?.name ?? '',
-    administrationLegalInfo: (administration?.legal_info ?? {}) as IAdminLegalInfo,
-    propertyLegalInfo: (property?.legal_info ?? {}) as IAdminLegalInfo,
+    administrationName: row.administration_name ?? '',
+    administrationLegalInfo: (row.administration_legal_info ?? {}) as IAdminLegalInfo,
+    propertyLegalInfo: (row.property_legal_info ?? {}) as IAdminLegalInfo,
     managedPropertyId: row.managed_property_id,
-    managedPropertyName: property?.display_name ?? building?.name ?? 'Consorcio',
-    managedPropertyAddress: building?.address ?? '',
+    managedPropertyName: row.property_display_name ?? row.building_name ?? 'Consorcio',
+    managedPropertyAddress: row.building_address ?? '',
     accountingPeriodId: row.accounting_period_id,
-    periodYear: period?.period_year ?? 0,
-    periodMonth: period?.period_month ?? 0,
-    status: row.status,
+    periodYear: row.period_year ?? 0,
+    periodMonth: row.period_month ?? 0,
+    status: row.status as IAdminLiquidationStatus,
     totalExpenses,
     ordinaryTotal: Number(row.ordinary_total ?? 0),
     extraordinaryTotal: Number(row.extraordinary_total ?? 0),
     previousBalance,
     totalUnits: Number(row.total_units ?? 0),
     generatedAt: row.generated_at,
-    generatedByName: generatedBy?.full_name ?? null,
-    issuedAt: row.issued_at ?? null,
-    issuedByName: issuedBy?.full_name ?? null,
-    closedAt: row.closed_at ?? null,
-    closedByName: closedBy?.full_name ?? null,
+    generatedByName: row.generated_by_name,
+    issuedAt: row.issued_at,
+    issuedByName: row.issued_by_name,
+    closedAt: row.closed_at,
+    closedByName: row.closed_by_name,
     dueDates,
     items,
     expenseLines,

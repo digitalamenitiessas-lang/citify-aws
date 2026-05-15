@@ -313,6 +313,211 @@ export type ExpensePaymentRow = {
 }
 
 // ----------------------------------------------------------------------------
+// Liquidation run detail (run + admin + property + period + profiles)
+// ----------------------------------------------------------------------------
+
+export type LiquidationRunHeaderRow = {
+  id: string
+  administration_id: string
+  managed_property_id: string
+  accounting_period_id: string
+  status: string
+  total_expenses: string | null
+  ordinary_total: string | null
+  extraordinary_total: string | null
+  previous_balance: string | null
+  due_dates: any
+  total_units: number | null
+  generated_at: string
+  generated_by_name: string | null
+  issued_at: string | null
+  issued_by_name: string | null
+  closed_at: string | null
+  closed_by_name: string | null
+  administration_name: string
+  administration_legal_info: any
+  property_display_name: string | null
+  property_legal_info: any
+  building_name: string | null
+  building_address: string | null
+  period_year: number | null
+  period_month: number | null
+}
+
+export async function getLiquidationRunHeaderFromPostgres(
+  runId: string,
+): Promise<LiquidationRunHeaderRow | null> {
+  const result = await pgQuery<LiquidationRunHeaderRow>(
+    `
+      select
+        r.id,
+        r.administration_id,
+        r.managed_property_id,
+        r.accounting_period_id,
+        r.status::text as status,
+        r.total_expenses::text as total_expenses,
+        r.ordinary_total::text as ordinary_total,
+        r.extraordinary_total::text as extraordinary_total,
+        r.previous_balance::text as previous_balance,
+        r.due_dates,
+        r.total_units,
+        r.generated_at::text as generated_at,
+        gp.full_name as generated_by_name,
+        r.issued_at::text as issued_at,
+        ip.full_name as issued_by_name,
+        r.closed_at::text as closed_at,
+        cp.full_name as closed_by_name,
+        a.name as administration_name,
+        a.legal_info as administration_legal_info,
+        mp.display_name as property_display_name,
+        mp.legal_info as property_legal_info,
+        b.name as building_name,
+        b.address as building_address,
+        ap.period_year,
+        ap.period_month
+      from public.iadmin_liquidation_runs r
+      inner join public.iadmin_administrations a on a.id = r.administration_id
+      inner join public.iadmin_managed_properties mp on mp.id = r.managed_property_id
+      inner join public.buildings b on b.id = mp.building_id
+      left join public.iadmin_accounting_periods ap on ap.id = r.accounting_period_id
+      left join public.profiles gp on gp.id = r.generated_by
+      left join public.profiles ip on ip.id = r.issued_by
+      left join public.profiles cp on cp.id = r.closed_by
+      where r.id = $1
+      limit 1
+    `,
+    [runId],
+  )
+  return result.rows[0] ?? null
+}
+
+export type LiquidationItemDetailRow = {
+  id: string
+  unit_id: string
+  prorata_coefficient: string | null
+  amount: string | null
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+  unit_code: string | null
+  unit_kind: string | null
+  active_holder_full_name: string | null
+  active_holder_kind: string | null
+}
+
+export async function listLiquidationItemsDetailedFromPostgres(
+  runId: string,
+): Promise<LiquidationItemDetailRow[]> {
+  const result = await pgQuery<LiquidationItemDetailRow>(
+    `
+      with chosen_holder as (
+        select distinct on (unit_id)
+          unit_id, full_name, holder_kind::text as holder_kind, is_active
+        from public.iadmin_unit_holders
+        order by unit_id, is_active desc, created_at asc
+      )
+      select
+        i.id,
+        i.unit_id,
+        i.prorata_coefficient::text as prorata_coefficient,
+        i.amount::text as amount,
+        i.ordinary_amount::text as ordinary_amount,
+        i.extraordinary_amount::text as extraordinary_amount,
+        i.previous_balance::text as previous_balance,
+        u.code as unit_code,
+        u.kind::text as unit_kind,
+        ch.full_name as active_holder_full_name,
+        ch.holder_kind as active_holder_kind
+      from public.iadmin_liquidation_items i
+      left join public.iadmin_units u on u.id = i.unit_id
+      left join chosen_holder ch on ch.unit_id = u.id
+      where i.liquidation_run_id = $1
+    `,
+    [runId],
+  )
+  return result.rows
+}
+
+export type PaymentDetailRow = {
+  id: string
+  administration_id: string
+  managed_property_id: string
+  liquidation_run_id: string | null
+  liquidation_item_id: string | null
+  unit_id: string | null
+  unit_code: string | null
+  cash_account_id: string | null
+  cash_account_name: string | null
+  bank_movement_id: string | null
+  amount: string
+  surcharge_amount: string | null
+  paid_at: string
+  method: string | null
+  reference: string | null
+  receipt_number: string | null
+  due_label: string | null
+  notes: string | null
+  is_void: boolean
+  voided_at: string | null
+  void_reason: string | null
+  created_at: string
+}
+
+export async function listLivePaymentsByRunDetailedFromPostgres(
+  runId: string,
+): Promise<PaymentDetailRow[]> {
+  const result = await pgQuery<PaymentDetailRow>(
+    `
+      select
+        p.id, p.administration_id, p.managed_property_id, p.liquidation_run_id,
+        p.liquidation_item_id, p.unit_id, u.code as unit_code,
+        p.cash_account_id, ca.name as cash_account_name,
+        p.bank_movement_id, p.amount::text as amount,
+        p.surcharge_amount::text as surcharge_amount,
+        p.paid_at::text as paid_at, p.method, p.reference, p.receipt_number,
+        p.due_label, p.notes, p.is_void,
+        p.voided_at::text as voided_at, p.void_reason, p.created_at::text as created_at
+      from public.iadmin_payments p
+      left join public.iadmin_cash_accounts ca on ca.id = p.cash_account_id
+      left join public.iadmin_units u on u.id = p.unit_id
+      where p.liquidation_run_id = $1 and p.is_void = false
+      order by p.paid_at desc
+    `,
+    [runId],
+  )
+  return result.rows
+}
+
+export type ExpenseLineForRunRow = {
+  id: string
+  description: string
+  amount: string
+  category: string | null
+  issued_at: string | null
+  expense_kind: string | null
+  provider_name: string | null
+}
+
+export async function listImputedExpenseLinesByPeriodFromPostgres(
+  accountingPeriodId: string,
+): Promise<ExpenseLineForRunRow[]> {
+  const result = await pgQuery<ExpenseLineForRunRow>(
+    `
+      select
+        e.id, e.description, e.amount::text as amount, e.category,
+        e.issued_at::text as issued_at, e.expense_kind::text as expense_kind,
+        p.name as provider_name
+      from public.iadmin_expenses e
+      left join public.iadmin_providers p on p.id = e.provider_id
+      where e.accounting_period_id = $1 and e.status = 'imputed'
+      order by e.issued_at asc
+    `,
+    [accountingPeriodId],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
 // Units with holders + memberships (con profile mínimo)
 // ----------------------------------------------------------------------------
 

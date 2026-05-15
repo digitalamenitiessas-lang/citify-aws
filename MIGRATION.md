@@ -132,7 +132,16 @@ Patrón: `if (isPostgresConfigured()) { try { ... } catch { /* fallback */ } } /
 - [x] `getProfileById` (RDS)
 
 **Pendiente reads**:
-- [ ] **Borrar el fallback Supabase** en cada función de `lib/data.ts` (~36 referencias `getSupabaseServerClient` siguen presentes con fallback graceful — apenas validemos que RDS sirve todo en prod, las eliminamos)
+- [x] `getIAdminCashAccounts` (RDS)
+- [x] `getIAdminCashMovements` (RDS)
+- [x] `getIAdminReminders` (RDS)
+- [x] `getIAdminExpenseDetail` (RDS)
+- [x] `getIAdminUnitsWithHolders` (RDS)
+- [x] `getIAdminLiquidationRunDetail` (RDS — header + items + pagos + expense lines en queries paralelas)
+- [ ] `getIAdminConsorcioDashboard` (still Supabase)
+- [ ] `getIAdminMesaState`, `getIAdminMonthlyGrid`, `getIAdminClosingChecklist` (la mesa del admin — más complejos)
+- [ ] `getIAdminUnitAccountStatement` (statement del vecino)
+- [ ] **Borrar el fallback Supabase** en las funciones que SÍ tienen RDS path pero aún caen a Supabase si Postgres falla
 - [ ] Mismo trabajo en `lib/auth.ts` (3 referencias residuales en `getIAdminContext`)
 - [ ] Auditar `lib/ai/context-builders.ts`, `lib/iadmin/expense-anomalies.ts`, `lib/iadmin/public-liquidation.ts` (siguen importando `@/lib/supabase/*`)
 
