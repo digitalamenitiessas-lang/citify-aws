@@ -391,6 +391,345 @@ export async function existingExpensePaymentMovementInPostgres(expenseId: string
 }
 
 // ----------------------------------------------------------------------------
+// Expenses (creación + estado + adjuntos)
+// ----------------------------------------------------------------------------
+
+export async function findProviderByNameInPostgres(input: {
+  administrationId: string
+  name: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_providers where administration_id = $1 and lower(name) = lower($2) limit 1`,
+    [input.administrationId, input.name],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function insertProviderQuickFromPostgres(input: {
+  administrationId: string
+  name: string
+  category: string | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_providers (administration_id, name, category, default_category, is_active)
+      values ($1, $2, $3, $4, true)
+      returning id
+    `,
+    [input.administrationId, input.name, input.category, input.category],
+  )
+  return result.rows[0]
+}
+
+export async function setProviderDefaultCategoryIfNullInPostgres(input: {
+  providerId: string
+  category: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_providers set default_category = $1 where id = $2 and default_category is null`,
+    [input.category, input.providerId],
+  )
+}
+
+export async function insertExpenseInPostgres(input: {
+  administrationId: string
+  managedPropertyId: string
+  accountingPeriodId: string | null
+  providerId: string | null
+  category: string | null
+  description: string
+  amount: number
+  currency: string
+  issuedAt: string | null
+  dueAt: string | null
+  status: string
+  expenseKind: string
+  createdBy: string
+  approvedBy: string | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_expenses (
+        administration_id, managed_property_id, accounting_period_id, provider_id,
+        category, description, amount, currency, issued_at, due_at,
+        status, expense_kind, created_by, approved_by, approved_at
+      )
+      values (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::date,
+        $11::iadmin_expense_status, $12::iadmin_expense_kind, $13, $14,
+        case when $14::uuid is null then null else now() end
+      )
+      returning id
+    `,
+    [
+      input.administrationId,
+      input.managedPropertyId,
+      input.accountingPeriodId,
+      input.providerId,
+      input.category,
+      input.description,
+      input.amount,
+      input.currency,
+      input.issuedAt,
+      input.dueAt,
+      input.status,
+      input.expenseKind,
+      input.createdBy,
+      input.approvedBy,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function getExpenseStatusInfoFromPostgres(expenseId: string): Promise<{
+  id: string
+  status: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{ id: string; status: string; administration_id: string }>(
+    `select id, status::text as status, administration_id from public.iadmin_expenses where id = $1 limit 1`,
+    [expenseId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function changeExpenseStatusInPostgres(input: {
+  expenseId: string
+  nextStatus: string
+  approvedBy: string | null
+  rejectedReason: string | null
+}): Promise<void> {
+  if (input.nextStatus === 'approved') {
+    await pgQuery(
+      `update public.iadmin_expenses set status = $1::iadmin_expense_status, approved_by = $2, approved_at = now() where id = $3`,
+      [input.nextStatus, input.approvedBy, input.expenseId],
+    )
+  } else if (input.nextStatus === 'rejected' && input.rejectedReason) {
+    await pgQuery(
+      `update public.iadmin_expenses set status = $1::iadmin_expense_status, rejected_reason = $2 where id = $3`,
+      [input.nextStatus, input.rejectedReason, input.expenseId],
+    )
+  } else {
+    await pgQuery(
+      `update public.iadmin_expenses set status = $1::iadmin_expense_status where id = $2`,
+      [input.nextStatus, input.expenseId],
+    )
+  }
+}
+
+export async function insertExpenseDocumentInPostgres(input: {
+  expenseId: string
+  storagePath: string
+  fileName: string
+  mimeType: string | null
+  sizeBytes: number | null
+  uploadedBy: string
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_expense_documents (expense_id, storage_path, file_name, mime_type, size_bytes, uploaded_by)
+      values ($1, $2, $3, $4, $5, $6)
+      returning id
+    `,
+    [input.expenseId, input.storagePath, input.fileName, input.mimeType, input.sizeBytes, input.uploadedBy],
+  )
+  return result.rows[0]
+}
+
+export async function insertAIExtractionInPostgres(input: {
+  documentId: string
+  status: string
+  provider: string
+  suggestedFields: Record<string, unknown>
+  confidence: number | null
+  validatedBy?: string | null
+}): Promise<void> {
+  if (input.validatedBy) {
+    await pgQuery(
+      `
+        insert into public.iadmin_ai_document_extractions (document_id, status, provider, suggested_fields, confidence, validated_by, validated_at)
+        values ($1, $2::iadmin_extraction_status, $3, $4::jsonb, $5, $6, now())
+      `,
+      [input.documentId, input.status, input.provider, JSON.stringify(input.suggestedFields), input.confidence, input.validatedBy],
+    )
+  } else {
+    await pgQuery(
+      `
+        insert into public.iadmin_ai_document_extractions (document_id, status, provider, suggested_fields, confidence)
+        values ($1, $2::iadmin_extraction_status, $3, $4::jsonb, $5)
+      `,
+      [input.documentId, input.status, input.provider, JSON.stringify(input.suggestedFields), input.confidence],
+    )
+  }
+}
+
+export async function getExpenseDocumentWithAdminFromPostgres(documentId: string): Promise<{
+  id: string
+  storage_path: string
+  file_name: string | null
+  expense_id: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    storage_path: string
+    file_name: string | null
+    expense_id: string
+    administration_id: string
+  }>(
+    `
+      select d.id, d.storage_path, d.file_name, d.expense_id, e.administration_id
+      from public.iadmin_expense_documents d
+      inner join public.iadmin_expenses e on e.id = d.expense_id
+      where d.id = $1
+      limit 1
+    `,
+    [documentId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getAIExtractionWithAdminFromPostgres(extractionId: string): Promise<{
+  id: string
+  document_id: string
+  expense_id: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    document_id: string
+    expense_id: string
+    administration_id: string
+  }>(
+    `
+      select x.id, x.document_id, d.expense_id, e.administration_id
+      from public.iadmin_ai_document_extractions x
+      inner join public.iadmin_expense_documents d on d.id = x.document_id
+      inner join public.iadmin_expenses e on e.id = d.expense_id
+      where x.id = $1
+      limit 1
+    `,
+    [extractionId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function updateAIExtractionDecisionInPostgres(input: {
+  extractionId: string
+  decision: 'validated' | 'rejected'
+  validatedBy: string
+  validationNotes: string | null
+}): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_ai_document_extractions
+      set status = $1::iadmin_extraction_status,
+          validated_by = $2,
+          validated_at = now(),
+          validation_notes = $3
+      where id = $4
+    `,
+    [input.decision, input.validatedBy, input.validationNotes, input.extractionId],
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Conciliacion (bank statement)
+// ----------------------------------------------------------------------------
+
+export async function listOpenLiquidationItemsForPropertyFromPostgres(
+  propertyId: string,
+): Promise<
+  Array<{
+    item_id: string
+    unit_id: string
+    liquidation_run_id: string
+    run_status: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+    unit_code: string | null
+    holder_name: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    item_id: string
+    unit_id: string
+    liquidation_run_id: string
+    run_status: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+    unit_code: string | null
+    holder_name: string | null
+  }>(
+    `
+      with chosen_holder as (
+        select distinct on (unit_id)
+          unit_id, full_name, is_active
+        from public.iadmin_unit_holders
+        order by unit_id, is_active desc, created_at asc
+      )
+      select
+        i.id as item_id,
+        i.unit_id,
+        i.liquidation_run_id,
+        r.status::text as run_status,
+        i.ordinary_amount::text as ordinary_amount,
+        i.extraordinary_amount::text as extraordinary_amount,
+        i.previous_balance::text as previous_balance,
+        u.code as unit_code,
+        ch.full_name as holder_name
+      from public.iadmin_liquidation_items i
+      inner join public.iadmin_liquidation_runs r on r.id = i.liquidation_run_id
+      left join public.iadmin_units u on u.id = i.unit_id
+      left join chosen_holder ch on ch.unit_id = u.id
+      where r.managed_property_id = $1
+        and r.status in ('calculated', 'issued', 'closed')
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function listUnpaidApprovedExpensesFromPostgres(
+  propertyId: string,
+): Promise<
+  Array<{
+    id: string
+    description: string
+    amount: string
+    provider_name: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    description: string
+    amount: string
+    provider_name: string | null
+  }>(
+    `
+      select
+        e.id,
+        e.description,
+        e.amount::text as amount,
+        p.name as provider_name
+      from public.iadmin_expenses e
+      left join public.iadmin_providers p on p.id = e.provider_id
+      where e.managed_property_id = $1
+        and e.status in ('approved', 'imputed')
+        and not exists (
+          select 1
+          from public.iadmin_bank_movements m
+          where m.expense_id = e.id and m.movement_kind = 'expense_payment'
+        )
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
 // Units + holders (bulk import desde XLSX)
 // ----------------------------------------------------------------------------
 
