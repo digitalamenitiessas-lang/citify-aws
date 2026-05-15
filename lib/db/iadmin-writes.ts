@@ -391,6 +391,110 @@ export async function existingExpensePaymentMovementInPostgres(expenseId: string
 }
 
 // ----------------------------------------------------------------------------
+// Units + holders (bulk import desde XLSX)
+// ----------------------------------------------------------------------------
+
+export async function listUnitsByPropertyMinimalFromPostgres(
+  propertyId: string,
+): Promise<Array<{ id: string; code: string }>> {
+  const result = await pgQuery<{ id: string; code: string }>(
+    `select id, code from public.iadmin_units where managed_property_id = $1`,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function upsertUnitInPostgres(input: {
+  id?: string | null
+  managedPropertyId: string
+  code: string
+  kind: string
+  floor: string | null
+  surfaceM2: number | null
+  prorataCoefficient: number | null
+}): Promise<{ id: string }> {
+  if (input.id) {
+    await pgQuery(
+      `
+        update public.iadmin_units
+        set kind = $1::iadmin_unit_kind,
+            floor = $2,
+            surface_m2 = $3,
+            prorata_coefficient = $4,
+            is_active = true
+        where id = $5
+      `,
+      [input.kind, input.floor, input.surfaceM2, input.prorataCoefficient, input.id],
+    )
+    return { id: input.id }
+  }
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_units (
+        managed_property_id, code, kind, floor, surface_m2, prorata_coefficient, is_active
+      )
+      values ($1, $2, $3::iadmin_unit_kind, $4, $5, $6, true)
+      returning id
+    `,
+    [
+      input.managedPropertyId,
+      input.code,
+      input.kind,
+      input.floor,
+      input.surfaceM2,
+      input.prorataCoefficient,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function closeActiveHoldersOfKindInPostgres(input: {
+  unitId: string
+  holderKind: string
+}): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_unit_holders
+      set is_active = false, end_date = current_date
+      where unit_id = $1 and holder_kind = $2::iadmin_holder_kind and is_active = true
+    `,
+    [input.unitId, input.holderKind],
+  )
+}
+
+export async function insertUnitHolderInPostgres(input: {
+  unitId: string
+  fullName: string
+  holderKind: string
+  taxId: string | null
+  email: string | null
+  phone: string | null
+  startDate?: string | null
+  profileId?: string | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_unit_holders (
+        unit_id, profile_id, full_name, holder_kind, tax_id, email, phone, start_date, is_active
+      )
+      values ($1, $2, $3, $4::iadmin_holder_kind, $5, $6, $7, $8::date, true)
+      returning id
+    `,
+    [
+      input.unitId,
+      input.profileId ?? null,
+      input.fullName,
+      input.holderKind,
+      input.taxId,
+      input.email,
+      input.phone,
+      input.startDate ?? null,
+    ],
+  )
+  return result.rows[0]
+}
+
+// ----------------------------------------------------------------------------
 // Liquidations
 // ----------------------------------------------------------------------------
 
