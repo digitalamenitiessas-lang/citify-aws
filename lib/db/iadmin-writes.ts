@@ -855,6 +855,25 @@ export async function getUnitFullScopeFromPostgres(unitId: string): Promise<{
   }
 }
 
+export async function findPrincipalMembershipForProfileFromPostgres(input: {
+  unitId: string
+  profileId: string
+}): Promise<{ id: string; building_id: string } | null> {
+  const result = await pgQuery<{ id: string; building_id: string }>(
+    `select id, building_id from public.unit_profile_memberships where unit_id = $1 and profile_id = $2 and relationship_type = 'vecino_principal' and active = true limit 1`,
+    [input.unitId, input.profileId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function countActiveAdditionalNeighborsInPostgres(unitId: string): Promise<number> {
+  const result = await pgQuery<{ c: number }>(
+    `select count(*)::int as c from public.unit_profile_memberships where unit_id = $1 and relationship_type = 'vecino_adicional' and active = true`,
+    [unitId],
+  )
+  return result.rows[0]?.c ?? 0
+}
+
 export async function deactivateActivePrincipalMembershipsInPostgres(unitId: string): Promise<void> {
   await pgQuery(
     `update public.unit_profile_memberships set active = false where unit_id = $1 and relationship_type = 'vecino_principal' and active = true`,
