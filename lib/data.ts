@@ -92,6 +92,13 @@ import {
   getIAdminPortfolioStatsFromPostgres,
   getIAdminProvidersFromPostgres,
 } from '@/lib/db/iadmin-core'
+import {
+  listAllBuildingsFromPostgres,
+  listAllBusinessesFromPostgres,
+  listAllProfilesFromPostgres,
+  listBuildingAdminAssignmentsFromPostgres,
+  listSuperadminManagedPropertiesFromPostgres,
+} from '@/lib/db/superadmin'
 import { findProfileById } from '@/lib/db/profiles'
 import { getAllBusinessesFromPostgres, getBusinessByIdFromPostgres } from '@/lib/db/businesses'
 import { getPublicPromotionsFromPostgres } from '@/lib/db/public-home'
@@ -973,33 +980,39 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
 
 export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardData> {
   const supabase = await getSupabaseServerClient()
-  if (!supabase) {
-    return { buildings: [], users: [], businesses: [], promotions: [], consorcioAdminOptions: [] }
-  }
 
-  const [buildingsRes, usersRes, businessesRes, promotionsRes, assignmentsRes, redemptionsRes, propertiesRes] = await Promise.all([
-    supabase.from('buildings').select('*').order('name'),
-    supabase.from('profiles').select('*').order('full_name'),
-    supabase.from('businesses').select('*').order('name'),
-    supabase
-      .from('promotions')
-      .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('building_admin_assignments')
-      .select(`*, profiles ( id, full_name, email, phone )`),
-    supabase
-      .from('promotion_redemptions')
-      .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`),
-    supabase
-      .from('iadmin_managed_properties')
-      .select(`*, buildings ( id, name, address, total_units ), iadmin_administrations ( * )`)
-      .order('created_at', { ascending: false }),
+  const [buildingsRows, usersRows, businessesRows, assignmentsRows, propertiesRows] = await Promise.all([
+    listAllBuildingsFromPostgres(),
+    listAllProfilesFromPostgres(),
+    listAllBusinessesFromPostgres(),
+    listBuildingAdminAssignmentsFromPostgres(),
+    listSuperadminManagedPropertiesFromPostgres(),
   ])
+
+  // Promotions/redemptions still live in Supabase; fall back to empty if not configured.
+  const promotionsRes = supabase
+    ? await supabase
+        .from('promotions')
+        .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
+        .order('created_at', { ascending: false })
+        .then((r) => r, () => ({ data: [] as any[] }))
+    : { data: [] as any[] }
+  const redemptionsRes = supabase
+    ? await supabase
+        .from('promotion_redemptions')
+        .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`)
+        .then((r) => r, () => ({ data: [] as any[] }))
+    : { data: [] as any[] }
+
+  const buildingsRes = { data: buildingsRows }
+  const usersRes = { data: usersRows }
+  const businessesRes = { data: businessesRows }
+  const assignmentsRes = { data: assignmentsRows }
+  const propertiesRes = { data: propertiesRows }
 
   const allBuildings = (buildingsRes.data ?? []).map(mapBuilding)
   const allUsers = (usersRes.data ?? []).map(mapProfile)
-  const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase, row))
+  const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase as any, row))
   const allPromotionsEffective = applyPromotionAutoRenewal(allPromotionsRaw)
   const buildingNameById = new Map(allBuildings.map((building) => [building.id, building.name]))
   const userEmailById = new Map(allUsers.map((user) => [user.id, user.email]))

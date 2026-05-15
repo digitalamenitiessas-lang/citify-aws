@@ -1,5 +1,73 @@
 import { pgQuery } from '@/lib/db/postgres'
 
+export async function listAllProfilesFromPostgres(): Promise<any[]> {
+  const result = await pgQuery(`select * from public.profiles order by full_name asc nulls last`)
+  return result.rows
+}
+
+export async function listAllBuildingsFromPostgres(): Promise<any[]> {
+  const result = await pgQuery(`select * from public.buildings order by name asc`)
+  return result.rows
+}
+
+export async function listAllBusinessesFromPostgres(): Promise<any[]> {
+  const result = await pgQuery(`select * from public.businesses order by name asc`)
+  return result.rows
+}
+
+export async function listBuildingAdminAssignmentsFromPostgres(): Promise<any[]> {
+  const result = await pgQuery(
+    `
+      select
+        baa.id,
+        baa.profile_id,
+        baa.building_id,
+        baa.is_primary,
+        baa.created_at,
+        json_build_object(
+          'id', p.id,
+          'full_name', p.full_name,
+          'email', p.email,
+          'phone', p.phone
+        ) as profiles
+      from public.building_admin_assignments baa
+      inner join public.profiles p on p.id = baa.profile_id
+    `,
+  )
+  return result.rows
+}
+
+export async function listSuperadminManagedPropertiesFromPostgres(): Promise<any[]> {
+  const result = await pgQuery(
+    `
+      select
+        mp.*,
+        json_build_object(
+          'id', b.id,
+          'name', b.name,
+          'address', b.address,
+          'total_units', b.total_units
+        ) as buildings,
+        case when a.id is not null then json_build_object(
+          'id', a.id,
+          'name', a.name,
+          'legal_name', a.legal_name,
+          'tax_id', a.tax_id,
+          'contact_email', a.contact_email,
+          'contact_phone', a.contact_phone,
+          'is_active', a.is_active,
+          'legal_info', a.legal_info,
+          'created_at', a.created_at
+        ) else null end as iadmin_administrations
+      from public.iadmin_managed_properties mp
+      inner join public.buildings b on b.id = mp.building_id
+      left join public.iadmin_administrations a on a.id = mp.administration_id
+      order by mp.created_at desc
+    `,
+  )
+  return result.rows
+}
+
 export async function getAdministrationIdByBuildingFromPostgres(
   buildingId: string,
 ): Promise<string | null> {
