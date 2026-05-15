@@ -634,6 +634,609 @@ export async function updateAIExtractionDecisionInPostgres(input: {
 }
 
 // ----------------------------------------------------------------------------
+// Planilla import (suggest match + duplicates check)
+// ----------------------------------------------------------------------------
+
+export async function getProviderExactByNameForAdminFromPostgres(input: {
+  administrationId: string
+  name: string
+}): Promise<{
+  id: string
+  name: string
+  category: string | null
+  default_category: string | null
+  is_recurring: boolean
+  recurring_kind: string | null
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    name: string
+    category: string | null
+    default_category: string | null
+    is_recurring: boolean
+    recurring_kind: string | null
+  }>(
+    `select id, name, category, default_category, is_recurring, recurring_kind::text as recurring_kind from public.iadmin_providers where administration_id = $1 and lower(name) = lower($2) limit 1`,
+    [input.administrationId, input.name],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function listProvidersFuzzyByTokensFromPostgres(input: {
+  administrationId: string
+  tokens: string[]
+  limit: number
+}): Promise<
+  Array<{
+    id: string
+    name: string
+    category: string | null
+    default_category: string | null
+    is_recurring: boolean
+    recurring_kind: string | null
+  }>
+> {
+  if (input.tokens.length === 0) return []
+  const placeholders = input.tokens.map((_, i) => `name ilike $${i + 2}`).join(' or ')
+  const params: unknown[] = [input.administrationId, ...input.tokens.map((t) => `%${t}%`)]
+  const result = await pgQuery<{
+    id: string
+    name: string
+    category: string | null
+    default_category: string | null
+    is_recurring: boolean
+    recurring_kind: string | null
+  }>(
+    `select id, name, category, default_category, is_recurring, recurring_kind::text as recurring_kind from public.iadmin_providers where administration_id = $1 and is_active = true and (${placeholders}) limit ${Math.max(1, Math.min(50, input.limit))}`,
+    params,
+  )
+  return result.rows
+}
+
+export async function getProviderForAdminFromPostgres(input: {
+  providerId: string
+  administrationId: string
+}): Promise<{ name: string } | null> {
+  const result = await pgQuery<{ name: string }>(
+    `select name from public.iadmin_providers where id = $1 and administration_id = $2 limit 1`,
+    [input.providerId, input.administrationId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function listExpensesForDuplicateCheckFromPostgres(input: {
+  managedPropertyId: string
+  providerId: string
+  accountingPeriodId: string
+}): Promise<
+  Array<{
+    id: string
+    amount: string
+    description: string | null
+    issued_at: string | null
+    status: string
+    created_at: string | null
+    created_by: string | null
+    has_document: boolean
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    amount: string
+    description: string | null
+    issued_at: string | null
+    status: string
+    created_at: string | null
+    created_by: string | null
+    has_document: boolean
+  }>(
+    `
+      select
+        e.id,
+        e.amount::text as amount,
+        e.description,
+        e.issued_at::text as issued_at,
+        e.status::text as status,
+        e.created_at::text as created_at,
+        e.created_by,
+        exists(select 1 from public.iadmin_expense_documents d where d.expense_id = e.id) as has_document
+      from public.iadmin_expenses e
+      where e.managed_property_id = $1
+        and e.provider_id = $2
+        and e.accounting_period_id = $3
+        and e.status <> 'rejected'
+      order by e.created_at desc
+    `,
+    [input.managedPropertyId, input.providerId, input.accountingPeriodId],
+  )
+  return result.rows
+}
+
+export async function listProfileNamesByIdsFromPostgres(profileIds: string[]): Promise<
+  Map<string, string>
+> {
+  const out = new Map<string, string>()
+  if (profileIds.length === 0) return out
+  const result = await pgQuery<{ id: string; full_name: string | null; email: string | null }>(
+    `select id, full_name, email from public.profiles where id = any($1::uuid[])`,
+    [profileIds],
+  )
+  for (const r of result.rows) {
+    out.set(r.id, r.full_name || r.email || 'Usuario')
+  }
+  return out
+}
+
+// ----------------------------------------------------------------------------
+// Planilla mensual
+// ----------------------------------------------------------------------------
+
+export async function getAccountingPeriodIdAndStatusFromPostgres(input: {
+  managedPropertyId: string
+  periodYear: number
+  periodMonth: number
+}): Promise<{ id: string; status: string } | null> {
+  const result = await pgQuery<{ id: string; status: string }>(
+    `select id, status::text as status from public.iadmin_accounting_periods where managed_property_id = $1 and period_year = $2 and period_month = $3 limit 1`,
+    [input.managedPropertyId, input.periodYear, input.periodMonth],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function findExpenseInPeriodByProviderFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+  providerId: string | null
+}): Promise<{ id: string; status: string } | null> {
+  if (input.providerId === null) {
+    const result = await pgQuery<{ id: string; status: string }>(
+      `select id, status::text as status from public.iadmin_expenses where managed_property_id = $1 and accounting_period_id = $2 and provider_id is null`,
+      [input.managedPropertyId, input.accountingPeriodId],
+    )
+    if (result.rows.length !== 1) return null
+    return result.rows[0]
+  }
+  const result = await pgQuery<{ id: string; status: string }>(
+    `select id, status::text as status from public.iadmin_expenses where managed_property_id = $1 and accounting_period_id = $2 and provider_id = $3`,
+    [input.managedPropertyId, input.accountingPeriodId, input.providerId],
+  )
+  if (result.rows.length !== 1) return null
+  return result.rows[0]
+}
+
+export async function deleteExpenseFromPostgres(expenseId: string): Promise<void> {
+  await pgQuery(`delete from public.iadmin_expenses where id = $1`, [expenseId])
+}
+
+export async function updateExpenseAmountInPostgres(input: {
+  expenseId: string
+  amount: number
+  description: string
+  expenseKind: string
+  status: string
+  approvedBy: string | null
+  setApprovedTimestamp: boolean
+}): Promise<void> {
+  if (input.setApprovedTimestamp && input.approvedBy) {
+    await pgQuery(
+      `
+        update public.iadmin_expenses
+        set amount = $1,
+            description = $2,
+            expense_kind = $3::iadmin_expense_kind,
+            status = $4::iadmin_expense_status,
+            approved_by = $5,
+            approved_at = now()
+        where id = $6
+      `,
+      [input.amount, input.description, input.expenseKind, input.status, input.approvedBy, input.expenseId],
+    )
+  } else {
+    await pgQuery(
+      `
+        update public.iadmin_expenses
+        set amount = $1,
+            description = $2,
+            expense_kind = $3::iadmin_expense_kind,
+            status = $4::iadmin_expense_status
+        where id = $5
+      `,
+      [input.amount, input.description, input.expenseKind, input.status, input.expenseId],
+    )
+  }
+}
+
+export async function getProviderNameAndDefaultDescFromPostgres(providerId: string): Promise<{
+  name: string
+  default_description: string | null
+} | null> {
+  const result = await pgQuery<{ name: string; default_description: string | null }>(
+    `select name, default_description from public.iadmin_providers where id = $1 limit 1`,
+    [providerId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function findProviderByNameWithRecurringFromPostgres(input: {
+  administrationId: string
+  name: string
+}): Promise<{ id: string; is_recurring: boolean } | null> {
+  const result = await pgQuery<{ id: string; is_recurring: boolean }>(
+    `select id, is_recurring from public.iadmin_providers where administration_id = $1 and lower(name) = lower($2) limit 1`,
+    [input.administrationId, input.name],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function setProviderRecurringInPostgres(input: {
+  providerId: string
+  isRecurring: boolean
+  recurringKind: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_providers set is_recurring = $1, recurring_kind = $2::iadmin_expense_kind where id = $3`,
+    [input.isRecurring, input.recurringKind, input.providerId],
+  )
+}
+
+export async function insertProviderRecurringFromPostgres(input: {
+  administrationId: string
+  name: string
+  category: string | null
+  recurringKind: string
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_providers (
+        administration_id, name, category, default_category, is_recurring, recurring_kind, is_active
+      )
+      values ($1, $2, $3, $4, true, $5::iadmin_expense_kind, true)
+      returning id
+    `,
+    [input.administrationId, input.name, input.category, input.category, input.recurringKind],
+  )
+  return result.rows[0]
+}
+
+export async function getManagedPropertyForEmitFromPostgres(propertyId: string): Promise<{
+  id: string
+  administration_id: string
+  display_name: string | null
+  building_name: string
+  admin_name: string | null
+  admin_legal_info: any
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    administration_id: string
+    display_name: string | null
+    building_name: string
+    admin_name: string | null
+    admin_legal_info: any
+  }>(
+    `
+      select
+        mp.id,
+        mp.administration_id,
+        mp.display_name,
+        b.name as building_name,
+        a.name as admin_name,
+        a.legal_info as admin_legal_info
+      from public.iadmin_managed_properties mp
+      inner join public.buildings b on b.id = mp.building_id
+      inner join public.iadmin_administrations a on a.id = mp.administration_id
+      where mp.id = $1
+      limit 1
+    `,
+    [propertyId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function listImputedExpensesAmountsByPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<Array<{ amount: string; expense_kind: string | null }>> {
+  const result = await pgQuery<{ amount: string; expense_kind: string | null }>(
+    `select amount::text as amount, expense_kind::text as expense_kind from public.iadmin_expenses where managed_property_id = $1 and accounting_period_id = $2 and status = 'imputed'`,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rows
+}
+
+export async function listActiveUnitsWithHoldersForEmitFromPostgres(propertyId: string): Promise<
+  Array<{
+    id: string
+    code: string
+    prorata_coefficient: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    holder_email: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    code: string
+    prorata_coefficient: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    holder_email: string | null
+  }>(
+    `
+      with chosen_holder as (
+        select distinct on (unit_id)
+          unit_id, full_name, phone, email, is_active
+        from public.iadmin_unit_holders
+        order by unit_id, is_active desc, created_at asc
+      )
+      select
+        u.id,
+        u.code,
+        u.prorata_coefficient::text as prorata_coefficient,
+        ch.full_name as holder_name,
+        ch.phone as holder_phone,
+        ch.email as holder_email
+      from public.iadmin_units u
+      left join chosen_holder ch on ch.unit_id = u.id
+      where u.managed_property_id = $1 and u.is_active = true
+      order by u.code
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function listPriorRunItemsForEmitFromPostgres(input: {
+  managedPropertyId: string
+  excludePeriodId: string
+}): Promise<Array<{
+  item_id: string
+  unit_id: string
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+}>> {
+  const result = await pgQuery<{
+    item_id: string
+    unit_id: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+  }>(
+    `
+      with prior_run as (
+        select id from public.iadmin_liquidation_runs
+        where managed_property_id = $1
+          and accounting_period_id <> $2
+          and status in ('calculated', 'issued', 'closed')
+        order by generated_at desc
+        limit 1
+      )
+      select i.id as item_id, i.unit_id,
+             i.ordinary_amount::text as ordinary_amount,
+             i.extraordinary_amount::text as extraordinary_amount,
+             i.previous_balance::text as previous_balance
+      from public.iadmin_liquidation_items i
+      where i.liquidation_run_id in (select id from prior_run)
+    `,
+    [input.managedPropertyId, input.excludePeriodId],
+  )
+  return result.rows
+}
+
+export async function upsertIssuedLiquidationRunInPostgres(input: {
+  administrationId: string
+  managedPropertyId: string
+  accountingPeriodId: string
+  totalExpenses: number
+  ordinaryTotal: number
+  extraordinaryTotal: number
+  previousBalance: number
+  dueDates: unknown
+  totalUnits: number
+  generatedBy: string
+  issuedBy: string
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_liquidation_runs (
+        administration_id, managed_property_id, accounting_period_id, status,
+        total_expenses, ordinary_total, extraordinary_total, previous_balance,
+        due_dates, total_units, generated_by, generated_at,
+        issued_by, issued_at, closed_by, closed_at
+      )
+      values (
+        $1, $2, $3, 'issued'::iadmin_liquidation_status,
+        $4, $5, $6, $7, $8::jsonb, $9, $10, now(),
+        $11, now(), null, null
+      )
+      on conflict (managed_property_id, accounting_period_id) do update set
+        status = 'issued'::iadmin_liquidation_status,
+        total_expenses = excluded.total_expenses,
+        ordinary_total = excluded.ordinary_total,
+        extraordinary_total = excluded.extraordinary_total,
+        previous_balance = excluded.previous_balance,
+        due_dates = excluded.due_dates,
+        total_units = excluded.total_units,
+        generated_by = excluded.generated_by,
+        generated_at = now(),
+        issued_by = excluded.issued_by,
+        issued_at = now(),
+        closed_by = null,
+        closed_at = null
+      returning id
+    `,
+    [
+      input.administrationId,
+      input.managedPropertyId,
+      input.accountingPeriodId,
+      input.totalExpenses,
+      input.ordinaryTotal,
+      input.extraordinaryTotal,
+      input.previousBalance,
+      JSON.stringify(input.dueDates),
+      input.totalUnits,
+      input.generatedBy,
+      input.issuedBy,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function listLiquidationItemsByRunFromPostgres(runId: string): Promise<
+  Array<{
+    id: string
+    unit_id: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    unit_id: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+    previous_balance: string | null
+  }>(
+    `select id, unit_id, ordinary_amount::text as ordinary_amount, extraordinary_amount::text as extraordinary_amount, previous_balance::text as previous_balance from public.iadmin_liquidation_items where liquidation_run_id = $1`,
+    [runId],
+  )
+  return result.rows
+}
+
+export async function bulkRevokeShareTokensInPostgres(itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) return
+  await pgQuery(
+    `update public.iadmin_item_share_tokens set revoked_at = now() where liquidation_item_id = any($1::uuid[]) and revoked_at is null`,
+    [itemIds],
+  )
+}
+
+export async function bulkInsertShareTokensInPostgres(
+  rows: Array<{ liquidationItemId: string; token: string; expiresAt: string; createdBy: string }>,
+): Promise<void> {
+  if (rows.length === 0) return
+  const values: unknown[] = []
+  const placeholders: string[] = []
+  for (const r of rows) {
+    const idx = values.length
+    values.push(r.liquidationItemId, r.token, r.expiresAt, r.createdBy)
+    placeholders.push(`($${idx + 1}, $${idx + 2}, $${idx + 3}::timestamptz, $${idx + 4})`)
+  }
+  await pgQuery(
+    `insert into public.iadmin_item_share_tokens (liquidation_item_id, token, expires_at, created_by) values ${placeholders.join(', ')}`,
+    values,
+  )
+}
+
+export async function listLiveShareTokensByItemsFromPostgres(itemIds: string[]): Promise<
+  Array<{ token: string; liquidation_item_id: string }>
+> {
+  if (itemIds.length === 0) return []
+  const result = await pgQuery<{ token: string; liquidation_item_id: string }>(
+    `select token, liquidation_item_id from public.iadmin_item_share_tokens where liquidation_item_id = any($1::uuid[]) and revoked_at is null`,
+    [itemIds],
+  )
+  return result.rows
+}
+
+export async function getFirstActiveCashAccountFromPostgres(propertyId: string): Promise<{
+  id: string
+  name: string
+} | null> {
+  const result = await pgQuery<{ id: string; name: string }>(
+    `select id, name from public.iadmin_cash_accounts where managed_property_id = $1 and is_active = true order by created_at limit 1`,
+    [propertyId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getLiquidationRunByPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_liquidation_runs where managed_property_id = $1 and accounting_period_id = $2 limit 1`,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getLiquidationItemByRunUnitFromPostgres(input: {
+  runId: string
+  unitId: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_liquidation_items where liquidation_run_id = $1 and unit_id = $2 limit 1`,
+    [input.runId, input.unitId],
+  )
+  return result.rows[0] ?? null
+}
+
+// ----------------------------------------------------------------------------
+// Predicciones de planilla (proveedores + historial de expenses)
+// ----------------------------------------------------------------------------
+
+export async function listActiveProvidersForPredictionFromPostgres(
+  administrationId: string,
+): Promise<
+  Array<{
+    id: string
+    name: string
+    default_category: string | null
+    recurring_kind: string | null
+    is_recurring: boolean
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    name: string
+    default_category: string | null
+    recurring_kind: string | null
+    is_recurring: boolean
+  }>(
+    `
+      select id, name, default_category, recurring_kind::text as recurring_kind, is_recurring
+      from public.iadmin_providers
+      where administration_id = $1 and is_active = true
+    `,
+    [administrationId],
+  )
+  return result.rows
+}
+
+export async function listExpensesWithPeriodForPredictionFromPostgres(input: {
+  managedPropertyId: string
+  fromDate: string
+}): Promise<
+  Array<{
+    provider_id: string | null
+    amount: string
+    period_year: number | null
+    period_month: number | null
+  }>
+> {
+  const result = await pgQuery<{
+    provider_id: string | null
+    amount: string
+    period_year: number | null
+    period_month: number | null
+  }>(
+    `
+      select e.provider_id, e.amount::text as amount, ap.period_year, ap.period_month
+      from public.iadmin_expenses e
+      left join public.iadmin_accounting_periods ap on ap.id = e.accounting_period_id
+      where e.managed_property_id = $1
+        and e.issued_at >= $2::date
+        and e.status <> 'rejected'
+    `,
+    [input.managedPropertyId, input.fromDate],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
 // Conciliacion (bank statement)
 // ----------------------------------------------------------------------------
 
