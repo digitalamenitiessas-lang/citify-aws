@@ -313,6 +313,369 @@ export type ExpensePaymentRow = {
 }
 
 // ----------------------------------------------------------------------------
+// Consorcio dashboard (property + expenses + units + runs)
+// ----------------------------------------------------------------------------
+
+export type ManagedPropertyFullRow = {
+  id: string
+  administration_id: string
+  building_id: string
+  display_name: string | null
+  property_kind: string
+  tax_id: string | null
+  managed_since: string | null
+  management_fee_pct: string | null
+  notes: string | null
+  is_active: boolean
+  legal_info: any
+  created_at: string
+  building_name: string
+  building_address: string | null
+  total_units: number | null
+}
+
+export async function getManagedPropertyFullFromPostgres(
+  propertyId: string,
+): Promise<ManagedPropertyFullRow | null> {
+  const result = await pgQuery<ManagedPropertyFullRow>(
+    `
+      select
+        mp.id, mp.administration_id, mp.building_id,
+        mp.display_name, mp.property_kind::text as property_kind,
+        mp.tax_id, mp.managed_since::text as managed_since,
+        mp.management_fee_pct::text as management_fee_pct,
+        mp.notes, mp.is_active, mp.legal_info,
+        mp.created_at::text as created_at,
+        b.name as building_name, b.address as building_address, b.total_units
+      from public.iadmin_managed_properties mp
+      inner join public.buildings b on b.id = mp.building_id
+      where mp.id = $1
+      limit 1
+    `,
+    [propertyId],
+  )
+  return result.rows[0] ?? null
+}
+
+export type ExpenseForDashboardRow = {
+  id: string
+  amount: string
+  status: string
+  expense_kind: string | null
+  issued_at: string | null
+  provider_id: string | null
+  provider_name: string | null
+}
+
+export async function listExpensesForDashboardFromPostgres(
+  propertyId: string,
+): Promise<ExpenseForDashboardRow[]> {
+  const result = await pgQuery<ExpenseForDashboardRow>(
+    `
+      select
+        e.id, e.amount::text as amount, e.status::text as status,
+        e.expense_kind::text as expense_kind, e.issued_at::text as issued_at,
+        e.provider_id, p.name as provider_name
+      from public.iadmin_expenses e
+      left join public.iadmin_providers p on p.id = e.provider_id
+      where e.managed_property_id = $1
+      order by e.issued_at desc nulls last
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function countActiveUnitsByPropertyFromPostgres(
+  propertyId: string,
+): Promise<number> {
+  const result = await pgQuery<{ c: number }>(
+    `select count(*)::int as c from public.iadmin_units where managed_property_id = $1 and is_active = true`,
+    [propertyId],
+  )
+  return result.rows[0]?.c ?? 0
+}
+
+export type DashboardRunRow = {
+  id: string
+  status: string
+  ordinary_total: string | null
+  extraordinary_total: string | null
+  total_expenses: string | null
+  accounting_period_id: string
+  period_year: number | null
+  period_month: number | null
+}
+
+export async function listDashboardRunsFromPostgres(input: {
+  managedPropertyId: string
+  limit: number
+}): Promise<DashboardRunRow[]> {
+  const result = await pgQuery<DashboardRunRow>(
+    `
+      select
+        r.id, r.status::text as status,
+        r.ordinary_total::text as ordinary_total,
+        r.extraordinary_total::text as extraordinary_total,
+        r.total_expenses::text as total_expenses,
+        r.accounting_period_id,
+        ap.period_year, ap.period_month
+      from public.iadmin_liquidation_runs r
+      left join public.iadmin_accounting_periods ap on ap.id = r.accounting_period_id
+      where r.managed_property_id = $1 and r.status in ('calculated', 'issued', 'closed')
+      order by r.generated_at desc
+      limit $2
+    `,
+    [input.managedPropertyId, input.limit],
+  )
+  return result.rows
+}
+
+export type DashboardItemRow = {
+  id: string
+  liquidation_run_id: string
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+}
+
+export async function listDashboardItemsByRunsFromPostgres(
+  runIds: string[],
+): Promise<DashboardItemRow[]> {
+  if (runIds.length === 0) return []
+  const result = await pgQuery<DashboardItemRow>(
+    `
+      select id, liquidation_run_id, ordinary_amount::text as ordinary_amount,
+             extraordinary_amount::text as extraordinary_amount,
+             previous_balance::text as previous_balance
+      from public.iadmin_liquidation_items
+      where liquidation_run_id = any($1::uuid[])
+    `,
+    [runIds],
+  )
+  return result.rows
+}
+
+export async function listPaidExpenseIdsFromPostgres(
+  expenseIds: string[],
+): Promise<Set<string>> {
+  if (expenseIds.length === 0) return new Set()
+  const result = await pgQuery<{ expense_id: string }>(
+    `select distinct expense_id from public.iadmin_bank_movements where movement_kind = 'expense_payment' and expense_id = any($1::uuid[])`,
+    [expenseIds],
+  )
+  return new Set(result.rows.map((r: { expense_id: string }) => r.expense_id).filter(Boolean))
+}
+
+export async function sumLivePaymentsForRunFromPostgres(runId: string): Promise<number> {
+  const result = await pgQuery<{ total: string }>(
+    `select coalesce(sum(amount), 0)::text as total from public.iadmin_payments where liquidation_run_id = $1 and is_void = false`,
+    [runId],
+  )
+  return Number(result.rows[0]?.total ?? 0)
+}
+
+export async function countPendingDocsForPropertyFromPostgres(
+  propertyId: string,
+): Promise<number> {
+  const result = await pgQuery<{ c: number }>(
+    `
+      select count(*)::int as c
+      from public.iadmin_ai_document_extractions x
+      inner join public.iadmin_expense_documents d on d.id = x.document_id
+      inner join public.iadmin_expenses e on e.id = d.expense_id
+      where e.managed_property_id = $1 and x.status::text in ('pending', 'suggested')
+    `,
+    [propertyId],
+  )
+  return result.rows[0]?.c ?? 0
+}
+
+export async function countActiveRecurringProvidersFromPostgres(
+  administrationId: string,
+): Promise<number> {
+  const result = await pgQuery<{ c: number }>(
+    `select count(*)::int as c from public.iadmin_providers where administration_id = $1 and is_recurring = true and is_active = true`,
+    [administrationId],
+  )
+  return result.rows[0]?.c ?? 0
+}
+
+// ----------------------------------------------------------------------------
+// Unit account statement (vecino: estado de cuenta)
+// ----------------------------------------------------------------------------
+
+export type UnitWithAdminHolderRow = {
+  id: string
+  code: string
+  kind: string
+  prorata_coefficient: string | null
+  managed_property_id: string
+  administration_id: string
+  holder_full_name: string | null
+  holder_phone: string | null
+  holder_email: string | null
+}
+
+export async function getUnitWithAdminAndHolderFromPostgres(input: {
+  unitId: string
+  managedPropertyId: string
+}): Promise<UnitWithAdminHolderRow | null> {
+  const result = await pgQuery<UnitWithAdminHolderRow>(
+    `
+      with chosen_holder as (
+        select distinct on (unit_id)
+          unit_id, full_name, phone, email, is_active
+        from public.iadmin_unit_holders
+        order by unit_id, is_active desc, created_at asc
+      )
+      select
+        u.id, u.code, u.kind::text as kind,
+        u.prorata_coefficient::text as prorata_coefficient,
+        u.managed_property_id, mp.administration_id,
+        ch.full_name as holder_full_name,
+        ch.phone as holder_phone,
+        ch.email as holder_email
+      from public.iadmin_units u
+      inner join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      left join chosen_holder ch on ch.unit_id = u.id
+      where u.id = $1 and u.managed_property_id = $2
+      limit 1
+    `,
+    [input.unitId, input.managedPropertyId],
+  )
+  return result.rows[0] ?? null
+}
+
+export type AccountingPeriodWindowRow = {
+  id: string
+  period_year: number
+  period_month: number
+  status: string
+}
+
+export async function listAccountingPeriodsByYearsFromPostgres(input: {
+  managedPropertyId: string
+  years: number[]
+}): Promise<AccountingPeriodWindowRow[]> {
+  if (input.years.length === 0) return []
+  const result = await pgQuery<AccountingPeriodWindowRow>(
+    `
+      select id, period_year, period_month, status::text as status
+      from public.iadmin_accounting_periods
+      where managed_property_id = $1 and period_year = any($2::int[])
+    `,
+    [input.managedPropertyId, input.years],
+  )
+  return result.rows
+}
+
+export type RunWithUnitItemRow = {
+  run_id: string
+  run_status: string
+  period_year: number | null
+  period_month: number | null
+  item_id: string | null
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+}
+
+export async function listRunsWithUnitItemFromPostgres(input: {
+  managedPropertyId: string
+  unitId: string
+}): Promise<RunWithUnitItemRow[]> {
+  const result = await pgQuery<RunWithUnitItemRow>(
+    `
+      select
+        r.id as run_id,
+        r.status::text as run_status,
+        ap.period_year,
+        ap.period_month,
+        i.id as item_id,
+        i.ordinary_amount::text as ordinary_amount,
+        i.extraordinary_amount::text as extraordinary_amount,
+        i.previous_balance::text as previous_balance
+      from public.iadmin_liquidation_runs r
+      left join public.iadmin_accounting_periods ap on ap.id = r.accounting_period_id
+      left join public.iadmin_liquidation_items i on i.liquidation_run_id = r.id and i.unit_id = $2
+      where r.managed_property_id = $1
+    `,
+    [input.managedPropertyId, input.unitId],
+  )
+  return result.rows
+}
+
+export type ImputedTotalsByPeriodRow = {
+  accounting_period_id: string
+  ord_total: string
+  ext_total: string
+}
+
+export async function sumImputedExpensesByPeriodsFromPostgres(input: {
+  managedPropertyId: string
+  periodIds: string[]
+}): Promise<ImputedTotalsByPeriodRow[]> {
+  if (input.periodIds.length === 0) return []
+  const result = await pgQuery<ImputedTotalsByPeriodRow>(
+    `
+      select
+        accounting_period_id,
+        coalesce(sum(case when (expense_kind::text = 'extraordinaria') then 0 else amount end), 0)::text as ord_total,
+        coalesce(sum(case when (expense_kind::text = 'extraordinaria') then amount else 0 end), 0)::text as ext_total
+      from public.iadmin_expenses
+      where managed_property_id = $1
+        and status = 'imputed'
+        and accounting_period_id = any($2::uuid[])
+      group by accounting_period_id
+    `,
+    [input.managedPropertyId, input.periodIds],
+  )
+  return result.rows
+}
+
+export type UnitPaymentRow = {
+  id: string
+  amount: string
+  paid_at: string
+  method: string | null
+  reference: string | null
+  receipt_number: string | null
+  due_label: string | null
+  surcharge_amount: string | null
+  is_void: boolean
+  notes: string | null
+  liquidation_run_id: string | null
+  liquidation_item_id: string | null
+  period_year: number | null
+  period_month: number | null
+}
+
+export async function listUnitPaymentsInWindowFromPostgres(input: {
+  unitId: string
+  windowStart: string
+}): Promise<UnitPaymentRow[]> {
+  const result = await pgQuery<UnitPaymentRow>(
+    `
+      select
+        p.id, p.amount::text as amount, p.paid_at::text as paid_at,
+        p.method, p.reference, p.receipt_number, p.due_label,
+        p.surcharge_amount::text as surcharge_amount,
+        p.is_void, p.notes,
+        p.liquidation_run_id, p.liquidation_item_id,
+        ap.period_year, ap.period_month
+      from public.iadmin_payments p
+      left join public.iadmin_liquidation_runs r on r.id = p.liquidation_run_id
+      left join public.iadmin_accounting_periods ap on ap.id = r.accounting_period_id
+      where p.unit_id = $1 and p.paid_at >= $2::date
+      order by p.paid_at desc
+    `,
+    [input.unitId, input.windowStart],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
 // Liquidation run detail (run + admin + property + period + profiles)
 // ----------------------------------------------------------------------------
 
