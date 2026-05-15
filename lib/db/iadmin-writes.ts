@@ -634,6 +634,456 @@ export async function updateAIExtractionDecisionInPostgres(input: {
 }
 
 // ----------------------------------------------------------------------------
+// Managed property + units + holders + memberships + building info + periods
+// (consorcios/[id]/actions.ts)
+// ----------------------------------------------------------------------------
+
+export async function updateManagedPropertyInPostgres(
+  propertyId: string,
+  patch: Partial<{
+    display_name: string | null
+    tax_id: string | null
+    management_fee_pct: number | null
+    managed_since: string | null
+    property_kind: string
+    notes: string | null
+  }>,
+): Promise<void> {
+  const cols: string[] = []
+  const values: unknown[] = []
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    values.push(value)
+    if (key === 'managed_since') {
+      cols.push(`${key} = $${values.length}::date`)
+    } else if (key === 'property_kind') {
+      cols.push(`${key} = $${values.length}::iadmin_property_kind`)
+    } else {
+      cols.push(`${key} = $${values.length}`)
+    }
+  }
+  if (cols.length === 0) return
+  values.push(propertyId)
+  await pgQuery(
+    `update public.iadmin_managed_properties set ${cols.join(', ')} where id = $${values.length}`,
+    values,
+  )
+}
+
+export async function updatePropertyLegalInfoInPostgres(input: {
+  propertyId: string
+  legalInfo: Record<string, unknown>
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_managed_properties set legal_info = $1::jsonb where id = $2`,
+    [JSON.stringify(input.legalInfo), input.propertyId],
+  )
+}
+
+export async function getBuildingIdForPropertyFromPostgres(propertyId: string): Promise<string | null> {
+  const result = await pgQuery<{ building_id: string }>(
+    `select building_id from public.iadmin_managed_properties where id = $1 limit 1`,
+    [propertyId],
+  )
+  return result.rows[0]?.building_id ?? null
+}
+
+export async function insertUnitFromCrudInPostgres(input: {
+  managedPropertyId: string
+  code: string
+  kind: string
+  floor: string | null
+  surfaceM2: number | null
+  prorataCoefficient: number | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_units (
+        managed_property_id, code, kind, floor, surface_m2, prorata_coefficient, is_active
+      )
+      values ($1, $2, $3::iadmin_unit_kind, $4, $5, $6, true)
+      returning id
+    `,
+    [
+      input.managedPropertyId,
+      input.code,
+      input.kind,
+      input.floor,
+      input.surfaceM2,
+      input.prorataCoefficient,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function updateUnitInPostgres(
+  unitId: string,
+  patch: Partial<{
+    code: string
+    kind: string
+    floor: string | null
+    surface_m2: number | null
+    prorata_coefficient: number | null
+  }>,
+): Promise<void> {
+  const cols: string[] = []
+  const values: unknown[] = []
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    values.push(value)
+    if (key === 'kind') cols.push(`${key} = $${values.length}::iadmin_unit_kind`)
+    else cols.push(`${key} = $${values.length}`)
+  }
+  if (cols.length === 0) return
+  values.push(unitId)
+  await pgQuery(
+    `update public.iadmin_units set ${cols.join(', ')} where id = $${values.length}`,
+    values,
+  )
+}
+
+export async function getUnitWithAdminFromPostgres(unitId: string): Promise<{
+  id: string
+  managed_property_id: string
+  administration_id: string
+  building_id: string
+  code: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    managed_property_id: string
+    administration_id: string
+    building_id: string
+    code: string
+  }>(
+    `
+      select u.id, u.managed_property_id, mp.administration_id, mp.building_id, u.code
+      from public.iadmin_units u
+      inner join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      where u.id = $1
+      limit 1
+    `,
+    [unitId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function deactivateUnitInPostgres(unitId: string): Promise<void> {
+  await pgQuery(`update public.iadmin_units set is_active = false where id = $1`, [unitId])
+}
+
+export async function insertUnitHolderFromCrudInPostgres(input: {
+  unitId: string
+  fullName: string
+  holderKind: string
+  taxId: string | null
+  email: string | null
+  phone: string | null
+  startDate: string | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_unit_holders (
+        unit_id, full_name, holder_kind, tax_id, email, phone, start_date, is_active
+      )
+      values ($1, $2, $3::iadmin_holder_kind, $4, $5, $6, $7::date, true)
+      returning id
+    `,
+    [
+      input.unitId,
+      input.fullName,
+      input.holderKind,
+      input.taxId,
+      input.email,
+      input.phone,
+      input.startDate,
+    ],
+  )
+  return result.rows[0]
+}
+
+export async function getHolderWithAdminFromPostgres(holderId: string): Promise<{
+  id: string
+  unit_id: string
+  managed_property_id: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    unit_id: string
+    managed_property_id: string
+    administration_id: string
+  }>(
+    `
+      select h.id, h.unit_id, u.managed_property_id, mp.administration_id
+      from public.iadmin_unit_holders h
+      inner join public.iadmin_units u on u.id = h.unit_id
+      inner join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      where h.id = $1
+      limit 1
+    `,
+    [holderId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function endHolderInPostgres(input: {
+  holderId: string
+  endDate: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_unit_holders set is_active = false, end_date = $1::date where id = $2`,
+    [input.endDate, input.holderId],
+  )
+}
+
+export async function getUnitFullScopeFromPostgres(unitId: string): Promise<{
+  unitId: string
+  unitCode: string
+  managedPropertyId: string
+  administrationId: string
+  buildingId: string
+} | null> {
+  const row = await getUnitWithAdminFromPostgres(unitId)
+  if (!row) return null
+  return {
+    unitId: row.id,
+    unitCode: row.code,
+    managedPropertyId: row.managed_property_id,
+    administrationId: row.administration_id,
+    buildingId: row.building_id,
+  }
+}
+
+export async function deactivateActivePrincipalMembershipsInPostgres(unitId: string): Promise<void> {
+  await pgQuery(
+    `update public.unit_profile_memberships set active = false where unit_id = $1 and relationship_type = 'vecino_principal' and active = true`,
+    [unitId],
+  )
+}
+
+export async function findUnitProfileMembershipFromPostgres(input: {
+  unitId: string
+  profileId: string
+  relationshipType: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.unit_profile_memberships where unit_id = $1 and profile_id = $2 and relationship_type = $3 limit 1`,
+    [input.unitId, input.profileId, input.relationshipType],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function upsertUnitProfileMembershipInPostgres(input: {
+  membershipId: string | null
+  unitId: string
+  buildingId: string
+  profileId: string
+  relationshipType: string
+  isPrimary: boolean
+  createdByProfileId: string | null
+}): Promise<void> {
+  if (input.membershipId) {
+    await pgQuery(
+      `
+        update public.unit_profile_memberships
+        set unit_id = $1,
+            building_id = $2,
+            profile_id = $3,
+            relationship_type = $4,
+            is_primary = $5,
+            active = true,
+            created_by_profile_id = coalesce($6, created_by_profile_id)
+        where id = $7
+      `,
+      [
+        input.unitId,
+        input.buildingId,
+        input.profileId,
+        input.relationshipType,
+        input.isPrimary,
+        input.createdByProfileId,
+        input.membershipId,
+      ],
+    )
+    return
+  }
+  await pgQuery(
+    `
+      insert into public.unit_profile_memberships (
+        unit_id, building_id, profile_id, relationship_type, is_primary, active, created_by_profile_id
+      )
+      values ($1, $2, $3, $4, $5, true, $6)
+    `,
+    [
+      input.unitId,
+      input.buildingId,
+      input.profileId,
+      input.relationshipType,
+      input.isPrimary,
+      input.createdByProfileId,
+    ],
+  )
+}
+
+export async function findOwnerHolderForProfileFromPostgres(input: {
+  unitId: string
+  profileId: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_unit_holders where unit_id = $1 and profile_id = $2 and holder_kind = 'propietario' limit 1`,
+    [input.unitId, input.profileId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function insertOwnerHolderInPostgres(input: {
+  unitId: string
+  profileId: string
+  fullName: string
+  email: string | null
+  phone: string | null
+}): Promise<void> {
+  await pgQuery(
+    `
+      insert into public.iadmin_unit_holders (
+        unit_id, profile_id, full_name, holder_kind, email, phone, is_active
+      )
+      values ($1, $2, $3, 'propietario'::iadmin_holder_kind, $4, $5, true)
+    `,
+    [input.unitId, input.profileId, input.fullName, input.email, input.phone],
+  )
+}
+
+export async function getMembershipWithAdminFromPostgres(membershipId: string): Promise<{
+  id: string
+  unit_id: string
+  managed_property_id: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    unit_id: string
+    managed_property_id: string
+    administration_id: string
+  }>(
+    `
+      select m.id, m.unit_id, u.managed_property_id, mp.administration_id
+      from public.unit_profile_memberships m
+      inner join public.iadmin_units u on u.id = m.unit_id
+      inner join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      where m.id = $1
+      limit 1
+    `,
+    [membershipId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function deactivateMembershipByIdInPostgres(membershipId: string): Promise<void> {
+  await pgQuery(
+    `update public.unit_profile_memberships set active = false where id = $1`,
+    [membershipId],
+  )
+}
+
+export async function insertBuildingInformationInPostgres(input: {
+  buildingId: string
+  title: string
+  category: string
+  content: string
+  visibleTo: string
+  sortOrder: number
+  createdByProfileId: string
+}): Promise<void> {
+  await pgQuery(
+    `
+      insert into public.building_information (
+        building_id, title, category, content, visible_to, sort_order,
+        created_by_profile_id, updated_by_profile_id, is_active
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $7, true)
+    `,
+    [
+      input.buildingId,
+      input.title,
+      input.category,
+      input.content,
+      input.visibleTo,
+      input.sortOrder,
+      input.createdByProfileId,
+    ],
+  )
+}
+
+export async function deactivateBuildingInformationInPostgres(input: {
+  itemId: string
+  updatedByProfileId: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.building_information set is_active = false, updated_by_profile_id = $1 where id = $2`,
+    [input.updatedByProfileId, input.itemId],
+  )
+}
+
+export async function upsertAccountingPeriodOpenInPostgres(input: {
+  managedPropertyId: string
+  periodYear: number
+  periodMonth: number
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_accounting_periods (managed_property_id, period_year, period_month, status)
+      values ($1, $2, $3, 'open')
+      on conflict (managed_property_id, period_year, period_month) do update set status = 'open'
+      returning id
+    `,
+    [input.managedPropertyId, input.periodYear, input.periodMonth],
+  )
+  return result.rows[0]
+}
+
+export async function getAccountingPeriodWithAdminFromPostgres(periodId: string): Promise<{
+  id: string
+  managed_property_id: string
+  administration_id: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    managed_property_id: string
+    administration_id: string
+  }>(
+    `
+      select ap.id, ap.managed_property_id, mp.administration_id
+      from public.iadmin_accounting_periods ap
+      inner join public.iadmin_managed_properties mp on mp.id = ap.managed_property_id
+      where ap.id = $1
+      limit 1
+    `,
+    [periodId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function changeAccountingPeriodStatusInPostgres(input: {
+  periodId: string
+  nextStatus: 'open' | 'locked' | 'closed'
+  closedByProfileId: string | null
+}): Promise<void> {
+  if (input.nextStatus === 'closed') {
+    await pgQuery(
+      `update public.iadmin_accounting_periods set status = 'closed', closed_at = now(), closed_by = $1 where id = $2`,
+      [input.closedByProfileId, input.periodId],
+    )
+  } else {
+    await pgQuery(
+      `update public.iadmin_accounting_periods set status = $1, closed_at = null, closed_by = null where id = $2`,
+      [input.nextStatus, input.periodId],
+    )
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Planilla import (suggest match + duplicates check)
 // ----------------------------------------------------------------------------
 
