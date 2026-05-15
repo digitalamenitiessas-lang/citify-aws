@@ -17,7 +17,6 @@ import type {
   UserRole,
 } from '@/lib/types'
 import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy-ai'
-import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 import { adminCreateCognitoUser } from '@/lib/aws/cognito'
 import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 import {
@@ -25,9 +24,21 @@ import {
   assignIAdminRoleGrantInPostgres,
   callSuperadminCreateConsorcioInPostgres,
   createBusinessInPostgres,
+  findUnitByPropertyAndCodeIlikeFromPostgres,
   getAdministrationIdByBuildingFromPostgres,
+  getBuildingByIdFromPostgres,
+  getManagedPropertyIdByBuildingFromPostgres,
+  listUnitsForOccupancyFromPostgres,
   setBusinessOwnerInPostgres,
 } from '@/lib/db/superadmin'
+import {
+  deactivateActivePrincipalMembershipsInPostgres,
+  findOwnerHolderForProfileFromPostgres,
+  findUnitProfileMembershipFromPostgres,
+  insertOwnerHolderInPostgres,
+  insertUnitFromCrudInPostgres,
+  upsertUnitProfileMembershipInPostgres,
+} from '@/lib/db/iadmin-writes'
 
 function avatarFromName(fullName: string) {
   return fullName
@@ -511,39 +522,19 @@ export async function analyzeInitialOccupancyFile(
   const parsed = analyzeInitialOccupancyFileSchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para analizar importaciones desde superadmin.')
-  }
-
-  const { data: building } = await admin
-    .from('buildings')
-    .select('id, name')
-    .eq('id', parsed.buildingId)
-    .maybeSingle()
-
+  const building = await getBuildingByIdFromPostgres(parsed.buildingId)
   if (!building) {
     throw new Error('No encontramos el edificio seleccionado.')
   }
 
-  const { data: property } = await admin
-    .from('iadmin_managed_properties')
-    .select('id')
-    .eq('building_id', parsed.buildingId)
-    .limit(1)
-    .maybeSingle()
-
-  if (!property?.id) {
+  const propertyId = await getManagedPropertyIdByBuildingFromPostgres(parsed.buildingId)
+  if (!propertyId) {
     throw new Error('El edificio seleccionado todavía no tiene una propiedad IAdmin asociada.')
   }
 
-  const { data: units } = await admin
-    .from('iadmin_units')
-    .select('id, code, floor, kind')
-    .eq('managed_property_id', property.id)
-
+  const units = await listUnitsForOccupancyFromPostgres(propertyId)
   const existingUnits = new Map(
-    (units ?? []).map((unit) => [normalizeText(String(unit.code ?? '')), { id: String(unit.id), code: String(unit.code ?? '') }]),
+    units.map((unit) => [normalizeText(String(unit.code ?? '')), { id: unit.id, code: unit.code }]),
   )
 
   const sheets = readSpreadsheetFile(parsed.fileBase64, parsed.fileName)
@@ -666,19 +657,8 @@ export async function confirmInitialOccupancyImport(
   const parsed = confirmInitialOccupancyImportSchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para confirmar importaciones desde superadmin.')
-  }
-
-  const { data: property } = await admin
-    .from('iadmin_managed_properties')
-    .select('id')
-    .eq('building_id', parsed.buildingId)
-    .limit(1)
-    .maybeSingle()
-
-  if (!property?.id) {
+  const propertyId = await getManagedPropertyIdByBuildingFromPostgres(parsed.buildingId)
+  if (!propertyId) {
     throw new Error('No existe una propiedad IAdmin para el edificio seleccionado.')
   }
 
@@ -689,46 +669,32 @@ export async function confirmInitialOccupancyImport(
   const errors: string[] = []
 
   for (const row of parsed.rows as ConfirmableImportRow[]) {
-    if (row.status !== 'ready') {
-      continue
-    }
+    if (row.status !== 'ready') continue
 
     try {
       let unitId = row.existingUnitId
       if (!unitId) {
-        const { data: existingUnit } = await admin
-          .from('iadmin_units')
-          .select('id')
-          .eq('managed_property_id', property.id)
-          .ilike('code', row.unitCode)
-          .limit(1)
-          .maybeSingle()
-
-        if (existingUnit?.id) {
-          unitId = String(existingUnit.id)
+        const existingUnit = await findUnitByPropertyAndCodeIlikeFromPostgres({
+          managedPropertyId: propertyId,
+          code: row.unitCode,
+        })
+        if (existingUnit) {
+          unitId = existingUnit.id
         } else {
-          const { data: createdUnit, error: unitError } = await admin
-            .from('iadmin_units')
-            .insert({
-              managed_property_id: property.id,
-              code: row.unitCode,
-              floor: row.floor,
-              kind: row.unitKind,
-              is_active: true,
-            })
-            .select('id')
-            .single()
-          if (unitError || !createdUnit) throw new Error(unitError?.message ?? 'No se pudo crear la unidad.')
-          unitId = String(createdUnit.id)
+          const created = await insertUnitFromCrudInPostgres({
+            managedPropertyId: propertyId,
+            code: row.unitCode,
+            kind: row.unitKind,
+            floor: row.floor,
+            surfaceM2: null,
+            prorataCoefficient: null,
+          })
+          unitId = created.id
           createdUnits += 1
         }
       }
 
-      const { data: existingProfile } = await admin
-        .from('profiles')
-        .select('id')
-        .eq('email', row.email.toLowerCase())
-        .maybeSingle()
+      const existingProfile = await findProfileByEmail(row.email.toLowerCase())
 
       const profileId = await findOrCreatePlatformProfile({
         fullName: row.fullName,
@@ -739,67 +705,44 @@ export async function confirmInitialOccupancyImport(
         buildingId: parsed.buildingId,
       })
 
-      if (!existingProfile?.id) {
-        createdUsers += 1
-      }
+      if (!existingProfile) createdUsers += 1
 
       if (row.relationshipType === 'vecino_principal') {
-        await admin
-          .from('unit_profile_memberships')
-          .update({ active: false })
-          .eq('unit_id', unitId)
-          .eq('relationship_type', 'vecino_principal')
-          .eq('active', true)
+        await deactivateActivePrincipalMembershipsInPostgres(unitId)
       }
 
-      const { data: existingMembership } = await admin
-        .from('unit_profile_memberships')
-        .select('id')
-        .eq('unit_id', unitId)
-        .eq('profile_id', profileId)
-        .eq('relationship_type', row.relationshipType)
-        .maybeSingle()
+      const existingMembership = await findUnitProfileMembershipFromPostgres({
+        unitId,
+        profileId,
+        relationshipType: row.relationshipType,
+      })
 
-      const membershipPayload = {
-        unit_id: unitId,
-        building_id: parsed.buildingId,
-        profile_id: profileId,
-        relationship_type: row.relationshipType,
-        is_primary: row.relationshipType === 'propietario' ? row.isPrimary : false,
-        active: true,
-      }
+      await upsertUnitProfileMembershipInPostgres({
+        membershipId: existingMembership?.id ?? null,
+        unitId,
+        buildingId: parsed.buildingId,
+        profileId,
+        relationshipType: row.relationshipType,
+        isPrimary: row.relationshipType === 'propietario' ? row.isPrimary : false,
+        createdByProfileId: null,
+      })
 
-      const { error: membershipError } = existingMembership
-        ? await admin.from('unit_profile_memberships').update(membershipPayload).eq('id', existingMembership.id)
-        : await admin.from('unit_profile_memberships').insert(membershipPayload)
-      if (membershipError) throw new Error(membershipError.message)
-
-      if (existingMembership) {
-        updatedMemberships += 1
-      } else {
-        linkedMemberships += 1
-      }
+      if (existingMembership) updatedMemberships += 1
+      else linkedMemberships += 1
 
       if (row.relationshipType === 'propietario') {
-        const { data: existingHolder } = await admin
-          .from('iadmin_unit_holders')
-          .select('id')
-          .eq('unit_id', unitId)
-          .eq('profile_id', profileId)
-          .eq('holder_kind', 'propietario')
-          .maybeSingle()
-
+        const existingHolder = await findOwnerHolderForProfileFromPostgres({
+          unitId,
+          profileId,
+        })
         if (!existingHolder) {
-          const { error: holderError } = await admin.from('iadmin_unit_holders').insert({
-            unit_id: unitId,
-            profile_id: profileId,
-            full_name: row.fullName,
-            holder_kind: 'propietario',
+          await insertOwnerHolderInPostgres({
+            unitId,
+            profileId,
+            fullName: row.fullName,
             email: row.email.toLowerCase(),
             phone: row.phone || null,
-            is_active: true,
           })
-          if (holderError) throw new Error(holderError.message)
         }
       }
     } catch (error) {
@@ -822,11 +765,6 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
   const parsed = bulkImportInitialOccupancySchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para importar usuarios desde superadmin.')
-  }
-
   const rows = parseImportCsv(parsed.csv)
   let createdUnits = 0
   let linkedUsers = 0
@@ -847,45 +785,32 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
       if (!buildingId || !unitCode || !relationship || !fullName || !email) {
         throw new Error('Faltan columnas obligatorias: building_id, unit_code, relationship_type, full_name, email.')
       }
-
       if (!['propietario', 'vecino_principal', 'vecino_adicional'].includes(relationship)) {
         throw new Error(`relationship_type invalido: ${relationship}.`)
       }
 
-      const { data: property } = await admin
-        .from('iadmin_managed_properties')
-        .select('id')
-        .eq('building_id', buildingId)
-        .limit(1)
-        .maybeSingle()
-
-      if (!property?.id) {
+      const propertyId = await getManagedPropertyIdByBuildingFromPostgres(buildingId)
+      if (!propertyId) {
         throw new Error(`No existe una propiedad IAdmin para building_id ${buildingId}.`)
       }
 
-      const { data: existingUnit } = await admin
-        .from('iadmin_units')
-        .select('id')
-        .eq('managed_property_id', property.id)
-        .ilike('code', unitCode)
-        .limit(1)
-        .maybeSingle()
-
-      let unitId = existingUnit?.id as string | undefined
-      if (!unitId) {
-        const { data: createdUnit, error: unitError } = await admin
-          .from('iadmin_units')
-          .insert({
-            managed_property_id: property.id,
-            code: unitCode,
-            floor,
-            kind,
-            is_active: true,
-          })
-          .select('id')
-          .single()
-        if (unitError || !createdUnit) throw new Error(unitError?.message ?? 'No se pudo crear la unidad.')
-        unitId = createdUnit.id as string
+      let unitId: string
+      const existingUnit = await findUnitByPropertyAndCodeIlikeFromPostgres({
+        managedPropertyId: propertyId,
+        code: unitCode,
+      })
+      if (existingUnit) {
+        unitId = existingUnit.id
+      } else {
+        const created = await insertUnitFromCrudInPostgres({
+          managedPropertyId: propertyId,
+          code: unitCode,
+          kind,
+          floor,
+          surfaceM2: null,
+          prorataCoefficient: null,
+        })
+        unitId = created.id
         createdUnits += 1
       }
 
@@ -899,54 +824,35 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
       })
 
       if (relationship === 'vecino_principal') {
-        await admin
-          .from('unit_profile_memberships')
-          .update({ active: false })
-          .eq('unit_id', unitId)
-          .eq('relationship_type', 'vecino_principal')
-          .eq('active', true)
+        await deactivateActivePrincipalMembershipsInPostgres(unitId)
       }
 
-      const { data: existingMembership } = await admin
-        .from('unit_profile_memberships')
-        .select('id')
-        .eq('unit_id', unitId)
-        .eq('profile_id', profileId)
-        .eq('relationship_type', relationship)
-        .maybeSingle()
+      const existingMembership = await findUnitProfileMembershipFromPostgres({
+        unitId,
+        profileId,
+        relationshipType: relationship,
+      })
 
-      const membershipPayload = {
-        unit_id: unitId,
-        building_id: buildingId,
-        profile_id: profileId,
-        relationship_type: relationship,
-        is_primary: relationship === 'propietario' ? parseBoolean(row.is_primary || row.principal) : false,
-        active: true,
-      }
-
-      const { error: membershipError } = existingMembership
-        ? await admin.from('unit_profile_memberships').update(membershipPayload).eq('id', existingMembership.id)
-        : await admin.from('unit_profile_memberships').insert(membershipPayload)
-      if (membershipError) throw new Error(membershipError.message)
+      await upsertUnitProfileMembershipInPostgres({
+        membershipId: existingMembership?.id ?? null,
+        unitId,
+        buildingId,
+        profileId,
+        relationshipType: relationship,
+        isPrimary:
+          relationship === 'propietario' ? parseBoolean(row.is_primary || row.principal) : false,
+        createdByProfileId: null,
+      })
 
       if (relationship === 'propietario') {
-        const { data: existingHolder } = await admin
-          .from('iadmin_unit_holders')
-          .select('id')
-          .eq('unit_id', unitId)
-          .eq('profile_id', profileId)
-          .eq('holder_kind', 'propietario')
-          .maybeSingle()
-
+        const existingHolder = await findOwnerHolderForProfileFromPostgres({ unitId, profileId })
         if (!existingHolder) {
-          await admin.from('iadmin_unit_holders').insert({
-            unit_id: unitId,
-            profile_id: profileId,
-            full_name: fullName,
-            holder_kind: 'propietario',
+          await insertOwnerHolderInPostgres({
+            unitId,
+            profileId,
+            fullName,
             email: email.toLowerCase(),
             phone,
-            is_active: true,
           })
         }
       }

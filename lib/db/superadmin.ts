@@ -220,6 +220,47 @@ export async function callSuperadminCreateConsorcioInPostgres(input: {
   return result.rows[0].result
 }
 
+export async function getBuildingByIdFromPostgres(
+  buildingId: string,
+): Promise<{ id: string; name: string } | null> {
+  const result = await pgQuery<{ id: string; name: string }>(
+    `select id, name from public.buildings where id = $1 limit 1`,
+    [buildingId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function getManagedPropertyIdByBuildingFromPostgres(
+  buildingId: string,
+): Promise<string | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_managed_properties where building_id = $1 limit 1`,
+    [buildingId],
+  )
+  return result.rows[0]?.id ?? null
+}
+
+export async function listUnitsForOccupancyFromPostgres(
+  propertyId: string,
+): Promise<Array<{ id: string; code: string; floor: string | null; kind: string }>> {
+  const result = await pgQuery<{ id: string; code: string; floor: string | null; kind: string }>(
+    `select id, code, floor, kind::text as kind from public.iadmin_units where managed_property_id = $1`,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export async function findUnitByPropertyAndCodeIlikeFromPostgres(input: {
+  managedPropertyId: string
+  code: string
+}): Promise<{ id: string } | null> {
+  const result = await pgQuery<{ id: string }>(
+    `select id from public.iadmin_units where managed_property_id = $1 and code ilike $2 limit 1`,
+    [input.managedPropertyId, input.code],
+  )
+  return result.rows[0] ?? null
+}
+
 export async function setBusinessOwnerInPostgres(
   businessId: string,
   ownerProfileId: string,
