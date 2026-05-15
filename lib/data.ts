@@ -115,7 +115,10 @@ import {
   listCashAccountsWithBalanceFromPostgres,
   listCashMovementsFromPostgres,
   listExpenseDocumentsWithExtractionFromPostgres,
+  listHoldersByUnitsFromPostgres,
+  listMembershipsWithProfileByUnitsFromPostgres,
   listRemindersWithContextFromPostgres,
+  listUnitsBasicByPropertyFromPostgres,
 } from '@/lib/db/iadmin-reads'
 import {
   listAllBuildingsFromPostgres,
@@ -2352,42 +2355,87 @@ export async function getIAdminProviders(administrationId: string): Promise<IAdm
 }
 
 export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAdminUnitWithHolders[]> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-  const { data } = await supabase
-    .from('iadmin_units')
-    .select(`
-      *,
-      iadmin_unit_holders ( * ),
-      unit_profile_memberships (
-        *,
-        profiles!unit_profile_memberships_profile_id_fkey (*),
-        iadmin_units (
-          id,
-          code,
-          floor,
-          iadmin_managed_properties ( buildings ( id, name ) )
-        )
-      )
-    `)
-    .eq('managed_property_id', propertyId)
-    .order('code')
+  const units = await listUnitsBasicByPropertyFromPostgres(propertyId)
+  if (units.length === 0) return []
 
-  return (data ?? []).map((row: any) => {
-    const baseUnit = mapUnit(row)
-    const holders = (row.iadmin_unit_holders ?? [])
-      .map(mapUnitHolder)
-      .sort((a: IAdminUnitHolder, b: IAdminUnitHolder) => {
+  const unitIds = units.map((u) => u.id)
+  const [holders, memberships] = await Promise.all([
+    listHoldersByUnitsFromPostgres(unitIds),
+    listMembershipsWithProfileByUnitsFromPostgres(unitIds),
+  ])
+
+  const holdersByUnit = new Map<string, typeof holders>()
+  for (const h of holders) {
+    const arr = holdersByUnit.get(h.unit_id) ?? []
+    arr.push(h)
+    holdersByUnit.set(h.unit_id, arr)
+  }
+  const membershipsByUnit = new Map<string, typeof memberships>()
+  for (const m of memberships) {
+    const arr = membershipsByUnit.get(m.unit_id) ?? []
+    arr.push(m)
+    membershipsByUnit.set(m.unit_id, arr)
+  }
+
+  return units.map((u) => {
+    const baseUnit = mapUnit({
+      id: u.id,
+      managed_property_id: u.managed_property_id,
+      code: u.code,
+      kind: u.kind,
+      floor: u.floor,
+      surface_m2: u.surface_m2,
+      prorata_coefficient: u.prorata_coefficient,
+      is_active: u.is_active,
+      created_at: u.created_at,
+      iadmin_unit_holders: [],
+    })
+    const sortedHolders = (holdersByUnit.get(u.id) ?? [])
+      .map((h) => mapUnitHolder({
+        id: h.id,
+        unit_id: h.unit_id,
+        profile_id: h.profile_id,
+        full_name: h.full_name,
+        holder_kind: h.holder_kind,
+        tax_id: h.tax_id,
+        email: h.email,
+        phone: h.phone,
+        start_date: h.start_date,
+        end_date: h.end_date,
+        is_active: h.is_active,
+        created_at: h.created_at,
+      }))
+      .sort((a, b) => {
         if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
         return (b.startDate ?? '').localeCompare(a.startDate ?? '')
       })
-    const memberships = (row.unit_profile_memberships ?? [])
-      .map(mapUnitProfileMembership)
-      .sort((a: UnitProfileMembership, b: UnitProfileMembership) => {
+    const sortedMemberships = (membershipsByUnit.get(u.id) ?? [])
+      .map((m) => mapUnitProfileMembership({
+        id: m.id,
+        unit_id: m.unit_id,
+        building_id: m.building_id,
+        profile_id: m.profile_id,
+        relationship_type: m.relationship_type,
+        is_primary: m.is_primary,
+        active: m.active,
+        created_at: m.created_at,
+        created_by_profile_id: m.created_by_profile_id,
+        profiles: m.profile_full_name
+          ? {
+              id: m.profile_id,
+              email: m.profile_email,
+              full_name: m.profile_full_name,
+              role: m.profile_role,
+              floor: m.profile_floor,
+              unit: m.profile_unit,
+            }
+          : null,
+      }))
+      .sort((a, b) => {
         if (a.active !== b.active) return a.active ? -1 : 1
         return a.relationshipType.localeCompare(b.relationshipType) || a.createdAt.localeCompare(b.createdAt)
       })
-    return { ...baseUnit, holders, memberships }
+    return { ...baseUnit, holders: sortedHolders, memberships: sortedMemberships }
   })
 }
 

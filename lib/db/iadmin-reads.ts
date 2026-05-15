@@ -312,6 +312,113 @@ export type ExpensePaymentRow = {
   cash_account_name: string | null
 }
 
+// ----------------------------------------------------------------------------
+// Units with holders + memberships (con profile mínimo)
+// ----------------------------------------------------------------------------
+
+export type UnitFullRow = {
+  id: string
+  managed_property_id: string
+  code: string
+  kind: string
+  floor: string | null
+  surface_m2: string | null
+  prorata_coefficient: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export async function listUnitsBasicByPropertyFromPostgres(
+  propertyId: string,
+): Promise<UnitFullRow[]> {
+  const result = await pgQuery<UnitFullRow>(
+    `
+      select id, managed_property_id, code, kind::text as kind, floor,
+             surface_m2::text as surface_m2, prorata_coefficient::text as prorata_coefficient,
+             is_active, created_at::text as created_at
+      from public.iadmin_units
+      where managed_property_id = $1
+      order by code
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
+export type HolderRow = {
+  id: string
+  unit_id: string
+  profile_id: string | null
+  full_name: string
+  holder_kind: string
+  tax_id: string | null
+  email: string | null
+  phone: string | null
+  start_date: string | null
+  end_date: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export async function listHoldersByUnitsFromPostgres(unitIds: string[]): Promise<HolderRow[]> {
+  if (unitIds.length === 0) return []
+  const result = await pgQuery<HolderRow>(
+    `
+      select id, unit_id, profile_id, full_name, holder_kind::text as holder_kind,
+             tax_id, email, phone,
+             start_date::text as start_date, end_date::text as end_date,
+             is_active, created_at::text as created_at
+      from public.iadmin_unit_holders
+      where unit_id = any($1::uuid[])
+    `,
+    [unitIds],
+  )
+  return result.rows
+}
+
+export type MembershipWithProfileRow = {
+  id: string
+  unit_id: string
+  building_id: string
+  profile_id: string
+  relationship_type: string
+  is_primary: boolean
+  active: boolean
+  created_at: string
+  created_by_profile_id: string | null
+  profile_email: string | null
+  profile_full_name: string | null
+  profile_role: string | null
+  profile_floor: string | null
+  profile_unit: string | null
+}
+
+export async function listMembershipsWithProfileByUnitsFromPostgres(
+  unitIds: string[],
+): Promise<MembershipWithProfileRow[]> {
+  if (unitIds.length === 0) return []
+  const result = await pgQuery<MembershipWithProfileRow>(
+    `
+      select
+        m.id, m.unit_id, m.building_id, m.profile_id,
+        m.relationship_type::text as relationship_type,
+        m.is_primary, m.active,
+        m.created_at::text as created_at,
+        m.created_by_profile_id,
+        p.email as profile_email,
+        p.full_name as profile_full_name,
+        p.role::text as profile_role,
+        p.floor as profile_floor,
+        p.unit as profile_unit
+      from public.unit_profile_memberships m
+      left join public.profiles p on p.id = m.profile_id
+      where m.unit_id = any($1::uuid[])
+    `,
+    [unitIds],
+  )
+  return result.rows
+}
+
 export async function getExpensePaymentInfoFromPostgres(
   expenseId: string,
 ): Promise<ExpensePaymentRow | null> {
