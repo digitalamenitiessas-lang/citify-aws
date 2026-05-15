@@ -1,4 +1,14 @@
-import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg'
+import { Pool, types, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg'
+
+// Keep date/time columns as ISO strings instead of JS Date objects so they can
+// be passed straight into React/JSON without "Objects are not valid as a React
+// child" runtime errors. Matches the historical Supabase REST behavior.
+const TIMESTAMPTZ_OID = 1184
+const TIMESTAMP_OID = 1114
+const DATE_OID = 1082
+types.setTypeParser(TIMESTAMPTZ_OID, (val: any) => val)
+types.setTypeParser(TIMESTAMP_OID, (val: any) => val)
+types.setTypeParser(DATE_OID, (val: any) => val)
 
 declare global {
   // eslint-disable-next-line no-var
