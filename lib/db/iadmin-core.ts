@@ -108,6 +108,242 @@ export interface IAdminPortfolioOverviewPropertyRow {
   run_status_this_month: string | null
 }
 
+export interface ConsorcioAssignmentRow {
+  id: string
+  profile_id: string
+  building_id: string
+  is_primary: boolean
+  created_at: string
+}
+
+export interface ConsorcioBuildingRow {
+  id: string
+  name: string
+  address: string | null
+  latitude: string | null
+  longitude: string | null
+  total_units: number | null
+  created_at: string
+}
+
+export interface ConsorcioNeighborRow {
+  id: string
+  email: string | null
+  full_name: string | null
+  role: string
+  avatar_text: string | null
+  building_id: string | null
+  floor: string | null
+  unit: string | null
+  phone: string | null
+  created_at: string
+}
+
+export interface ConsorcioAdminMentionRow {
+  building_id: string
+  profile: {
+    id: string
+    full_name: string | null
+    role: string
+    floor: string | null
+    unit: string | null
+  } | null
+}
+
+export interface ConsorcioComplaintCaseRow {
+  id: string
+  case_code: string
+  building_id: string
+  author_profile_id: string | null
+  title: string
+  description: string
+  status: string
+  other_reason_text: string | null
+  created_at: string
+  updated_at: string
+  resolved_at: string | null
+  closed_at: string | null
+  buildings: { id: string; name: string | null } | null
+  profiles: { id: string; full_name: string | null; email: string | null; avatar_text: string | null; floor: string | null; unit: string | null } | null
+  complaint_case_reasons: Array<{
+    complaint_reason_catalog: { id: string; slug: string; label: string; is_other: boolean } | null
+  }>
+  complaint_case_messages: Array<{
+    id: string
+    case_id: string
+    message: string
+    message_type: string
+    created_at: string
+    author_label: string | null
+    author_role: string | null
+    profiles: { id: string; full_name: string | null; avatar_text: string | null; role: string | null; floor: string | null; unit: string | null } | null
+    complaint_case_message_mentions: Array<{
+      id: string
+      message_id: string
+      mentioned_profile_id: string
+      profiles: { id: string; full_name: string | null; role: string | null; floor: string | null; unit: string | null } | null
+    }>
+  }>
+  complaint_case_events: Array<{
+    id: string
+    case_id: string
+    event_type: string
+    actor_label: string | null
+    actor_role: string | null
+    summary: string
+    metadata: Record<string, unknown> | null
+    created_at: string
+  }>
+}
+
+export interface UnitProfileMembershipRow {
+  id: string
+  unit_id: string
+  building_id: string
+  profile_id: string
+  relationship_type: string
+  is_primary: boolean
+  active: boolean
+  created_by_profile_id: string | null
+  created_at: string
+  profiles: {
+    id: string
+    email: string | null
+    full_name: string | null
+    role: string
+    avatar_text: string | null
+    building_id: string | null
+    floor: string | null
+    unit: string | null
+    phone: string | null
+    created_at: string
+  } | null
+  iadmin_units: {
+    id: string
+    code: string | null
+    floor: string | null
+    kind?: string | null
+    iadmin_managed_properties: {
+      id?: string
+      display_name?: string | null
+      buildings: {
+        id: string
+        name: string | null
+        address?: string | null
+      } | null
+    } | null
+  } | null
+}
+
+export interface BuildingInformationRow {
+  id: string
+  building_id: string
+  title: string
+  category: string | null
+  content: string
+  visible_to: string | null
+  sort_order: number | null
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface OwnerLiquidationItemRow {
+  id: string
+  unit_id: string
+  prorata_coefficient: string | null
+  amount: string | null
+  ordinary_amount: string | null
+  extraordinary_amount: string | null
+  previous_balance: string | null
+  iadmin_units: {
+    id: string
+    code: string | null
+    kind: string | null
+    iadmin_unit_holders: Array<{
+      id: string
+      full_name: string | null
+      holder_kind: string | null
+      is_active: boolean
+    }>
+  } | null
+  iadmin_liquidation_runs: {
+    id: string
+    period_year: number
+    period_month: number
+    status: string
+    generated_at: string | null
+  } | null
+}
+
+export interface OwnerPaymentRow {
+  id: string
+  administration_id: string
+  managed_property_id: string
+  liquidation_run_id: string | null
+  liquidation_item_id: string | null
+  unit_id: string | null
+  cash_account_id: string | null
+  bank_movement_id: string | null
+  amount: string
+  surcharge_amount: string | null
+  paid_at: string
+  method: string | null
+  reference: string | null
+  receipt_number: string | null
+  due_label: string | null
+  notes: string | null
+  is_void: boolean
+  voided_at: string | null
+  void_reason: string | null
+  created_at: string
+  iadmin_units: { id: string; code: string | null } | null
+  iadmin_cash_accounts: { id: string; name: string | null } | null
+}
+
+export interface IAdminUnitRow {
+  id: string
+  managed_property_id: string
+  code: string
+  kind: string | null
+  floor: string | null
+  surface_m2: string | null
+  prorata_coefficient: string | null
+  is_active: boolean
+  iadmin_unit_holders: Array<{
+    id: string
+    full_name: string | null
+    holder_kind: string | null
+    is_active: boolean
+  }>
+}
+
+export interface IAdminAccountingPeriodRow {
+  id: string
+  managed_property_id: string
+  period_year: number
+  period_month: number
+  status: string
+  closed_at: string | null
+}
+
+export interface IAdminRecentExpenseRow {
+  id: string
+  administration_id: string
+  managed_property_id: string
+  provider_name: string | null
+  category: string | null
+  description: string
+  amount: string
+  currency: string | null
+  issued_at: string | null
+  status: string
+  expense_kind: string | null
+  created_at: string
+  document_count: number
+  pending_extraction_count: number
+}
+
 export async function getIAdminAdministrationsFromPostgres(activeOnly = false): Promise<IAdminAdministrationRow[]> {
   const params: unknown[] = []
   const where = activeOnly ? 'where a.is_active = true' : ''
@@ -131,6 +367,583 @@ export async function getIAdminAdministrationsFromPostgres(activeOnly = false): 
   )
 
   return result.rows
+}
+
+export async function getConsorcioAssignmentsForProfileFromPostgres(
+  profileId: string,
+): Promise<ConsorcioAssignmentRow[]> {
+  const result = await pgQuery<ConsorcioAssignmentRow>(
+    `
+      select
+        id,
+        profile_id,
+        building_id,
+        is_primary,
+        created_at::text as created_at
+      from public.building_admin_assignments
+      where profile_id = $1
+      order by is_primary desc, created_at asc
+    `,
+    [profileId],
+  )
+
+  return result.rows
+}
+
+export async function getConsorcioBuildingsByIdsFromPostgres(
+  buildingIds: string[],
+): Promise<ConsorcioBuildingRow[]> {
+  if (buildingIds.length === 0) return []
+
+  const result = await pgQuery<ConsorcioBuildingRow>(
+    `
+      select
+        id,
+        name,
+        address,
+        latitude::text as latitude,
+        longitude::text as longitude,
+        total_units,
+        created_at::text as created_at
+      from public.buildings
+      where id = any($1::uuid[])
+      order by name asc
+    `,
+    [buildingIds],
+  )
+
+  return result.rows
+}
+
+export async function getConsorcioNeighborsByBuildingIdsFromPostgres(
+  buildingIds: string[],
+): Promise<ConsorcioNeighborRow[]> {
+  if (buildingIds.length === 0) return []
+
+  const result = await pgQuery<ConsorcioNeighborRow>(
+    `
+      select
+        id,
+        email,
+        full_name,
+        role::text as role,
+        avatar_text,
+        building_id,
+        floor,
+        unit,
+        phone,
+        created_at::text as created_at
+      from public.profiles
+      where role = 'vecino'
+        and building_id = any($1::uuid[])
+      order by full_name asc nulls last
+    `,
+    [buildingIds],
+  )
+
+  return result.rows
+}
+
+export async function getConsorcioAdminMentionablesByBuildingIdsFromPostgres(
+  buildingIds: string[],
+): Promise<ConsorcioAdminMentionRow[]> {
+  if (buildingIds.length === 0) return []
+
+  const result = await pgQuery<ConsorcioAdminMentionRow>(
+    `
+      select
+        baa.building_id,
+        json_build_object(
+          'id', p.id,
+          'full_name', p.full_name,
+          'role', p.role::text,
+          'floor', p.floor,
+          'unit', p.unit
+        ) as profile
+      from public.building_admin_assignments baa
+      inner join public.profiles p on p.id = baa.profile_id
+      where baa.building_id = any($1::uuid[])
+    `,
+    [buildingIds],
+  )
+
+  return result.rows
+}
+
+export async function getConsorcioComplaintCasesByBuildingIdsFromPostgres(
+  buildingIds: string[],
+): Promise<ConsorcioComplaintCaseRow[]> {
+  if (buildingIds.length === 0) return []
+
+  const result = await pgQuery<ConsorcioComplaintCaseRow>(
+    `
+      select
+        cc.id,
+        cc.case_code,
+        cc.building_id,
+        cc.author_profile_id,
+        cc.title,
+        cc.description,
+        cc.status::text as status,
+        cc.other_reason_text,
+        cc.created_at::text as created_at,
+        cc.updated_at::text as updated_at,
+        cc.resolved_at::text as resolved_at,
+        cc.closed_at::text as closed_at,
+        json_build_object('id', b.id, 'name', b.name) as buildings,
+        json_build_object(
+          'id', author.id,
+          'full_name', author.full_name,
+          'email', author.email,
+          'avatar_text', author.avatar_text,
+          'floor', author.floor,
+          'unit', author.unit
+        ) as profiles,
+        coalesce((
+          select json_agg(
+            json_build_object(
+              'complaint_reason_catalog',
+              json_build_object(
+                'id', crc.id,
+                'slug', crc.slug,
+                'label', crc.label,
+                'is_other', crc.is_other
+              )
+            )
+            order by crc.label asc
+          )
+          from public.complaint_case_reasons ccr
+          inner join public.complaint_reason_catalog crc on crc.id = ccr.reason_id
+          where ccr.case_id = cc.id
+        ), '[]'::json) as complaint_case_reasons,
+        coalesce((
+          select json_agg(
+            json_build_object(
+              'id', m.id,
+              'case_id', m.case_id,
+              'message', m.message,
+              'message_type', m.message_type::text,
+              'created_at', m.created_at::text,
+              'author_label', m.author_label,
+              'author_role', m.author_role,
+              'profiles', json_build_object(
+                'id', mp.id,
+                'full_name', mp.full_name,
+                'avatar_text', mp.avatar_text,
+                'role', mp.role::text,
+                'floor', mp.floor,
+                'unit', mp.unit
+              ),
+              'complaint_case_message_mentions', coalesce((
+                select json_agg(
+                  json_build_object(
+                    'id', mm.id,
+                    'message_id', mm.message_id,
+                    'mentioned_profile_id', mm.mentioned_profile_id,
+                    'profiles', json_build_object(
+                      'id', mentioned.id,
+                      'full_name', mentioned.full_name,
+                      'role', mentioned.role::text,
+                      'floor', mentioned.floor,
+                      'unit', mentioned.unit
+                    )
+                  )
+                  order by mm.created_at asc
+                )
+                from public.complaint_case_message_mentions mm
+                left join public.profiles mentioned on mentioned.id = mm.mentioned_profile_id
+                where mm.message_id = m.id
+              ), '[]'::json)
+            )
+            order by m.created_at asc
+          )
+          from public.complaint_case_messages m
+          left join public.profiles mp on mp.id = m.author_profile_id
+          where m.case_id = cc.id
+        ), '[]'::json) as complaint_case_messages,
+        coalesce((
+          select json_agg(
+            json_build_object(
+              'id', e.id,
+              'case_id', e.case_id,
+              'event_type', e.event_type::text,
+              'actor_label', e.actor_label,
+              'actor_role', e.actor_role,
+              'summary', e.summary,
+              'metadata', e.metadata,
+              'created_at', e.created_at::text
+            )
+            order by e.created_at asc
+          )
+          from public.complaint_case_events e
+          where e.case_id = cc.id
+        ), '[]'::json) as complaint_case_events
+      from public.complaint_cases cc
+      inner join public.buildings b on b.id = cc.building_id
+      left join public.profiles author on author.id = cc.author_profile_id
+      where cc.building_id = any($1::uuid[])
+      order by cc.created_at desc
+    `,
+    [buildingIds],
+  )
+
+  return result.rows
+}
+
+export async function getUnitProfileMembershipsForProfileFromPostgres(
+  profileId: string,
+  relationshipType?: string,
+): Promise<UnitProfileMembershipRow[]> {
+  const values: unknown[] = [profileId]
+  const relationshipFilter = relationshipType ? `and upm.relationship_type = $2` : ''
+  if (relationshipType) values.push(relationshipType)
+
+  const result = await pgQuery<UnitProfileMembershipRow>(
+    `
+      select
+        upm.id,
+        upm.unit_id,
+        upm.building_id,
+        upm.profile_id,
+        upm.relationship_type::text as relationship_type,
+        upm.is_primary,
+        upm.active,
+        upm.created_by_profile_id,
+        upm.created_at::text as created_at,
+        json_build_object(
+          'id', p.id,
+          'email', p.email,
+          'full_name', p.full_name,
+          'role', p.role::text,
+          'avatar_text', p.avatar_text,
+          'building_id', p.building_id,
+          'floor', p.floor,
+          'unit', p.unit,
+          'phone', p.phone,
+          'created_at', p.created_at::text
+        ) as profiles,
+        json_build_object(
+          'id', u.id,
+          'code', u.code,
+          'floor', u.floor,
+          'kind', u.kind::text,
+          'iadmin_managed_properties', json_build_object(
+            'id', mp.id,
+            'display_name', mp.display_name,
+            'buildings', json_build_object(
+              'id', b.id,
+              'name', b.name,
+              'address', b.address
+            )
+          )
+        ) as iadmin_units
+      from public.unit_profile_memberships upm
+      inner join public.profiles p on p.id = upm.profile_id
+      inner join public.iadmin_units u on u.id = upm.unit_id
+      left join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      left join public.buildings b on b.id = mp.building_id
+      where upm.profile_id = $1
+        and upm.active = true
+        ${relationshipFilter}
+      order by upm.is_primary desc, upm.created_at asc
+    `,
+    values,
+  )
+
+  return result.rows
+}
+
+export async function getBuildingInformationByBuildingIdsFromPostgres(
+  buildingIds: string[],
+  visibleTo?: string[],
+): Promise<BuildingInformationRow[]> {
+  if (buildingIds.length === 0) return []
+
+  const values: unknown[] = [buildingIds]
+  let visibleFilter = ''
+  if (visibleTo && visibleTo.length > 0) {
+    values.push(visibleTo)
+    visibleFilter = `and bi.visible_to = any($2::text[])`
+  }
+
+  const result = await pgQuery<BuildingInformationRow>(
+    `
+      select
+        bi.id,
+        bi.building_id,
+        bi.title,
+        bi.category,
+        bi.content,
+        bi.visible_to,
+        bi.sort_order,
+        bi.is_active,
+        bi.created_at::text as created_at,
+        bi.updated_at::text as updated_at
+      from public.building_information bi
+      where bi.building_id = any($1::uuid[])
+        and bi.is_active = true
+        ${visibleFilter}
+      order by bi.sort_order asc, bi.created_at desc
+    `,
+    values,
+  )
+
+  return result.rows
+}
+
+export async function getOwnerLiquidationItemsByUnitIdsFromPostgres(
+  unitIds: string[],
+): Promise<OwnerLiquidationItemRow[]> {
+  if (unitIds.length === 0) return []
+
+  const result = await pgQuery<OwnerLiquidationItemRow>(
+    `
+      select
+        li.id,
+        li.unit_id,
+        li.prorata_coefficient::text as prorata_coefficient,
+        li.amount::text as amount,
+        li.ordinary_amount::text as ordinary_amount,
+        li.extraordinary_amount::text as extraordinary_amount,
+        li.previous_balance::text as previous_balance,
+        json_build_object(
+          'id', u.id,
+          'code', u.code,
+          'kind', u.kind::text,
+          'iadmin_unit_holders', coalesce((
+            select json_agg(
+              json_build_object(
+                'id', h.id,
+                'full_name', h.full_name,
+                'holder_kind', h.holder_kind::text,
+                'is_active', h.is_active
+              )
+              order by h.is_active desc, h.created_at asc
+            )
+            from public.iadmin_unit_holders h
+            where h.unit_id = u.id
+          ), '[]'::json)
+        ) as iadmin_units,
+        json_build_object(
+          'id', lr.id,
+          'period_year', lr.period_year,
+          'period_month', lr.period_month,
+          'status', lr.status::text,
+          'generated_at', lr.generated_at::text
+        ) as iadmin_liquidation_runs
+      from public.iadmin_liquidation_items li
+      inner join public.iadmin_units u on u.id = li.unit_id
+      inner join public.iadmin_liquidation_runs lr on lr.id = li.liquidation_run_id
+      where li.unit_id = any($1::uuid[])
+      order by lr.generated_at desc nulls last
+    `,
+    [unitIds],
+  )
+
+  return result.rows
+}
+
+export async function getOwnerPaymentsByUnitIdsFromPostgres(
+  unitIds: string[],
+): Promise<OwnerPaymentRow[]> {
+  if (unitIds.length === 0) return []
+
+  const result = await pgQuery<OwnerPaymentRow>(
+    `
+      select
+        p.id,
+        p.administration_id,
+        p.managed_property_id,
+        p.liquidation_run_id,
+        p.liquidation_item_id,
+        p.unit_id,
+        p.cash_account_id,
+        p.bank_movement_id,
+        p.amount::text as amount,
+        p.surcharge_amount::text as surcharge_amount,
+        p.paid_at::text as paid_at,
+        p.method,
+        p.reference,
+        p.receipt_number,
+        p.due_label,
+        p.notes,
+        p.is_void,
+        p.voided_at::text as voided_at,
+        p.void_reason,
+        p.created_at::text as created_at,
+        json_build_object('id', u.id, 'code', u.code) as iadmin_units,
+        json_build_object('id', ca.id, 'name', ca.name) as iadmin_cash_accounts
+      from public.iadmin_payments p
+      left join public.iadmin_units u on u.id = p.unit_id
+      left join public.iadmin_cash_accounts ca on ca.id = p.cash_account_id
+      where p.unit_id = any($1::uuid[])
+        and p.is_void = false
+      order by p.paid_at desc
+    `,
+    [unitIds],
+  )
+
+  return result.rows
+}
+
+export async function getIAdminManagedPropertyByIdFromPostgres(
+  propertyId: string,
+): Promise<IAdminManagedPropertyRow | null> {
+  const result = await pgQuery<IAdminManagedPropertyRow>(
+    `
+      select
+        mp.id,
+        mp.administration_id,
+        mp.building_id,
+        mp.display_name,
+        mp.property_kind::text as property_kind,
+        mp.tax_id,
+        mp.managed_since::text as managed_since,
+        mp.management_fee_pct::text as management_fee_pct,
+        mp.notes,
+        mp.is_active,
+        mp.legal_info,
+        mp.created_at::text as created_at,
+        b.name as building_name,
+        b.address as building_address,
+        b.total_units
+      from public.iadmin_managed_properties mp
+      inner join public.buildings b on b.id = mp.building_id
+      where mp.id = $1
+      limit 1
+    `,
+    [propertyId],
+  )
+
+  return result.rows[0] ?? null
+}
+
+export async function getIAdminUnitsByPropertyFromPostgres(
+  propertyId: string,
+): Promise<IAdminUnitRow[]> {
+  const result = await pgQuery<IAdminUnitRow>(
+    `
+      select
+        u.id,
+        u.managed_property_id,
+        u.code,
+        u.kind::text as kind,
+        u.floor,
+        u.surface_m2::text as surface_m2,
+        u.prorata_coefficient::text as prorata_coefficient,
+        u.is_active,
+        coalesce((
+          select json_agg(
+            json_build_object(
+              'id', h.id,
+              'full_name', h.full_name,
+              'holder_kind', h.holder_kind::text,
+              'is_active', h.is_active
+            )
+            order by h.is_active desc, h.created_at asc
+          )
+          from public.iadmin_unit_holders h
+          where h.unit_id = u.id
+        ), '[]'::json) as iadmin_unit_holders
+      from public.iadmin_units u
+      where u.managed_property_id = $1
+      order by u.code asc
+    `,
+    [propertyId],
+  )
+
+  return result.rows
+}
+
+export async function getIAdminAccountingPeriodForPropertyMonthFromPostgres(
+  propertyId: string,
+  year: number,
+  month: number,
+): Promise<IAdminAccountingPeriodRow | null> {
+  const result = await pgQuery<IAdminAccountingPeriodRow>(
+    `
+      select
+        id,
+        managed_property_id,
+        period_year,
+        period_month,
+        status::text as status,
+        closed_at::text as closed_at
+      from public.iadmin_accounting_periods
+      where managed_property_id = $1
+        and period_year = $2
+        and period_month = $3
+      limit 1
+    `,
+    [propertyId, year, month],
+  )
+
+  return result.rows[0] ?? null
+}
+
+export async function getIAdminRecentExpensesByPropertyFromPostgres(
+  propertyId: string,
+  limit = 10,
+): Promise<IAdminRecentExpenseRow[]> {
+  const result = await pgQuery<IAdminRecentExpenseRow>(
+    `
+      select
+        e.id,
+        e.administration_id,
+        e.managed_property_id,
+        p.name as provider_name,
+        e.category,
+        e.description,
+        e.amount::text as amount,
+        e.currency,
+        e.issued_at::text as issued_at,
+        e.status::text as status,
+        e.expense_kind::text as expense_kind,
+        e.created_at::text as created_at,
+        count(distinct d.id)::int as document_count,
+        count(distinct case when ex.status <> 'validated' then ex.id end)::int as pending_extraction_count
+      from public.iadmin_expenses e
+      left join public.iadmin_providers p on p.id = e.provider_id
+      left join public.iadmin_expense_documents d on d.expense_id = e.id
+      left join public.iadmin_ai_document_extractions ex on ex.document_id = d.id
+      where e.managed_property_id = $1
+      group by
+        e.id,
+        e.administration_id,
+        e.managed_property_id,
+        p.name,
+        e.category,
+        e.description,
+        e.amount,
+        e.currency,
+        e.issued_at,
+        e.status,
+        e.expense_kind,
+        e.created_at
+      order by e.created_at desc
+      limit $2
+    `,
+    [propertyId, limit],
+  )
+
+  return result.rows
+}
+
+export async function countActiveUnitHoldersByPropertyFromPostgres(
+  propertyId: string,
+): Promise<number> {
+  const result = await pgQuery<{ count: number }>(
+    `
+      select count(*)::int as count
+      from public.iadmin_unit_holders h
+      inner join public.iadmin_units u on u.id = h.unit_id
+      where h.is_active = true
+        and u.managed_property_id = $1
+    `,
+    [propertyId],
+  )
+
+  return Number(result.rows[0]?.count ?? 0)
 }
 
 export async function getIAdminRoleGrantsForProfileFromPostgres(profileId: string): Promise<IAdminRoleGrantRow[]> {

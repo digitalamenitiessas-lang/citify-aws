@@ -43,6 +43,9 @@ import type {
   IAdminLegalInfo,
   IAdminLiquidationStatus,
   IAdminPropertyKind,
+  IAdminUnitKind,
+  IAdminHolderKind,
+  IAdminPeriodStatus,
   IAdminLiquidationItem,
   IAdminLiquidationItemDueAmount,
   IAdminLiquidationRunDetail,
@@ -85,12 +88,26 @@ import type {
 } from '@/lib/types'
 import { buildPublicS3Url } from '@/lib/aws/s3'
 import {
+  countActiveUnitHoldersByPropertyFromPostgres,
+  getBuildingInformationByBuildingIdsFromPostgres,
+  getConsorcioAdminMentionablesByBuildingIdsFromPostgres,
+  getConsorcioAssignmentsForProfileFromPostgres,
+  getConsorcioBuildingsByIdsFromPostgres,
+  getConsorcioComplaintCasesByBuildingIdsFromPostgres,
+  getConsorcioNeighborsByBuildingIdsFromPostgres,
   getIAdminAdministrationByIdFromPostgres,
+  getIAdminAccountingPeriodForPropertyMonthFromPostgres,
   getIAdminExpensesInboxFromPostgres,
   getIAdminManagedPropertiesByAdministrationFromPostgres,
+  getIAdminManagedPropertyByIdFromPostgres,
   getIAdminPortfolioOverviewRowsFromPostgres,
   getIAdminPortfolioStatsFromPostgres,
   getIAdminProvidersFromPostgres,
+  getIAdminRecentExpensesByPropertyFromPostgres,
+  getIAdminUnitsByPropertyFromPostgres,
+  getOwnerLiquidationItemsByUnitIdsFromPostgres,
+  getOwnerPaymentsByUnitIdsFromPostgres,
+  getUnitProfileMembershipsForProfileFromPostgres,
 } from '@/lib/db/iadmin-core'
 import {
   listAllBuildingsFromPostgres,
@@ -802,6 +819,143 @@ export async function getBusinessDashboardData(profileId: string): Promise<Busin
 }
 
 export async function getConsorcioDashboardData(profileId: string): Promise<ConsorcioDashboardData> {
+  if (isPostgresConfigured()) {
+    try {
+      const assignmentsRows = await getConsorcioAssignmentsForProfileFromPostgres(profileId)
+      const assignments = assignmentsRows.map(mapBuildingAssignment)
+      const buildingIds = assignments.map((assignment) => assignment.buildingId)
+
+      if (buildingIds.length === 0) {
+        return {
+          managedBuildings: [],
+          assignments,
+          primaryBuildingId: null,
+          totalBuildings: 0,
+          totalUnits: 0,
+          totalNeighbors: 0,
+          averageOccupancyRate: 0,
+          totalComplaintCases: 0,
+          complaintSummaries: [],
+          complaintReasonSummaries: [],
+        }
+      }
+
+      const [buildingsRows, neighborsRows, adminMentionRows, complaintCaseRows] = await Promise.all([
+        getConsorcioBuildingsByIdsFromPostgres(buildingIds),
+        getConsorcioNeighborsByBuildingIdsFromPostgres(buildingIds),
+        getConsorcioAdminMentionablesByBuildingIdsFromPostgres(buildingIds),
+        getConsorcioComplaintCasesByBuildingIdsFromPostgres(buildingIds),
+      ])
+
+      const neighborsByBuilding = new Map<string, Profile[]>()
+      for (const row of neighborsRows) {
+        const mapped = mapProfile(row)
+        if (!mapped.buildingId) continue
+        const current = neighborsByBuilding.get(mapped.buildingId) ?? []
+        current.push(mapped)
+        neighborsByBuilding.set(mapped.buildingId, current)
+      }
+
+      const adminProfilesByBuilding = new Map<string, ComplaintCaseMentionableUser[]>()
+      for (const row of adminMentionRows) {
+        const profile = row.profile
+        if (!profile?.id || !row.building_id) continue
+        const current = adminProfilesByBuilding.get(row.building_id) ?? []
+        if (!current.some((item) => item.profileId === profile.id)) {
+          current.push(mapMentionableUser(profile, row.building_id))
+        }
+        adminProfilesByBuilding.set(row.building_id, current)
+      }
+
+      const caseDetailsByBuilding = new Map<string, ComplaintCaseDetailConsorcioView[]>()
+      for (const row of complaintCaseRows) {
+        const buildingId = row.building_id
+        const mentionableUsers = [
+          ...(neighborsByBuilding.get(buildingId) ?? []).map((neighbor) =>
+            mapMentionableUser(
+              {
+                id: neighbor.id,
+                full_name: neighbor.fullName,
+                role: neighbor.role,
+                floor: neighbor.floor,
+                unit: neighbor.unit,
+              },
+              buildingId,
+            ),
+          ),
+          ...(adminProfilesByBuilding.get(buildingId) ?? []),
+        ].sort((a, b) => a.label.localeCompare(b.label))
+        const detail = mapConsorcioComplaintCaseDetail(row, mentionableUsers)
+        const current = caseDetailsByBuilding.get(detail.buildingId) ?? []
+        current.push(detail)
+        caseDetailsByBuilding.set(detail.buildingId, current)
+      }
+
+      const buildingsById = new Map(buildingsRows.map((row: any) => [row.id, mapBuilding(row)]))
+      const managedBuildings: ConsorcioManagedBuilding[] = assignments
+        .map((assignment) => {
+          const building = buildingsById.get(assignment.buildingId)
+          if (!building) return null
+          const neighbors = neighborsByBuilding.get(building.id) ?? []
+          const complaintCaseDetails = (caseDetailsByBuilding.get(building.id) ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem)
+          const complaintMentionableUsers = [
+            ...neighbors.map((neighbor) =>
+              mapMentionableUser(
+                {
+                  id: neighbor.id,
+                  full_name: neighbor.fullName,
+                  role: neighbor.role,
+                  floor: neighbor.floor,
+                  unit: neighbor.unit,
+                },
+                building.id,
+              ),
+            ),
+            ...(adminProfilesByBuilding.get(building.id) ?? []),
+          ]
+            .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
+            .sort((a, b) => a.label.localeCompare(b.label))
+
+          return {
+            building,
+            neighbors,
+            registeredNeighbors: neighbors.length,
+            occupancyRate: Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100),
+            complaintMentionableUsers,
+            complaintCases,
+            complaintCaseDetails,
+            complaintSummary: buildComplaintSummaryByBuilding(building.id, building.name, complaintCaseDetails),
+            reasonSummary: buildComplaintReasonSummary(complaintCaseDetails),
+          }
+        })
+        .filter((item): item is ConsorcioManagedBuilding => Boolean(item))
+
+      const totalUnits = managedBuildings.reduce((sum, item) => sum + item.building.totalUnits, 0)
+      const totalNeighbors = managedBuildings.reduce((sum, item) => sum + item.registeredNeighbors, 0)
+      const averageOccupancyRate = managedBuildings.length
+        ? Math.round(managedBuildings.reduce((sum, item) => sum + item.occupancyRate, 0) / managedBuildings.length)
+        : 0
+      const complaintSummaries = managedBuildings.map((item) => item.complaintSummary)
+      const complaintReasonSummaries = buildComplaintReasonSummary(managedBuildings.flatMap((item) => item.complaintCaseDetails))
+
+      return {
+        managedBuildings,
+        assignments,
+        primaryBuildingId: assignments.find((assignment) => assignment.isPrimary)?.buildingId ?? managedBuildings[0]?.building.id ?? null,
+        totalBuildings: managedBuildings.length,
+        totalUnits,
+        totalNeighbors,
+        averageOccupancyRate,
+        totalComplaintCases: managedBuildings.reduce((sum, item) => sum + item.complaintCases.length, 0),
+        complaintSummaries,
+        complaintReasonSummaries,
+      }
+    } catch (error) {
+      console.error('[getConsorcioDashboardData] Fallback a Supabase tras fallo en RDS:', error)
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) {
     return {
@@ -1341,6 +1495,93 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
 }
 
 export async function getOwnerDashboardData(profileId: string): Promise<OwnerDashboardData | null> {
+  if (isPostgresConfigured()) {
+    try {
+      const profileRow = await findProfileById(profileId)
+      if (profileRow) {
+        const membershipRows = await getUnitProfileMembershipsForProfileFromPostgres(profileId, 'propietario')
+        const memberships = membershipRows.map(mapUnitProfileMembership)
+        const unitIds = memberships.map((membership) => membership.unitId)
+        const buildingIds = Array.from(new Set(memberships.map((membership) => membership.buildingId)))
+
+        const [liquidationRows, paymentsRows, buildingInfoRows] = await Promise.all([
+          getOwnerLiquidationItemsByUnitIdsFromPostgres(unitIds),
+          getOwnerPaymentsByUnitIdsFromPostgres(unitIds),
+          getBuildingInformationByBuildingIdsFromPostgres(buildingIds, ['residentes', 'propietarios']),
+        ])
+
+        const latestByUnit = new Map<string, IAdminLiquidationItem>()
+        for (const item of liquidationRows) {
+          if (latestByUnit.has(item.unit_id)) continue
+          const unit = item.iadmin_units
+          const holders = Array.isArray(unit?.iadmin_unit_holders) ? unit.iadmin_unit_holders : []
+          const activeHolder = holders.find((holder) => holder?.is_active) ?? null
+          const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
+          const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
+          const previousBalance = Number(item.previous_balance ?? 0)
+          const subtotal = round2(ordinaryAmount + extraordinaryAmount + previousBalance)
+
+          latestByUnit.set(item.unit_id, {
+            id: item.id,
+            unitId: item.unit_id,
+            unitCode: unit?.code ?? 'Unidad',
+            unitKind: (unit?.kind ?? 'otro') as IAdminUnitKind,
+            activeHolderName: activeHolder?.full_name ?? null,
+            activeHolderKind: (activeHolder?.holder_kind ?? null) as IAdminHolderKind | null,
+            prorataCoefficient: Number(item.prorata_coefficient ?? 0),
+            ordinaryAmount,
+            extraordinaryAmount,
+            previousBalance,
+            amount: ordinaryAmount,
+            subtotal,
+            dueAmounts: [],
+            collectedAmount: 0,
+            balanceRemaining: subtotal,
+            payments: [],
+          })
+        }
+
+        const paymentsByUnit = new Map<string, IAdminPayment[]>()
+        for (const payment of paymentsRows) {
+          const mapped = mapPayment(payment)
+          const existing = paymentsByUnit.get(mapped.unitId ?? '') ?? []
+          existing.push(mapped)
+          if (mapped.unitId) paymentsByUnit.set(mapped.unitId, existing)
+        }
+
+        const units: OwnerUnitSummary[] = memberships.map((membership) => {
+          const latestLiquidation = latestByUnit.get(membership.unitId) ?? null
+          const payments = paymentsByUnit.get(membership.unitId) ?? []
+          const latestPayments = latestLiquidation
+            ? payments.filter((payment) => payment.liquidationItemId === latestLiquidation.id)
+            : []
+          const collectedAmount = round2(latestPayments.reduce((sum, payment) => sum + payment.amount, 0))
+
+          return {
+            membership,
+            latestLiquidation: latestLiquidation
+              ? {
+                  ...latestLiquidation,
+                  payments: latestPayments,
+                  collectedAmount,
+                  balanceRemaining: Math.max(round2(latestLiquidation.subtotal - collectedAmount), 0),
+                }
+              : null,
+            payments,
+          }
+        })
+
+        return {
+          profile: mapProfile(profileRow),
+          units,
+          buildingInformation: buildingInfoRows.map(mapBuildingInformation),
+        }
+      }
+    } catch {
+      // Fall back to Supabase while owner dashboard data completes migration to RDS.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return null
 
@@ -1733,6 +1974,58 @@ export async function getIAdminPortfolio(administrationId: string): Promise<IAdm
 }
 
 export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdminConsorcioDetail | null> {
+  if (isPostgresConfigured()) {
+    try {
+      const propertyRow = await getIAdminManagedPropertyByIdFromPostgres(propertyId)
+      if (propertyRow) {
+        const property = mapManagedPropertyFromPostgresRow(propertyRow as Awaited<ReturnType<typeof getIAdminManagedPropertiesByAdministrationFromPostgres>>[number])
+        const now = new Date()
+        const periodYear = now.getFullYear()
+        const periodMonth = now.getMonth() + 1
+
+        const [unitsRows, periodRow, expenseRows, holderCount, buildingInfoRows] = await Promise.all([
+          getIAdminUnitsByPropertyFromPostgres(propertyId),
+          getIAdminAccountingPeriodForPropertyMonthFromPostgres(propertyId, periodYear, periodMonth),
+          getIAdminRecentExpensesByPropertyFromPostgres(propertyId, 10),
+          countActiveUnitHoldersByPropertyFromPostgres(propertyId),
+          getBuildingInformationByBuildingIdsFromPostgres([property.buildingId]),
+        ])
+
+        const units = unitsRows.map(mapUnit)
+        const recentExpenses = expenseRows.map((row) =>
+          mapExpenseSummaryFromPostgresRow({
+            ...row,
+            property_display_name: property.displayName,
+            building_name: property.buildingName,
+          } as Awaited<ReturnType<typeof getIAdminExpensesInboxFromPostgres>>[number]),
+        )
+
+        const monthExpenses = recentExpenses.filter((expense) => {
+          if (!expense.issuedAt) return false
+          const date = new Date(expense.issuedAt)
+          return date.getFullYear() === periodYear && date.getMonth() + 1 === periodMonth
+        })
+        const monthAmount = monthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+
+        return {
+          property,
+          units,
+          recentExpenses,
+          currentPeriod: periodRow ? mapAccountingPeriod(periodRow) : null,
+          buildingInformation: buildingInfoRows.map(mapBuildingInformation),
+          totals: {
+            units: units.length,
+            activeHolders: holderCount,
+            monthExpenses: monthExpenses.length,
+            monthAmount,
+          },
+        }
+      }
+    } catch {
+      // Fall back to Supabase while consorcio detail finishes migrating to RDS.
+    }
+  }
+
   const supabase = await getSupabaseServerClient()
   if (!supabase) return null
 
