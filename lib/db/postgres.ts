@@ -70,3 +70,29 @@ export async function pgQuery<T extends QueryResultRow = QueryResultRow>(
 ): Promise<QueryResult<T>> {
   return getPostgresPool().query<T>(text, values)
 }
+
+// Ejecuta una serie de queries dentro de una transacción con
+// `app.current_profile_id` seteado, de modo que cualquier RPC que use
+// `auth.uid()` (que en RDS leemos desde esa variable de sesión) tenga acceso
+// al profile id del usuario autenticado por Cognito.
+export async function pgQueryAsProfile<T extends QueryResultRow = QueryResultRow>(
+  profileId: string,
+  text: string,
+  values?: unknown[],
+): Promise<QueryResult<T>> {
+  if (!/^[0-9a-fA-F-]{36}$/.test(profileId)) {
+    throw new Error('profileId con formato invalido')
+  }
+  return withPgClient(async (client) => {
+    await client.query('begin')
+    try {
+      await client.query(`set local app.current_profile_id = '${profileId}'`)
+      const result = await client.query<T>(text, values)
+      await client.query('commit')
+      return result
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
+}

@@ -1,5 +1,35 @@
 import { pgQuery } from '@/lib/db/postgres'
 
+// ----------------------------------------------------------------------------
+// Push subscriptions (no es de business strictly pero comparte patron)
+// ----------------------------------------------------------------------------
+
+export async function upsertPushSubscriptionInPostgres(input: {
+  profileId: string
+  endpoint: string
+  p256dh: string
+  auth: string
+}): Promise<void> {
+  await pgQuery(
+    `
+      insert into public.push_subscriptions (profile_id, endpoint, p256dh, auth)
+      values ($1, $2, $3, $4)
+      on conflict (profile_id, endpoint) do update set p256dh = excluded.p256dh, auth = excluded.auth
+    `,
+    [input.profileId, input.endpoint, input.p256dh, input.auth],
+  )
+}
+
+export async function listPushSubscriptionsForProfileFromPostgres(
+  profileId: string,
+): Promise<Array<{ endpoint: string; p256dh: string; auth: string }>> {
+  const result = await pgQuery<{ endpoint: string; p256dh: string; auth: string }>(
+    `select endpoint, p256dh, auth from public.push_subscriptions where profile_id = $1`,
+    [profileId],
+  )
+  return result.rows
+}
+
 export async function updateBusinessFieldsInPostgres(
   businessId: string,
   patch: Partial<{
