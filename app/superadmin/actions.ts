@@ -20,6 +20,14 @@ import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy
 import { getSupabaseAdminClient } from '@/lib/supabase/admin'
 import { adminCreateCognitoUser } from '@/lib/aws/cognito'
 import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
+import {
+  assignBuildingAdminInPostgres,
+  assignIAdminRoleGrantInPostgres,
+  callSuperadminCreateConsorcioInPostgres,
+  createBusinessInPostgres,
+  getAdministrationIdByBuildingFromPostgres,
+  setBusinessOwnerInPostgres,
+} from '@/lib/db/superadmin'
 
 function avatarFromName(fullName: string) {
   return fullName
@@ -365,11 +373,6 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
   const parsed = createPlatformUserSchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear usuarios desde superadmin.')
-  }
-
   const role = parsed.role as UserRole
   const profileId = await findOrCreatePlatformProfile({
     fullName: parsed.fullName,
@@ -382,52 +385,15 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
   })
 
   if (role === 'negocio_admin' && parsed.businessId) {
-    await admin.from('businesses').update({ owner_profile_id: profileId }).eq('id', parsed.businessId)
+    await setBusinessOwnerInPostgres(parsed.businessId, profileId)
   }
 
   if (role === 'consorcio_admin' && parsed.buildingId) {
-    const { count: assignmentsCount } = await admin
-      .from('building_admin_assignments')
-      .select('id', { count: 'exact', head: true })
-      .eq('profile_id', profileId)
+    await assignBuildingAdminInPostgres(profileId, parsed.buildingId)
 
-    const isPrimaryAssignment = (assignmentsCount ?? 0) === 0
-
-    await admin.from('building_admin_assignments').upsert(
-      {
-        profile_id: profileId,
-        building_id: parsed.buildingId,
-        is_primary: isPrimaryAssignment,
-      },
-      { onConflict: 'profile_id,building_id' },
-    )
-
-    if (isPrimaryAssignment) {
-      await admin.from('profiles').update({ building_id: parsed.buildingId }).eq('id', profileId)
-    }
-
-    const { data: property } = await admin
-      .from('iadmin_managed_properties')
-      .select('administration_id')
-      .eq('building_id', parsed.buildingId)
-      .limit(1)
-      .maybeSingle()
-
-    if (property?.administration_id) {
-      const { count: grantsCount } = await admin
-        .from('iadmin_role_grants')
-        .select('id', { count: 'exact', head: true })
-        .eq('profile_id', profileId)
-
-      await admin.from('iadmin_role_grants').upsert(
-        {
-          administration_id: property.administration_id,
-          profile_id: profileId,
-          operational_role: 'titular',
-          is_primary: (grantsCount ?? 0) === 0,
-        },
-        { onConflict: 'administration_id,profile_id' },
-      )
+    const administrationId = await getAdministrationIdByBuildingFromPostgres(parsed.buildingId)
+    if (administrationId) {
+      await assignIAdminRoleGrantInPostgres(profileId, administrationId, 'titular')
     }
   }
 
@@ -475,35 +441,26 @@ export async function createManagedProperty(
   const parsed = createManagedPropertySchema.parse(input)
   const { profile } = await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear consorcios desde superadmin.')
-  }
-
-  const { data, error } = await admin.rpc('superadmin_create_consorcio', {
-    building_name: parsed.building.name,
-    building_address: parsed.building.address,
-    building_total_units: parsed.building.totalUnits,
-    building_latitude: parsed.building.latitude ?? null,
-    building_longitude: parsed.building.longitude ?? null,
-    administration_name: parsed.administration.name,
-    administration_legal_name: parsed.administration.legalName ?? null,
-    administration_tax_id: parsed.administration.taxId ?? null,
-    administration_contact_email: parsed.administration.contactEmail ?? null,
-    administration_contact_phone: parsed.administration.contactPhone ?? null,
-    property_display_name: parsed.managedProperty.displayName ?? null,
-    property_kind: parsed.managedProperty.propertyKind,
-    property_tax_id: parsed.managedProperty.taxId ?? null,
-    property_managed_since: parsed.managedProperty.managedSince ?? null,
-    property_management_fee_pct: parsed.managedProperty.managementFeePct ?? null,
-    property_notes: parsed.managedProperty.notes ?? null,
-    admin_profile_id: parsed.adminProfileId,
-    creator_profile_id: profile.id,
+  const data = await callSuperadminCreateConsorcioInPostgres({
+    buildingName: parsed.building.name,
+    buildingAddress: parsed.building.address,
+    buildingTotalUnits: parsed.building.totalUnits,
+    buildingLatitude: parsed.building.latitude ?? null,
+    buildingLongitude: parsed.building.longitude ?? null,
+    administrationName: parsed.administration.name,
+    administrationLegalName: parsed.administration.legalName ?? null,
+    administrationTaxId: parsed.administration.taxId ?? null,
+    administrationContactEmail: parsed.administration.contactEmail ?? null,
+    administrationContactPhone: parsed.administration.contactPhone ?? null,
+    propertyDisplayName: parsed.managedProperty.displayName ?? null,
+    propertyKind: parsed.managedProperty.propertyKind,
+    propertyTaxId: parsed.managedProperty.taxId ?? null,
+    propertyManagedSince: parsed.managedProperty.managedSince ?? null,
+    propertyManagementFeePct: parsed.managedProperty.managementFeePct ?? null,
+    propertyNotes: parsed.managedProperty.notes ?? null,
+    adminProfileId: parsed.adminProfileId,
+    creatorProfileId: profile.id,
   })
-
-  if (error) {
-    throw new Error(error.message)
-  }
 
   const result = createManagedPropertyResultSchema.parse(data)
 
@@ -1020,25 +977,12 @@ export async function createBusinessWithAdmin(input: z.input<typeof createBusine
   const parsed = createBusinessWithAdminSchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const admin = getSupabaseAdminClient()
-  if (!admin) {
-    throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY para crear negocios desde superadmin.')
-  }
-
-  const { data: business, error: businessError } = await admin
-    .from('businesses')
-    .insert({
-      name: parsed.businessName,
-      category: parsed.category,
-      description: parsed.description ?? '',
-      address: parsed.address ?? null,
-    })
-    .select('id')
-    .single()
-
-  if (businessError || !business) {
-    throw new Error(businessError?.message ?? 'No se pudo crear el negocio.')
-  }
+  const business = await createBusinessInPostgres({
+    name: parsed.businessName,
+    category: parsed.category,
+    description: parsed.description ?? '',
+    address: parsed.address ?? null,
+  })
 
   const profileId = await findOrCreatePlatformProfile({
     fullName: parsed.adminFullName,
@@ -1050,8 +994,8 @@ export async function createBusinessWithAdmin(input: z.input<typeof createBusine
     businessId: business.id,
   })
 
-  await admin.from('businesses').update({ owner_profile_id: profileId }).eq('id', business.id)
+  await setBusinessOwnerInPostgres(business.id, profileId)
 
   revalidatePath('/superadmin')
-  return { businessId: business.id as string, profileId }
+  return { businessId: business.id, profileId }
 }
