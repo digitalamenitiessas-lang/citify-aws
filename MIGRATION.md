@@ -131,21 +131,14 @@ Patrón: `if (isPostgresConfigured()) { try { ... } catch { /* fallback */ } } /
 - [x] `getPublicPromotions`, `getAllBusinesses`, `getBusinessById` (RDS)
 - [x] `getProfileById` (RDS)
 
-**Pendiente reads**:
-- [x] `getIAdminCashAccounts` (RDS)
-- [x] `getIAdminCashMovements` (RDS)
-- [x] `getIAdminReminders` (RDS)
-- [x] `getIAdminExpenseDetail` (RDS)
-- [x] `getIAdminUnitsWithHolders` (RDS)
-- [x] `getIAdminLiquidationRunDetail` (RDS — header + items + pagos + expense lines en queries paralelas)
-- [x] `getIAdminConsorcioDashboard` (RDS — KPIs del consorcio admin)
-- [x] `getIAdminUnitAccountStatement` (RDS — statement del vecino)
-- [x] `getIAdminMesaState` (RDS — distribución en vivo del mes)
-- [x] `getIAdminMonthlyGrid` (RDS — grilla N meses con rubros recurrentes)
-- [x] `getIAdminClosingChecklist` (RDS — checklist de cierre del periodo)
-- [ ] **Borrar el fallback Supabase** en las funciones que SÍ tienen RDS path pero aún caen a Supabase si Postgres falla
-- [ ] Mismo trabajo en `lib/auth.ts` (3 referencias residuales en `getIAdminContext`)
-- [ ] Auditar `lib/ai/context-builders.ts`, `lib/iadmin/expense-anomalies.ts`, `lib/iadmin/public-liquidation.ts` (siguen importando `@/lib/supabase/*`)
+**Reads en `lib/data.ts`** — ✅ **100% sobre RDS** (ningún import de `@/lib/supabase/*`):
+- ✅ Todas las funciones iadmin (cash accounts, movements, reminders, expense detail, units with holders, liquidation run detail, consorcio dashboard, unit account statement, mesa state, monthly grid, closing checklist, liquidation runs)
+- ✅ Dashboards (super admin, consorcio, business, consumer, owner)
+- ✅ Home / promotions
+
+**Pendiente reads en otros archivos**:
+- [ ] `lib/auth.ts` (3 referencias residuales en `getIAdminContext`)
+- [ ] `lib/ai/context-builders.ts`, `lib/iadmin/expense-anomalies.ts`, `lib/iadmin/public-liquidation.ts` (siguen importando `@/lib/supabase/*`)
 
 ---
 
