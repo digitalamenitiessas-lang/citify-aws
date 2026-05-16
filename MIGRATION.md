@@ -140,7 +140,9 @@ Patrón: `if (isPostgresConfigured()) { try { ... } catch { /* fallback */ } } /
 - [x] `getIAdminLiquidationRunDetail` (RDS — header + items + pagos + expense lines en queries paralelas)
 - [x] `getIAdminConsorcioDashboard` (RDS — KPIs del consorcio admin)
 - [x] `getIAdminUnitAccountStatement` (RDS — statement del vecino)
-- [ ] `getIAdminMesaState`, `getIAdminMonthlyGrid`, `getIAdminClosingChecklist` (la mesa del admin — más complejos)
+- [x] `getIAdminMesaState` (RDS — distribución en vivo del mes)
+- [x] `getIAdminMonthlyGrid` (RDS — grilla N meses con rubros recurrentes)
+- [x] `getIAdminClosingChecklist` (RDS — checklist de cierre del periodo)
 - [ ] **Borrar el fallback Supabase** en las funciones que SÍ tienen RDS path pero aún caen a Supabase si Postgres falla
 - [ ] Mismo trabajo en `lib/auth.ts` (3 referencias residuales en `getIAdminContext`)
 - [ ] Auditar `lib/ai/context-builders.ts`, `lib/iadmin/expense-anomalies.ts`, `lib/iadmin/public-liquidation.ts` (siguen importando `@/lib/supabase/*`)
