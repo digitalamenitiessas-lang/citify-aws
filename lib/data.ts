@@ -161,10 +161,12 @@ import {
   sumLivePaymentsByItemIdsFromPostgres,
 } from '@/lib/db/iadmin-writes'
 import {
+  countVecinoProfilesFromPostgres,
   listAllBuildingsFromPostgres,
   listAllBusinessesFromPostgres,
   listAllProfilesFromPostgres,
   listBuildingAdminAssignmentsFromPostgres,
+  listRedemptionsForBusinessFromPostgres,
   listSuperadminManagedPropertiesFromPostgres,
 } from '@/lib/db/superadmin'
 import { findProfileById } from '@/lib/db/profiles'
@@ -723,283 +725,71 @@ export async function getPromotionsPageData(): Promise<PromotionsPageData> {
 }
 
 export async function getBusinessDashboardData(profileId: string): Promise<BusinessDashboardData> {
-  const supabase = getSupabaseAdminClient() ?? (await getSupabaseServerClient())
-  if (!supabase) {
-    return { business: null, promotions: [], consumersCount: 0, availableBuildings: [], monthlyStatus: null, redemptionHistory: [] }
-  }
+  const profile = await findProfileById(profileId)
+  const businessId = profile?.businessId ?? null
 
-  const profile = (await findProfileById(profileId))
-    ?? (await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle()).data
-  const businessId = profile?.businessId ?? profile?.business_id ?? null
-
-  if (businessId && isPostgresConfigured()) {
-    try {
-      const [{ count }, { data: buildingsData }, { data: redemptionsData }, businessRow, promotionRows] = await Promise.all([
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'vecino'),
-        supabase.from('buildings').select('*').order('name'),
-        supabase
-          .from('promotion_redemptions')
-          .select(`
-            id,
-            profile_id,
-            promotion_id,
-            status,
-            redeemed_at,
-            created_at,
-            profiles (
-              id,
-              full_name,
-              floor,
-              unit,
-              buildings ( id, name )
-            ),
-            promotions (
-              id,
-              title,
-              discount
-            )
-          `)
-          .eq('promotions.business_id', businessId)
-          .order('redeemed_at', { ascending: false })
-          .order('created_at', { ascending: false }),
-        getBusinessByIdFromPostgres(businessId),
-        getPromotionsForBusinessFromPostgres(businessId),
-      ])
-
-      const rawPromotions = promotionRows.map(mapPromotionFromBusinessPostgresRow)
-      const promotions = applyPromotionAutoRenewal(rawPromotions)
-      const business = mapBusinessFromPostgresRow(businessRow)
-
-      if (business) {
-        return {
-          business,
-          promotions,
-          consumersCount: count ?? 0,
-          availableBuildings: (buildingsData ?? []).map(mapBuilding),
-          monthlyStatus: buildPromotionMonthlyStatus(rawPromotions),
-          redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
-        }
-      }
-    } catch (error) {
-      console.error('[getBusinessDashboardData] Fallback a Supabase tras fallo en RDS:', error)
+  if (!businessId) {
+    const [consumersCount, buildingsData] = await Promise.all([
+      countVecinoProfilesFromPostgres(),
+      listAllBuildingsFromPostgres(),
+    ])
+    return {
+      business: null,
+      promotions: [],
+      consumersCount,
+      availableBuildings: buildingsData.map(mapBuilding),
+      monthlyStatus: null,
+      redemptionHistory: [],
     }
   }
 
-  const [{ data: businessData }, { data: promotionsData }, { count }, { data: buildingsData }, { data: redemptionsData }] = await Promise.all([
-    businessId ? supabase.from('businesses').select('*').eq('id', businessId).maybeSingle() : Promise.resolve({ data: null }),
-    businessId
-      ? supabase
-          .from('promotions')
-          .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
-          .eq('business_id', businessId)
-          .order('created_at', { ascending: false })
-      : Promise.resolve({ data: [] }),
-    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'vecino'),
-    supabase.from('buildings').select('*').order('name'),
-    businessId
-      ? supabase
-          .from('promotion_redemptions')
-          .select(`
-            id,
-            profile_id,
-            promotion_id,
-            status,
-            redeemed_at,
-            created_at,
-            profiles (
-              id,
-              full_name,
-              floor,
-              unit,
-              buildings ( id, name )
-            ),
-            promotions (
-              id,
-              title,
-              discount
-            )
-          `)
-          .eq('promotions.business_id', businessId)
-          .order('redeemed_at', { ascending: false })
-          .order('created_at', { ascending: false })
-      : Promise.resolve({ data: [] }),
+  const [consumersCount, buildingsData, redemptionsRaw, businessRow, promotionRows] = await Promise.all([
+    countVecinoProfilesFromPostgres(),
+    listAllBuildingsFromPostgres(),
+    listRedemptionsForBusinessFromPostgres(businessId),
+    getBusinessByIdFromPostgres(businessId),
+    getPromotionsForBusinessFromPostgres(businessId),
   ])
 
-  const rawPromotions = (promotionsData ?? []).map((row: any) => mapPromotion(supabase, row))
+  const rawPromotions = promotionRows.map(mapPromotionFromBusinessPostgresRow)
   const promotions = applyPromotionAutoRenewal(rawPromotions)
+  const business = mapBusinessFromPostgresRow(businessRow)
 
   return {
-    business: businessData ? mapBusiness(supabase, businessData) : null,
+    business,
     promotions,
-    consumersCount: count ?? 0,
-    availableBuildings: (buildingsData ?? []).map(mapBuilding),
-    monthlyStatus: businessData ? buildPromotionMonthlyStatus(rawPromotions) : null,
-    redemptionHistory: (redemptionsData ?? []).map((row: any) => mapPromotionRedemptionHistoryItem(row)),
+    consumersCount,
+    availableBuildings: buildingsData.map(mapBuilding),
+    monthlyStatus: business ? buildPromotionMonthlyStatus(rawPromotions) : null,
+    redemptionHistory: redemptionsRaw.map((row) => mapPromotionRedemptionHistoryItem({
+      id: row.id,
+      profile_id: row.profile_id,
+      promotion_id: row.promotion_id,
+      status: row.status,
+      redeemed_at: row.redeemed_at,
+      created_at: row.created_at,
+      profiles: {
+        id: row.profile_id,
+        full_name: row.profile_full_name,
+        floor: row.profile_floor,
+        unit: row.profile_unit,
+        buildings: row.profile_building_id ? {
+          id: row.profile_building_id,
+          name: row.profile_building_name,
+        } : null,
+      },
+      promotions: {
+        id: row.promotion_id,
+        title: row.promotion_title,
+        discount: row.promotion_discount,
+      },
+    })),
   }
 }
 
 export async function getConsorcioDashboardData(profileId: string): Promise<ConsorcioDashboardData> {
-  if (isPostgresConfigured()) {
-    try {
-      const assignmentsRows = await getConsorcioAssignmentsForProfileFromPostgres(profileId)
-      const assignments = assignmentsRows.map(mapBuildingAssignment)
-      const buildingIds = assignments.map((assignment) => assignment.buildingId)
-
-      if (buildingIds.length === 0) {
-        return {
-          managedBuildings: [],
-          assignments,
-          primaryBuildingId: null,
-          totalBuildings: 0,
-          totalUnits: 0,
-          totalNeighbors: 0,
-          averageOccupancyRate: 0,
-          totalComplaintCases: 0,
-          complaintSummaries: [],
-          complaintReasonSummaries: [],
-        }
-      }
-
-      const [buildingsRows, neighborsRows, adminMentionRows, complaintCaseRows] = await Promise.all([
-        getConsorcioBuildingsByIdsFromPostgres(buildingIds),
-        getConsorcioNeighborsByBuildingIdsFromPostgres(buildingIds),
-        getConsorcioAdminMentionablesByBuildingIdsFromPostgres(buildingIds),
-        getConsorcioComplaintCasesByBuildingIdsFromPostgres(buildingIds),
-      ])
-
-      const neighborsByBuilding = new Map<string, Profile[]>()
-      for (const row of neighborsRows) {
-        const mapped = mapProfile(row)
-        if (!mapped.buildingId) continue
-        const current = neighborsByBuilding.get(mapped.buildingId) ?? []
-        current.push(mapped)
-        neighborsByBuilding.set(mapped.buildingId, current)
-      }
-
-      const adminProfilesByBuilding = new Map<string, ComplaintCaseMentionableUser[]>()
-      for (const row of adminMentionRows) {
-        const profile = row.profile
-        if (!profile?.id || !row.building_id) continue
-        const current = adminProfilesByBuilding.get(row.building_id) ?? []
-        if (!current.some((item) => item.profileId === profile.id)) {
-          current.push(mapMentionableUser(profile, row.building_id))
-        }
-        adminProfilesByBuilding.set(row.building_id, current)
-      }
-
-      const caseDetailsByBuilding = new Map<string, ComplaintCaseDetailConsorcioView[]>()
-      for (const row of complaintCaseRows) {
-        const buildingId = row.building_id
-        const mentionableUsers = [
-          ...(neighborsByBuilding.get(buildingId) ?? []).map((neighbor) =>
-            mapMentionableUser(
-              {
-                id: neighbor.id,
-                full_name: neighbor.fullName,
-                role: neighbor.role,
-                floor: neighbor.floor,
-                unit: neighbor.unit,
-              },
-              buildingId,
-            ),
-          ),
-          ...(adminProfilesByBuilding.get(buildingId) ?? []),
-        ].sort((a, b) => a.label.localeCompare(b.label))
-        const detail = mapConsorcioComplaintCaseDetail(row, mentionableUsers)
-        const current = caseDetailsByBuilding.get(detail.buildingId) ?? []
-        current.push(detail)
-        caseDetailsByBuilding.set(detail.buildingId, current)
-      }
-
-      const buildingsById = new Map(buildingsRows.map((row: any) => [row.id, mapBuilding(row)]))
-      const managedBuildings: ConsorcioManagedBuilding[] = assignments
-        .map((assignment) => {
-          const building = buildingsById.get(assignment.buildingId)
-          if (!building) return null
-          const neighbors = neighborsByBuilding.get(building.id) ?? []
-          const complaintCaseDetails = (caseDetailsByBuilding.get(building.id) ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-          const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem)
-          const complaintMentionableUsers = [
-            ...neighbors.map((neighbor) =>
-              mapMentionableUser(
-                {
-                  id: neighbor.id,
-                  full_name: neighbor.fullName,
-                  role: neighbor.role,
-                  floor: neighbor.floor,
-                  unit: neighbor.unit,
-                },
-                building.id,
-              ),
-            ),
-            ...(adminProfilesByBuilding.get(building.id) ?? []),
-          ]
-            .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
-            .sort((a, b) => a.label.localeCompare(b.label))
-
-          return {
-            building,
-            neighbors,
-            registeredNeighbors: neighbors.length,
-            occupancyRate: Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100),
-            complaintMentionableUsers,
-            complaintCases,
-            complaintCaseDetails,
-            complaintSummary: buildComplaintSummaryByBuilding(building.id, building.name, complaintCaseDetails),
-            reasonSummary: buildComplaintReasonSummary(complaintCaseDetails),
-          }
-        })
-        .filter((item): item is ConsorcioManagedBuilding => Boolean(item))
-
-      const totalUnits = managedBuildings.reduce((sum, item) => sum + item.building.totalUnits, 0)
-      const totalNeighbors = managedBuildings.reduce((sum, item) => sum + item.registeredNeighbors, 0)
-      const averageOccupancyRate = managedBuildings.length
-        ? Math.round(managedBuildings.reduce((sum, item) => sum + item.occupancyRate, 0) / managedBuildings.length)
-        : 0
-      const complaintSummaries = managedBuildings.map((item) => item.complaintSummary)
-      const complaintReasonSummaries = buildComplaintReasonSummary(managedBuildings.flatMap((item) => item.complaintCaseDetails))
-
-      return {
-        managedBuildings,
-        assignments,
-        primaryBuildingId: assignments.find((assignment) => assignment.isPrimary)?.buildingId ?? managedBuildings[0]?.building.id ?? null,
-        totalBuildings: managedBuildings.length,
-        totalUnits,
-        totalNeighbors,
-        averageOccupancyRate,
-        totalComplaintCases: managedBuildings.reduce((sum, item) => sum + item.complaintCases.length, 0),
-        complaintSummaries,
-        complaintReasonSummaries,
-      }
-    } catch (error) {
-      console.error('[getConsorcioDashboardData] Fallback a Supabase tras fallo en RDS:', error)
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) {
-    return {
-      managedBuildings: [],
-      assignments: [],
-      primaryBuildingId: null,
-      totalBuildings: 0,
-      totalUnits: 0,
-      totalNeighbors: 0,
-      averageOccupancyRate: 0,
-      totalComplaintCases: 0,
-      complaintSummaries: [],
-      complaintReasonSummaries: [],
-    }
-  }
-
-  const { data: assignmentsData } = await supabase
-    .from('building_admin_assignments')
-    .select('*')
-    .eq('profile_id', profileId)
-    .order('is_primary', { ascending: false })
-    .order('created_at', { ascending: true })
-
-  const assignments = (assignmentsData ?? []).map(mapBuildingAssignment)
+  const assignmentsRows = await getConsorcioAssignmentsForProfileFromPostgres(profileId)
+  const assignments = assignmentsRows.map(mapBuildingAssignment)
   const buildingIds = assignments.map((assignment) => assignment.buildingId)
 
   if (buildingIds.length === 0) {
@@ -1017,42 +807,15 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
     }
   }
 
-  const [{ data: buildingsData }, { data: neighborsData }, { data: adminAssignmentsData }, { data: complaintCaseRows }] = await Promise.all([
-    supabase.from('buildings').select('*').in('id', buildingIds).order('name'),
-    supabase.from('profiles').select('*').eq('role', 'vecino').in('building_id', buildingIds).order('full_name'),
-    supabase
-      .from('building_admin_assignments')
-      .select(`building_id, profiles!building_admin_assignments_profile_id_fkey ( id, full_name, role, floor, unit )`)
-      .in('building_id', buildingIds),
-    supabase
-      .from('complaint_cases')
-      .select(`
-        *,
-        buildings ( id, name ),
-        profiles!complaint_cases_author_profile_id_fkey ( id, full_name, email, avatar_text, floor, unit ),
-        complaint_case_reasons ( complaint_reason_catalog ( id, slug, label, is_other ) ),
-        complaint_case_messages (
-          id,
-          case_id,
-          message,
-          message_type,
-          created_at,
-          profiles!complaint_case_messages_author_profile_id_fkey ( id, full_name, avatar_text, role, floor, unit ),
-          complaint_case_message_mentions (
-            id,
-            message_id,
-            mentioned_profile_id,
-            profiles!complaint_case_message_mentions_mentioned_profile_id_fkey ( id, full_name, role, floor, unit )
-          )
-        ),
-        complaint_case_events ( id, case_id, event_type, actor_label, actor_role, summary, metadata, created_at )
-      `)
-      .in('building_id', buildingIds)
-      .order('created_at', { ascending: false }),
+  const [buildingsRows, neighborsRows, adminMentionRows, complaintCaseRows] = await Promise.all([
+    getConsorcioBuildingsByIdsFromPostgres(buildingIds),
+    getConsorcioNeighborsByBuildingIdsFromPostgres(buildingIds),
+    getConsorcioAdminMentionablesByBuildingIdsFromPostgres(buildingIds),
+    getConsorcioComplaintCasesByBuildingIdsFromPostgres(buildingIds),
   ])
 
   const neighborsByBuilding = new Map<string, Profile[]>()
-  for (const row of neighborsData ?? []) {
+  for (const row of neighborsRows) {
     const mapped = mapProfile(row)
     if (!mapped.buildingId) continue
     const current = neighborsByBuilding.get(mapped.buildingId) ?? []
@@ -1061,8 +824,8 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
   }
 
   const adminProfilesByBuilding = new Map<string, ComplaintCaseMentionableUser[]>()
-  for (const row of adminAssignmentsData ?? []) {
-    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  for (const row of adminMentionRows) {
+    const profile = row.profile
     if (!profile?.id || !row.building_id) continue
     const current = adminProfilesByBuilding.get(row.building_id) ?? []
     if (!current.some((item) => item.profileId === profile.id)) {
@@ -1072,7 +835,7 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
   }
 
   const caseDetailsByBuilding = new Map<string, ComplaintCaseDetailConsorcioView[]>()
-  for (const row of complaintCaseRows ?? []) {
+  for (const row of complaintCaseRows) {
     const buildingId = row.building_id
     const mentionableUsers = [
       ...(neighborsByBuilding.get(buildingId) ?? []).map((neighbor) =>
@@ -1095,20 +858,24 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
     caseDetailsByBuilding.set(detail.buildingId, current)
   }
 
-  const buildingsById = new Map((buildingsData ?? []).map((row: any) => [row.id, mapBuilding(row)]))
+  const buildingsById = new Map(buildingsRows.map((row: any) => [row.id, mapBuilding(row)]))
   const managedBuildings: ConsorcioManagedBuilding[] = assignments
     .map((assignment) => {
       const building = buildingsById.get(assignment.buildingId)
-      if (!building) {
-        return null
-      }
+      if (!building) return null
       const neighbors = neighborsByBuilding.get(building.id) ?? []
       const complaintCaseDetails = (caseDetailsByBuilding.get(building.id) ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       const complaintCases = complaintCaseDetails.map(buildComplaintCaseListItem)
       const complaintMentionableUsers = [
         ...neighbors.map((neighbor) =>
           mapMentionableUser(
-            { id: neighbor.id, full_name: neighbor.fullName, role: neighbor.role, floor: neighbor.floor, unit: neighbor.unit },
+            {
+              id: neighbor.id,
+              full_name: neighbor.fullName,
+              role: neighbor.role,
+              floor: neighbor.floor,
+              unit: neighbor.unit,
+            },
             building.id,
           ),
         ),
@@ -1116,6 +883,7 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
       ]
         .filter((user, index, array) => array.findIndex((item) => item.profileId === user.profileId) === index)
         .sort((a, b) => a.label.localeCompare(b.label))
+
       return {
         building,
         neighbors,

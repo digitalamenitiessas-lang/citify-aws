@@ -1,5 +1,63 @@
 import { pgQuery } from '@/lib/db/postgres'
 
+export async function countVecinoProfilesFromPostgres(): Promise<number> {
+  const result = await pgQuery<{ c: number }>(
+    `select count(*)::int as c from public.profiles where role = 'vecino'`,
+  )
+  return result.rows[0]?.c ?? 0
+}
+
+export async function listRedemptionsForBusinessFromPostgres(businessId: string): Promise<
+  Array<{
+    id: string
+    profile_id: string
+    promotion_id: string
+    status: string
+    redeemed_at: string | null
+    created_at: string | null
+    profile_full_name: string | null
+    profile_floor: string | null
+    profile_unit: string | null
+    profile_building_id: string | null
+    profile_building_name: string | null
+    promotion_title: string | null
+    promotion_discount: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    profile_id: string
+    promotion_id: string
+    status: string
+    redeemed_at: string | null
+    created_at: string | null
+    profile_full_name: string | null
+    profile_floor: string | null
+    profile_unit: string | null
+    profile_building_id: string | null
+    profile_building_name: string | null
+    promotion_title: string | null
+    promotion_discount: string | null
+  }>(
+    `
+      select
+        r.id, r.profile_id, r.promotion_id, r.status::text as status,
+        r.redeemed_at::text as redeemed_at, r.created_at::text as created_at,
+        p.full_name as profile_full_name, p.floor as profile_floor, p.unit as profile_unit,
+        b.id as profile_building_id, b.name as profile_building_name,
+        pr.title as promotion_title, pr.discount as promotion_discount
+      from public.promotion_redemptions r
+      inner join public.promotions pr on pr.id = r.promotion_id
+      left join public.profiles p on p.id = r.profile_id
+      left join public.buildings b on b.id = p.building_id
+      where pr.business_id = $1
+      order by r.redeemed_at desc nulls last, r.created_at desc nulls last
+    `,
+    [businessId],
+  )
+  return result.rows
+}
+
 export async function listAllProfilesFromPostgres(): Promise<any[]> {
   const result = await pgQuery(`select * from public.profiles order by full_name asc nulls last`)
   return result.rows
