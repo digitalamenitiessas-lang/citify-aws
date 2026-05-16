@@ -710,40 +710,9 @@ function mapConsorcioComplaintCaseDetail(row: any, mentionableUsers: ComplaintCa
 }
 
 export async function getHomeData(): Promise<HomeData> {
-  if (isPostgresConfigured()) {
-    try {
-      const promotions = applyPromotionAutoRenewal(
-        (await getPublicPromotionsFromPostgres(12)).map(mapPromotionFromPostgresRow),
-      )
-
-      return {
-        promotions: promotions.slice(0, 12),
-      }
-    } catch (error) {
-      console.error('[getHomeData] Fallback a Supabase tras fallo en RDS:', error)
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) {
-    return { promotions: [] }
-  }
-
-  const today = new Date().toISOString().slice(0, 10)
-  const { data } = await supabase
-    .from('promotions')
-    .select(`
-      *,
-      businesses ( id, name, logo_path ),
-      promotion_redemptions ( id )
-    `)
-    .eq('is_active', true)
-    .gte('expiration_date', today)
-    .order('created_at', { ascending: false })
-    .limit(12)
-
-  const promotions = applyPromotionAutoRenewal((data ?? []).map((row: any) => mapPromotion(supabase, row)))
-
+  const promotions = applyPromotionAutoRenewal(
+    (await getPublicPromotionsFromPostgres(12)).map(mapPromotionFromPostgresRow),
+  )
   return {
     promotions: promotions.slice(0, 12),
   }
@@ -1932,74 +1901,15 @@ function mapExpenseSummaryFromPostgresRow(
 }
 
 export async function getIAdminPortfolio(administrationId: string): Promise<IAdminPortfolio | null> {
-  if (isPostgresConfigured()) {
-    try {
-      const [adminData, propertyRows, stats] = await Promise.all([
-        getIAdminAdministrationByIdFromPostgres(administrationId),
-        getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
-        getIAdminPortfolioStatsFromPostgres(administrationId),
-      ])
-
-      if (adminData) {
-        const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
-        const totalUnits = properties.reduce((sum, p) => sum + p.totalUnits, 0)
-
-        return {
-          administration: {
-            id: adminData.id,
-            name: adminData.name,
-            legalName: adminData.legal_name ?? null,
-            taxId: adminData.tax_id ?? null,
-            contactEmail: adminData.contact_email ?? null,
-            contactPhone: adminData.contact_phone ?? null,
-            isActive: Boolean(adminData.is_active),
-            legalInfo: (adminData.legal_info ?? {}) as IAdminLegalInfo,
-            createdAt: adminData.created_at,
-          },
-          properties,
-          stats: {
-            totalProperties: properties.length,
-            totalUnits,
-            openExpenses: Number(stats.open_expenses_count ?? 0),
-            pendingDocs: Number(stats.pending_docs_count ?? 0),
-          },
-        }
-      }
-    } catch {
-      // Fall back to Supabase while iadmin is being migrated incrementally.
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return null
-
-  const [{ data: adminData }, { data: propertiesData }, { count: openExpensesCount }, { count: pendingDocsCount }] =
-    await Promise.all([
-      supabase.from('iadmin_administrations').select('*').eq('id', administrationId).maybeSingle(),
-      supabase
-        .from('iadmin_managed_properties')
-        .select(`*, buildings ( id, name, address, total_units )`)
-        .eq('administration_id', administrationId)
-        .eq('is_active', true)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('iadmin_expenses')
-        .select('*', { count: 'exact', head: true })
-        .eq('administration_id', administrationId)
-        .in('status', ['draft', 'pending_review', 'needs_doc']),
-      supabase
-        .from('iadmin_ai_document_extractions')
-        .select('id, iadmin_expense_documents!inner(iadmin_expenses!inner(administration_id))', {
-          count: 'exact',
-          head: true,
-        })
-        .neq('status', 'validated')
-        .eq('iadmin_expense_documents.iadmin_expenses.administration_id', administrationId),
-    ])
+  const [adminData, propertyRows, stats] = await Promise.all([
+    getIAdminAdministrationByIdFromPostgres(administrationId),
+    getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
+    getIAdminPortfolioStatsFromPostgres(administrationId),
+  ])
 
   if (!adminData) return null
 
-  const properties = (propertiesData ?? []).map(mapManagedProperty)
+  const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
   const totalUnits = properties.reduce((sum, p) => sum + p.totalUnits, 0)
 
   return {
@@ -2018,138 +1928,54 @@ export async function getIAdminPortfolio(administrationId: string): Promise<IAdm
     stats: {
       totalProperties: properties.length,
       totalUnits,
-      openExpenses: openExpensesCount ?? 0,
-      pendingDocs: pendingDocsCount ?? 0,
+      openExpenses: Number(stats.open_expenses_count ?? 0),
+      pendingDocs: Number(stats.pending_docs_count ?? 0),
     },
   }
 }
 
 export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdminConsorcioDetail | null> {
-  if (isPostgresConfigured()) {
-    try {
-      const propertyRow = await getIAdminManagedPropertyByIdFromPostgres(propertyId)
-      if (propertyRow) {
-        const property = mapManagedPropertyFromPostgresRow(propertyRow as Awaited<ReturnType<typeof getIAdminManagedPropertiesByAdministrationFromPostgres>>[number])
-        const now = new Date()
-        const periodYear = now.getFullYear()
-        const periodMonth = now.getMonth() + 1
-
-        const [unitsRows, periodRow, expenseRows, holderCount, buildingInfoRows] = await Promise.all([
-          getIAdminUnitsByPropertyFromPostgres(propertyId),
-          getIAdminAccountingPeriodForPropertyMonthFromPostgres(propertyId, periodYear, periodMonth),
-          getIAdminRecentExpensesByPropertyFromPostgres(propertyId, 10),
-          countActiveUnitHoldersByPropertyFromPostgres(propertyId),
-          getBuildingInformationByBuildingIdsFromPostgres([property.buildingId]),
-        ])
-
-        const units = unitsRows.map(mapUnit)
-        const recentExpenses = expenseRows.map((row) =>
-          mapExpenseSummaryFromPostgresRow({
-            ...row,
-            property_display_name: property.displayName,
-            building_name: property.buildingName,
-          } as Awaited<ReturnType<typeof getIAdminExpensesInboxFromPostgres>>[number]),
-        )
-
-        const monthExpenses = recentExpenses.filter((expense) => {
-          if (!expense.issuedAt) return false
-          const date = new Date(expense.issuedAt)
-          return date.getFullYear() === periodYear && date.getMonth() + 1 === periodMonth
-        })
-        const monthAmount = monthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
-
-        return {
-          property,
-          units,
-          recentExpenses,
-          currentPeriod: periodRow ? mapAccountingPeriod(periodRow) : null,
-          buildingInformation: buildingInfoRows.map(mapBuildingInformation),
-          totals: {
-            units: units.length,
-            activeHolders: holderCount,
-            monthExpenses: monthExpenses.length,
-            monthAmount,
-          },
-        }
-      }
-    } catch {
-      // Fall back to Supabase while consorcio detail finishes migrating to RDS.
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return null
-
-  const { data: propertyRow } = await supabase
-    .from('iadmin_managed_properties')
-    .select(`*, buildings ( id, name, address, total_units )`)
-    .eq('id', propertyId)
-    .maybeSingle()
-
+  const propertyRow = await getIAdminManagedPropertyByIdFromPostgres(propertyId)
   if (!propertyRow) return null
 
-  const property = mapManagedProperty(propertyRow)
-
+  const property = mapManagedPropertyFromPostgresRow(propertyRow as Awaited<ReturnType<typeof getIAdminManagedPropertiesByAdministrationFromPostgres>>[number])
   const now = new Date()
   const periodYear = now.getFullYear()
   const periodMonth = now.getMonth() + 1
 
-  const [{ data: unitsData }, { data: periodData }, { data: expensesData }, { count: holderCount }, { data: buildingInfoRows }] = await Promise.all([
-    supabase
-      .from('iadmin_units')
-      .select(`*, iadmin_unit_holders ( id, full_name, holder_kind, is_active )`)
-      .eq('managed_property_id', propertyId)
-      .order('code'),
-    supabase
-      .from('iadmin_accounting_periods')
-      .select('*')
-      .eq('managed_property_id', propertyId)
-      .eq('period_year', periodYear)
-      .eq('period_month', periodMonth)
-      .maybeSingle(),
-    supabase
-      .from('iadmin_expenses')
-      .select(`
-        *,
-        iadmin_providers ( id, name ),
-        iadmin_expense_documents ( id, iadmin_ai_document_extractions ( id, status ) )
-      `)
-      .eq('managed_property_id', propertyId)
-      .order('created_at', { ascending: false })
-      .limit(10),
-    supabase
-      .from('iadmin_unit_holders')
-      .select('id, iadmin_units!inner(managed_property_id)', { count: 'exact', head: true })
-      .eq('is_active', true)
-      .eq('iadmin_units.managed_property_id', propertyId),
-    supabase
-      .from('building_information')
-      .select('*')
-      .eq('building_id', property.buildingId)
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: false }),
+  const [unitsRows, periodRow, expenseRows, holderCount, buildingInfoRows] = await Promise.all([
+    getIAdminUnitsByPropertyFromPostgres(propertyId),
+    getIAdminAccountingPeriodForPropertyMonthFromPostgres(propertyId, periodYear, periodMonth),
+    getIAdminRecentExpensesByPropertyFromPostgres(propertyId, 10),
+    countActiveUnitHoldersByPropertyFromPostgres(propertyId),
+    getBuildingInformationByBuildingIdsFromPostgres([property.buildingId]),
   ])
 
-  const units = (unitsData ?? []).map(mapUnit)
-  const recentExpenses = (expensesData ?? []).map((row: any) => mapExpenseSummary(row, property.displayName ?? property.buildingName))
+  const units = unitsRows.map(mapUnit)
+  const recentExpenses = expenseRows.map((row) =>
+    mapExpenseSummaryFromPostgresRow({
+      ...row,
+      property_display_name: property.displayName,
+      building_name: property.buildingName,
+    } as Awaited<ReturnType<typeof getIAdminExpensesInboxFromPostgres>>[number]),
+  )
 
   const monthExpenses = recentExpenses.filter((expense) => {
     if (!expense.issuedAt) return false
     const date = new Date(expense.issuedAt)
     return date.getFullYear() === periodYear && date.getMonth() + 1 === periodMonth
   })
-  const monthAmount = monthExpenses.reduce((sum, e) => sum + e.amount, 0)
+  const monthAmount = monthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
 
   return {
     property,
     units,
     recentExpenses,
-    currentPeriod: periodData ? mapAccountingPeriod(periodData) : null,
-    buildingInformation: (buildingInfoRows ?? []).map(mapBuildingInformation),
+    currentPeriod: periodRow ? mapAccountingPeriod(periodRow) : null,
+    buildingInformation: buildingInfoRows.map(mapBuildingInformation),
     totals: {
       units: units.length,
-      activeHolders: holderCount ?? 0,
+      activeHolders: holderCount,
       monthExpenses: monthExpenses.length,
       monthAmount,
     },
@@ -2157,44 +1983,8 @@ export async function getIAdminConsorcioDetail(propertyId: string): Promise<IAdm
 }
 
 export async function getIAdminExpensesInbox(administrationId: string): Promise<IAdminExpenseSummary[]> {
-  if (isPostgresConfigured()) {
-    try {
-      const rows = await getIAdminExpensesInboxFromPostgres(administrationId)
-      if (rows.length > 0) {
-        return rows.map(mapExpenseSummaryFromPostgresRow)
-      }
-    } catch {
-      // Fall back to Supabase while iadmin data keeps moving to RDS.
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-
-  const { data } = await supabase
-    .from('iadmin_expenses')
-    .select(`
-      *,
-      iadmin_providers ( id, name ),
-      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
-      iadmin_expense_documents ( id, iadmin_ai_document_extractions ( id, status ) )
-    `)
-    .eq('administration_id', administrationId)
-    .order('created_at', { ascending: false })
-    .limit(50)
-
-  return (data ?? []).map((row: any) => {
-    const property = Array.isArray(row.iadmin_managed_properties)
-      ? row.iadmin_managed_properties[0]
-      : row.iadmin_managed_properties
-    const building = property?.buildings
-      ? Array.isArray(property.buildings)
-        ? property.buildings[0]
-        : property.buildings
-      : null
-    const propertyName = property?.display_name ?? building?.name ?? 'Consorcio'
-    return mapExpenseSummary(row, propertyName)
-  })
+  const rows = await getIAdminExpensesInboxFromPostgres(administrationId)
+  return rows.map(mapExpenseSummaryFromPostgresRow)
 }
 
 export async function getIAdminExpenseDetail(
@@ -2372,26 +2162,8 @@ function mapUnitHolder(row: any): IAdminUnitHolder {
 }
 
 export async function getIAdminProviders(administrationId: string): Promise<IAdminProvider[]> {
-  if (isPostgresConfigured()) {
-    try {
-      const rows = await getIAdminProvidersFromPostgres(administrationId)
-      if (rows.length > 0) {
-        return rows.map(mapProviderFromPostgresRow)
-      }
-    } catch {
-      // Fall back to Supabase while iadmin data keeps moving to RDS.
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-  const { data } = await supabase
-    .from('iadmin_providers')
-    .select('*')
-    .eq('administration_id', administrationId)
-    .order('is_active', { ascending: false })
-    .order('name')
-  return (data ?? []).map(mapProvider)
+  const rows = await getIAdminProvidersFromPostgres(administrationId)
+  return rows.map(mapProviderFromPostgresRow)
 }
 
 export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAdminUnitWithHolders[]> {
@@ -2918,323 +2690,62 @@ export async function getIAdminReminders(
 }
 
 export async function getIAdminPortfolioOverview(administrationId: string): Promise<IAdminPortfolioOverview | null> {
-  if (isPostgresConfigured()) {
-    try {
-      const [admin, propertyRows] = await Promise.all([
-        getIAdminAdministrationByIdFromPostgres(administrationId),
-        getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
-      ])
+  const [admin, propertyRows] = await Promise.all([
+    getIAdminAdministrationByIdFromPostgres(administrationId),
+    getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
+  ])
 
-      if (admin) {
-        const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
-        const now = new Date()
-        const overviewRows = await getIAdminPortfolioOverviewRowsFromPostgres(
-          administrationId,
-          now.getFullYear(),
-          now.getMonth() + 1,
-        )
-        const overviewByProperty = new Map(overviewRows.map((row) => [row.property_id, row]))
-
-        const rows: IAdminPortfolioPropertyRow[] = properties.map((property) => {
-          const overview = overviewByProperty.get(property.id)
-          const totalBalance = Number(overview?.total_balance ?? 0)
-          const pendingExpenses = Number(overview?.pending_expenses ?? 0)
-          const accountsPayableTotal = Number(overview?.accounts_payable_total ?? 0)
-          const overdueAmount = Number(overview?.overdue_amount ?? 0)
-          const currentMonthLiquidated = Number(overview?.current_month_liquidated ?? 0)
-          const currentMonthCollected = Number(overview?.current_month_collected ?? 0)
-          const collectionRatePct = overview?.collection_rate_pct ?? null
-          const hasOpenPeriod = Boolean(overview?.has_open_period)
-          const runStatusThisMonth = (overview?.run_status_this_month ?? null) as IAdminLiquidationStatus | null
-
-          const alerts: string[] = []
-          if (!hasOpenPeriod && !runStatusThisMonth) {
-            alerts.push('Sin período abierto')
-          }
-          if (pendingExpenses > 0) {
-            alerts.push(`${pendingExpenses} gastos a revisar`)
-          }
-          if (collectionRatePct !== null && collectionRatePct < 50) {
-            alerts.push(`Cobranza baja (${collectionRatePct}%)`)
-          }
-          if (totalBalance < 0) {
-            alerts.push('Saldo negativo')
-          }
-
-          return {
-            property,
-            totalBalance: Math.round(totalBalance * 100) / 100,
-            pendingExpenses,
-            accountsPayableTotal: Math.round(accountsPayableTotal * 100) / 100,
-            overdueAmount: Math.round(overdueAmount * 100) / 100,
-            currentMonthLiquidated: Math.round(currentMonthLiquidated * 100) / 100,
-            currentMonthCollected: Math.round(currentMonthCollected * 100) / 100,
-            collectionRatePct,
-            hasOpenPeriod,
-            runStatusThisMonth,
-            alerts,
-          }
-        })
-
-        return {
-          administration: {
-            id: admin.id,
-            name: admin.name,
-            legalName: admin.legal_name ?? null,
-            taxId: admin.tax_id ?? null,
-            contactEmail: admin.contact_email ?? null,
-            contactPhone: admin.contact_phone ?? null,
-            isActive: Boolean(admin.is_active),
-            legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
-            createdAt: admin.created_at,
-          },
-          rows,
-          totals: rows.reduce(
-            (acc, row) => {
-              acc.totalBalance += row.totalBalance
-              acc.totalOverdue += row.overdueAmount
-              acc.totalPayable += row.accountsPayableTotal
-              acc.totalLiquidatedMonth += row.currentMonthLiquidated
-              acc.totalCollectedMonth += row.currentMonthCollected
-              acc.pendingExpenses += row.pendingExpenses
-              return acc
-            },
-            {
-              totalBalance: 0,
-              totalOverdue: 0,
-              totalPayable: 0,
-              totalLiquidatedMonth: 0,
-              totalCollectedMonth: 0,
-              pendingExpenses: 0,
-            },
-          ),
-        }
-      }
-    } catch {
-      // Fall back to Supabase while iadmin data keeps moving to RDS.
-    }
-  }
-
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return null
-
-  const { data: admin } = await supabase
-    .from('iadmin_administrations')
-    .select('*')
-    .eq('id', administrationId)
-    .maybeSingle()
   if (!admin) return null
 
-  const { data: propsData } = await supabase
-    .from('iadmin_managed_properties')
-    .select('*, buildings(id, name, address, total_units)')
-    .eq('administration_id', administrationId)
-    .eq('is_active', true)
-    .order('created_at')
-
-  const properties = (propsData ?? []).map(mapManagedProperty)
-  const propertyIds = properties.map((p) => p.id)
-  if (propertyIds.length === 0) {
-    return {
-      administration: {
-        id: admin.id,
-        name: admin.name,
-        legalName: admin.legal_name ?? null,
-        taxId: admin.tax_id ?? null,
-        contactEmail: admin.contact_email ?? null,
-        contactPhone: admin.contact_phone ?? null,
-        isActive: Boolean(admin.is_active),
-        legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
-        createdAt: admin.created_at,
-      },
-      rows: [],
-      totals: {
-        totalBalance: 0,
-        totalOverdue: 0,
-        totalPayable: 0,
-        totalLiquidatedMonth: 0,
-        totalCollectedMonth: 0,
-        pendingExpenses: 0,
-      },
-    }
-  }
-
+  const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
   const now = new Date()
-  const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth() + 1
-
-  // ---- Saldos por cuenta ----
-  const { data: accounts } = await supabase
-    .from('iadmin_cash_accounts')
-    .select('id, managed_property_id, is_active')
-    .in('managed_property_id', propertyIds)
-    .eq('is_active', true)
-  const activeAccountIds = (accounts ?? []).map((a: any) => a.id)
-  const accountProperty = new Map<string, string>()
-  for (const a of accounts ?? []) accountProperty.set(a.id, a.managed_property_id)
-
-  const balanceByProperty = new Map<string, number>()
-  if (activeAccountIds.length > 0) {
-    const { data: moves } = await supabase
-      .from('iadmin_bank_movements')
-      .select('cash_account_id, amount')
-      .in('cash_account_id', activeAccountIds)
-    for (const m of moves ?? []) {
-      const pid = accountProperty.get(m.cash_account_id)
-      if (!pid) continue
-      balanceByProperty.set(pid, (balanceByProperty.get(pid) ?? 0) + Number(m.amount))
-    }
-  }
-
-  // ---- Gastos por property: pendientes + approved (deuda a proveedor) ----
-  const { data: expensesRows } = await supabase
-    .from('iadmin_expenses')
-    .select('id, managed_property_id, status, amount')
-    .in('managed_property_id', propertyIds)
-
-  const paidExpenseIds = new Set<string>()
-  if ((expensesRows ?? []).length > 0) {
-    const { data: payRows } = await supabase
-      .from('iadmin_bank_movements')
-      .select('expense_id')
-      .eq('movement_kind', 'expense_payment')
-      .in('expense_id', (expensesRows ?? []).map((e: any) => e.id))
-    for (const r of payRows ?? []) {
-      if (r.expense_id) paidExpenseIds.add(r.expense_id as string)
-    }
-  }
-
-  const pendingByProperty = new Map<string, number>()
-  const payableByProperty = new Map<string, number>()
-  for (const e of expensesRows ?? []) {
-    if (e.status === 'pending_review' || e.status === 'needs_doc') {
-      pendingByProperty.set(e.managed_property_id, (pendingByProperty.get(e.managed_property_id) ?? 0) + 1)
-    }
-    if ((e.status === 'approved' || e.status === 'imputed') && !paidExpenseIds.has(e.id)) {
-      payableByProperty.set(
-        e.managed_property_id,
-        (payableByProperty.get(e.managed_property_id) ?? 0) + Number(e.amount),
-      )
-    }
-  }
-
-  // ---- Liquidations + pagos ----
-  const { data: runs } = await supabase
-    .from('iadmin_liquidation_runs')
-    .select(`
-      id, managed_property_id, status, ordinary_total, extraordinary_total,
-      iadmin_accounting_periods(period_year, period_month),
-      iadmin_liquidation_items(id, ordinary_amount, extraordinary_amount, previous_balance)
-    `)
-    .in('managed_property_id', propertyIds)
-    .in('status', ['calculated', 'issued', 'closed'])
-
-  const runsByProperty = new Map<string, any[]>()
-  for (const r of runs ?? []) {
-    const arr = runsByProperty.get(r.managed_property_id) ?? []
-    arr.push(r)
-    runsByProperty.set(r.managed_property_id, arr)
-  }
-
-  // Payments vivos por run
-  const runIds = (runs ?? []).map((r: any) => r.id)
-  const paymentsByRun = new Map<string, number>()
-  const paymentsByItem = new Map<string, number>()
-  if (runIds.length > 0) {
-    const { data: payments } = await supabase
-      .from('iadmin_payments')
-      .select('liquidation_run_id, liquidation_item_id, amount')
-      .in('liquidation_run_id', runIds)
-      .eq('is_void', false)
-    for (const p of payments ?? []) {
-      if (p.liquidation_run_id) {
-        paymentsByRun.set(p.liquidation_run_id, (paymentsByRun.get(p.liquidation_run_id) ?? 0) + Number(p.amount))
-      }
-      if (p.liquidation_item_id) {
-        paymentsByItem.set(p.liquidation_item_id, (paymentsByItem.get(p.liquidation_item_id) ?? 0) + Number(p.amount))
-      }
-    }
-  }
-
-  // ---- Periodos abiertos ----
-  const { data: openPeriods } = await supabase
-    .from('iadmin_accounting_periods')
-    .select('managed_property_id, period_year, period_month, status')
-    .in('managed_property_id', propertyIds)
-    .eq('period_year', currentYear)
-    .eq('period_month', currentMonth)
-  const openPeriodByProperty = new Set(
-    (openPeriods ?? []).filter((p: any) => p.status === 'open').map((p: any) => p.managed_property_id),
+  const overviewRows = await getIAdminPortfolioOverviewRowsFromPostgres(
+    administrationId,
+    now.getFullYear(),
+    now.getMonth() + 1,
   )
+  const overviewByProperty = new Map(overviewRows.map((row) => [row.property_id, row]))
 
-  // Armar filas
   const rows: IAdminPortfolioPropertyRow[] = properties.map((property) => {
-    const runsOfProperty = runsByProperty.get(property.id) ?? []
-    const currentRun = runsOfProperty.find((r) => {
-      const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
-      return p?.period_year === currentYear && p?.period_month === currentMonth
-    })
-    const historicalRuns = runsOfProperty.filter((r) => {
-      if (r.status === 'calculated') return false
-      const p = Array.isArray(r.iadmin_accounting_periods) ? r.iadmin_accounting_periods[0] : r.iadmin_accounting_periods
-      return !(p?.period_year === currentYear && p?.period_month === currentMonth)
-    })
-
-    // overdueAmount: suma (subtotal - cobrado) por item de runs historicas issued/closed
-    let overdue = 0
-    for (const r of historicalRuns) {
-      const items = Array.isArray(r.iadmin_liquidation_items) ? r.iadmin_liquidation_items : []
-      for (const it of items) {
-        const subtotal =
-          Number(it.ordinary_amount ?? 0) + Number(it.extraordinary_amount ?? 0) + Number(it.previous_balance ?? 0)
-        const paid = paymentsByItem.get(it.id) ?? 0
-        overdue += Math.max(0, subtotal - paid)
-      }
-    }
-
-    const liquidated = currentRun
-      ? Number(currentRun.ordinary_total ?? 0) + Number(currentRun.extraordinary_total ?? 0)
-      : 0
-    const collected = currentRun ? paymentsByRun.get(currentRun.id) ?? 0 : 0
-    const rate = liquidated > 0 ? Math.round((collected / liquidated) * 100) : null
+    const overview = overviewByProperty.get(property.id)
+    const totalBalance = Number(overview?.total_balance ?? 0)
+    const pendingExpenses = Number(overview?.pending_expenses ?? 0)
+    const accountsPayableTotal = Number(overview?.accounts_payable_total ?? 0)
+    const overdueAmount = Number(overview?.overdue_amount ?? 0)
+    const currentMonthLiquidated = Number(overview?.current_month_liquidated ?? 0)
+    const currentMonthCollected = Number(overview?.current_month_collected ?? 0)
+    const collectionRatePct = overview?.collection_rate_pct ?? null
+    const hasOpenPeriod = Boolean(overview?.has_open_period)
+    const runStatusThisMonth = (overview?.run_status_this_month ?? null) as IAdminLiquidationStatus | null
 
     const alerts: string[] = []
-    if (!openPeriodByProperty.has(property.id) && !currentRun) {
+    if (!hasOpenPeriod && !runStatusThisMonth) {
       alerts.push('Sin período abierto')
     }
-    if (pendingByProperty.get(property.id) ?? 0 > 0) {
-      alerts.push(`${pendingByProperty.get(property.id)} gastos a revisar`)
+    if (pendingExpenses > 0) {
+      alerts.push(`${pendingExpenses} gastos a revisar`)
     }
-    if (rate !== null && rate < 50) {
-      alerts.push(`Cobranza baja (${rate}%)`)
+    if (collectionRatePct !== null && collectionRatePct < 50) {
+      alerts.push(`Cobranza baja (${collectionRatePct}%)`)
     }
-    if ((balanceByProperty.get(property.id) ?? 0) < 0) {
+    if (totalBalance < 0) {
       alerts.push('Saldo negativo')
     }
 
     return {
       property,
-      totalBalance: Math.round((balanceByProperty.get(property.id) ?? 0) * 100) / 100,
-      pendingExpenses: pendingByProperty.get(property.id) ?? 0,
-      accountsPayableTotal: Math.round((payableByProperty.get(property.id) ?? 0) * 100) / 100,
-      overdueAmount: Math.round(overdue * 100) / 100,
-      currentMonthLiquidated: Math.round(liquidated * 100) / 100,
-      currentMonthCollected: Math.round(collected * 100) / 100,
-      collectionRatePct: rate,
-      hasOpenPeriod: openPeriodByProperty.has(property.id),
-      runStatusThisMonth: currentRun?.status ?? null,
+      totalBalance: Math.round(totalBalance * 100) / 100,
+      pendingExpenses,
+      accountsPayableTotal: Math.round(accountsPayableTotal * 100) / 100,
+      overdueAmount: Math.round(overdueAmount * 100) / 100,
+      currentMonthLiquidated: Math.round(currentMonthLiquidated * 100) / 100,
+      currentMonthCollected: Math.round(currentMonthCollected * 100) / 100,
+      collectionRatePct,
+      hasOpenPeriod,
+      runStatusThisMonth,
       alerts,
     }
   })
-
-  const totals = {
-    totalBalance: rows.reduce((s, r) => s + r.totalBalance, 0),
-    totalOverdue: rows.reduce((s, r) => s + r.overdueAmount, 0),
-    totalPayable: rows.reduce((s, r) => s + r.accountsPayableTotal, 0),
-    totalLiquidatedMonth: rows.reduce((s, r) => s + r.currentMonthLiquidated, 0),
-    totalCollectedMonth: rows.reduce((s, r) => s + r.currentMonthCollected, 0),
-    pendingExpenses: rows.reduce((s, r) => s + r.pendingExpenses, 0),
-  }
 
   return {
     administration: {
@@ -3248,19 +2759,26 @@ export async function getIAdminPortfolioOverview(administrationId: string): Prom
       legalInfo: (admin.legal_info ?? {}) as IAdminPortfolioOverview['administration']['legalInfo'],
       createdAt: admin.created_at,
     },
-    rows: rows.map((r) => ({
-      ...r,
-      totalBalance: Math.round(r.totalBalance * 100) / 100,
-      overdueAmount: Math.round(r.overdueAmount * 100) / 100,
-    })),
-    totals: {
-      totalBalance: Math.round(totals.totalBalance * 100) / 100,
-      totalOverdue: Math.round(totals.totalOverdue * 100) / 100,
-      totalPayable: Math.round(totals.totalPayable * 100) / 100,
-      totalLiquidatedMonth: Math.round(totals.totalLiquidatedMonth * 100) / 100,
-      totalCollectedMonth: Math.round(totals.totalCollectedMonth * 100) / 100,
-      pendingExpenses: totals.pendingExpenses,
-    },
+    rows,
+    totals: rows.reduce(
+      (acc, row) => {
+        acc.totalBalance += row.totalBalance
+        acc.totalOverdue += row.overdueAmount
+        acc.totalPayable += row.accountsPayableTotal
+        acc.totalLiquidatedMonth += row.currentMonthLiquidated
+        acc.totalCollectedMonth += row.currentMonthCollected
+        acc.pendingExpenses += row.pendingExpenses
+        return acc
+      },
+      {
+        totalBalance: 0,
+        totalOverdue: 0,
+        totalPayable: 0,
+        totalLiquidatedMonth: 0,
+        totalCollectedMonth: 0,
+        pendingExpenses: 0,
+      },
+    ),
   }
 }
 
