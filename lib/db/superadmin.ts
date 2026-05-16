@@ -1,5 +1,80 @@
 import { pgQuery } from '@/lib/db/postgres'
 
+export async function listAllPromotionsForSuperadminFromPostgres(): Promise<
+  Array<{
+    id: string
+    business_id: string
+    title: string
+    description: string
+    discount: string
+    category: string | null
+    expiration_date: string | null
+    building_id: string | null
+    image_path: string | null
+    is_active: boolean
+    created_at: string
+    published_month: string | null
+    source_promotion_id: string | null
+    business_name: string | null
+    redemption_count: number
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    business_id: string
+    title: string
+    description: string
+    discount: string
+    category: string | null
+    expiration_date: string | null
+    building_id: string | null
+    image_path: string | null
+    is_active: boolean
+    created_at: string
+    published_month: string | null
+    source_promotion_id: string | null
+    business_name: string | null
+    redemption_count: number
+  }>(
+    `
+      select
+        p.id, p.business_id, p.title, p.description, p.discount, p.category,
+        p.expiration_date::text as expiration_date, p.building_id,
+        p.image_path, p.is_active, p.created_at::text as created_at,
+        p.published_month::text as published_month,
+        p.source_promotion_id,
+        b.name as business_name,
+        coalesce((select count(*)::int from public.promotion_redemptions r where r.promotion_id = p.id), 0) as redemption_count
+      from public.promotions p
+      left join public.businesses b on b.id = p.business_id
+      order by p.created_at desc
+    `,
+  )
+  return result.rows
+}
+
+export async function listAllRedemptionsByBuildingFromPostgres(): Promise<
+  Array<{
+    promotion_id: string
+    building_id: string | null
+    building_name: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    promotion_id: string
+    building_id: string | null
+    building_name: string | null
+  }>(
+    `
+      select r.promotion_id, p.building_id, b.name as building_name
+      from public.promotion_redemptions r
+      left join public.profiles p on p.id = r.profile_id
+      left join public.buildings b on b.id = p.building_id
+    `,
+  )
+  return result.rows
+}
+
 export async function countVecinoProfilesFromPostgres(): Promise<number> {
   const result = await pgQuery<{ c: number }>(
     `select count(*)::int as c from public.profiles where role = 'vecino'`,

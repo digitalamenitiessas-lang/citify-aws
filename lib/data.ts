@@ -140,6 +140,7 @@ import {
   listImputedExpenseLinesByPeriodFromPostgres,
   listLiquidationItemsByRunBasicFromPostgres,
   listLiquidationItemsDetailedFromPostgres,
+  listLiquidationRunSummariesByAdminFromPostgres,
   listLivePaymentsByRunDetailedFromPostgres,
   listMembershipsWithProfileByUnitsFromPostgres,
   listPaidExpenseIdsFromPostgres,
@@ -165,6 +166,8 @@ import {
   listAllBuildingsFromPostgres,
   listAllBusinessesFromPostgres,
   listAllProfilesFromPostgres,
+  listAllPromotionsForSuperadminFromPostgres,
+  listAllRedemptionsByBuildingFromPostgres,
   listBuildingAdminAssignmentsFromPostgres,
   listRedemptionsForBusinessFromPostgres,
   listSuperadminManagedPropertiesFromPostgres,
@@ -186,8 +189,6 @@ import { getAllBusinessesFromPostgres, getBusinessByIdFromPostgres } from '@/lib
 import { getPublicPromotionsFromPostgres } from '@/lib/db/public-home'
 import { getPromotionsForBusinessFromPostgres, type PromotionRow } from '@/lib/db/promotions'
 import { isPostgresConfigured } from '@/lib/db/postgres'
-import { getSupabaseAdminClient } from '@/lib/supabase/admin'
-import { getSupabaseServerClient } from '@/lib/supabase/server'
 
 function publicUrl(client: any, bucket: string, path: string | null | undefined) {
   if (!path) {
@@ -288,20 +289,6 @@ function mapUnitProfileMembership(row: any): UnitProfileMembership {
     buildingName: building?.name ?? null,
     profile: profile ? mapProfile(profile) : null,
   }
-}
-
-async function getPrimaryBuildingIdForProfile(supabase: any, profile: any): Promise<string | null> {
-  if (profile?.building_id) return profile.building_id
-  const { data } = await supabase
-    .from('unit_profile_memberships')
-    .select('building_id')
-    .eq('profile_id', profile?.id)
-    .eq('active', true)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  return data?.building_id ?? null
 }
 
 function mapBusiness(client: any, row: any): Business {
@@ -943,30 +930,15 @@ export async function getConsorcioDashboardData(profileId: string): Promise<Cons
 }
 
 export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardData> {
-  const supabase = await getSupabaseServerClient()
-
-  const [buildingsRows, usersRows, businessesRows, assignmentsRows, propertiesRows] = await Promise.all([
+  const [buildingsRows, usersRows, businessesRows, assignmentsRows, propertiesRows, promotionsRows, redemptionsRows] = await Promise.all([
     listAllBuildingsFromPostgres(),
     listAllProfilesFromPostgres(),
     listAllBusinessesFromPostgres(),
     listBuildingAdminAssignmentsFromPostgres(),
     listSuperadminManagedPropertiesFromPostgres(),
+    listAllPromotionsForSuperadminFromPostgres(),
+    listAllRedemptionsByBuildingFromPostgres(),
   ])
-
-  // Promotions/redemptions still live in Supabase; fall back to empty if not configured.
-  const promotionsRes = supabase
-    ? await supabase
-        .from('promotions')
-        .select(`*, businesses ( id, name ), promotion_redemptions ( id )`)
-        .order('created_at', { ascending: false })
-        .then((r) => r, () => ({ data: [] as any[] }))
-    : { data: [] as any[] }
-  const redemptionsRes = supabase
-    ? await supabase
-        .from('promotion_redemptions')
-        .select(`promotion_id, profiles ( building_id, buildings ( id, name ) )`)
-        .then((r) => r, () => ({ data: [] as any[] }))
-    : { data: [] as any[] }
 
   const buildingsRes = { data: buildingsRows }
   const usersRes = { data: usersRows }
@@ -976,7 +948,24 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
 
   const allBuildings = (buildingsRes.data ?? []).map(mapBuilding)
   const allUsers = (usersRes.data ?? []).map(mapProfile)
-  const allPromotionsRaw = (promotionsRes.data ?? []).map((row: any) => mapPromotion(supabase as any, row))
+  const allPromotionsRaw = promotionsRows.map((row): Promotion => ({
+    id: row.id,
+    businessId: row.business_id,
+    businessName: row.business_name ?? '',
+    title: row.title,
+    description: row.description,
+    discount: row.discount,
+    category: row.category ?? '',
+    expirationDate: row.expiration_date ?? '',
+    buildingId: row.building_id,
+    imagePath: row.image_path,
+    imageUrl: row.image_path?.startsWith('public/') ? buildPublicS3Url(row.image_path) : null,
+    isActive: Boolean(row.is_active),
+    usageCount: row.redemption_count,
+    createdAt: row.created_at,
+    publishedMonth: row.published_month ?? `${row.created_at.slice(0, 7)}-01`,
+    sourcePromotionId: row.source_promotion_id,
+  }))
   const allPromotionsEffective = applyPromotionAutoRenewal(allPromotionsRaw)
   const buildingNameById = new Map(allBuildings.map((building) => [building.id, building.name]))
   const userEmailById = new Map(allUsers.map((user) => [user.id, user.email]))
@@ -1006,15 +995,13 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
   }
 
   const redemptionMap = new Map<string, Map<string, { name: string; count: number }>>()
-  for (const row of redemptionsRes.data ?? []) {
-    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-    const building = profile?.buildings ? (Array.isArray(profile.buildings) ? profile.buildings[0] : profile.buildings) : null
-    if (!building?.id) continue
+  for (const row of redemptionsRows) {
+    if (!row.building_id) continue
     if (!redemptionMap.has(row.promotion_id)) redemptionMap.set(row.promotion_id, new Map())
     const byBuilding = redemptionMap.get(row.promotion_id)!
-    const current = byBuilding.get(building.id) ?? { name: building.name, count: 0 }
+    const current = byBuilding.get(row.building_id) ?? { name: row.building_name ?? '', count: 0 }
     current.count += 1
-    byBuilding.set(building.id, current)
+    byBuilding.set(row.building_id, current)
   }
 
   const allPromotions: SuperAdminPromotionDetail[] = allPromotionsEffective.map((promotion) => {
@@ -1119,8 +1106,10 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     businessPromoRawMap.set(promotion.businessId, existing)
   }
 
-  const businesses: SuperAdminBusinessDetail[] = (businessesRes.data ?? []).map((row: any) => {
-    const business = mapBusiness(supabase, row)
+  const businesses: SuperAdminBusinessDetail[] = (businessesRes.data ?? [])
+    .map((row: any) => mapBusinessFromPostgresRow(row))
+    .filter((business): business is Business => Boolean(business))
+    .map((business) => {
     const promotions = businessPromoMap.get(business.id) ?? []
     const totalRedemptions = promotions.reduce((sum, p) => sum + p.usageCount, 0)
     const buildingCounts = new Map<string, { name: string; count: number }>()
@@ -1709,45 +1698,22 @@ export async function getIAdminExpenseDetail(
 }
 
 export async function getIAdminLiquidationRuns(administrationId: string): Promise<IAdminLiquidationRunSummary[]> {
-  const supabase = await getSupabaseServerClient()
-  if (!supabase) return []
-
-  const { data } = await supabase
-    .from('iadmin_liquidation_runs')
-    .select(`
-      *,
-      iadmin_managed_properties ( id, display_name, buildings ( name ) ),
-      iadmin_accounting_periods ( period_year, period_month )
-    `)
-    .eq('administration_id', administrationId)
-    .order('generated_at', { ascending: false })
-    .limit(50)
-
-  return (data ?? []).map((row: any): IAdminLiquidationRunSummary => {
-    const property = Array.isArray(row.iadmin_managed_properties)
-      ? row.iadmin_managed_properties[0]
-      : row.iadmin_managed_properties
-    const building = property?.buildings
-      ? Array.isArray(property.buildings)
-        ? property.buildings[0]
-        : property.buildings
-      : null
-    const period = Array.isArray(row.iadmin_accounting_periods)
-      ? row.iadmin_accounting_periods[0]
-      : row.iadmin_accounting_periods
-    return {
-      id: row.id,
-      managedPropertyId: row.managed_property_id,
-      managedPropertyName: property?.display_name ?? building?.name ?? 'Consorcio',
-      periodYear: period?.period_year ?? 0,
-      periodMonth: period?.period_month ?? 0,
-      status: row.status,
-      totalExpenses: Number(row.total_expenses ?? 0),
-      totalUnits: Number(row.total_units ?? 0),
-      generatedAt: row.generated_at,
-      closedAt: row.closed_at ?? null,
-    }
+  const rows = await listLiquidationRunSummariesByAdminFromPostgres({
+    administrationId,
+    limit: 50,
   })
+  return rows.map((row): IAdminLiquidationRunSummary => ({
+    id: row.id,
+    managedPropertyId: row.managed_property_id,
+    managedPropertyName: row.property_display_name ?? row.building_name ?? 'Consorcio',
+    periodYear: row.period_year ?? 0,
+    periodMonth: row.period_month ?? 0,
+    status: row.status as IAdminLiquidationStatus,
+    totalExpenses: Number(row.total_expenses ?? 0),
+    totalUnits: Number(row.total_units ?? 0),
+    generatedAt: row.generated_at,
+    closedAt: row.closed_at,
+  }))
 }
 
 function mapProvider(row: any): IAdminProvider {

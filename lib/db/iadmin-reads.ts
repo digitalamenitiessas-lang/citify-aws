@@ -1024,6 +1024,53 @@ export async function listUnitPaymentsInWindowFromPostgres(input: {
 }
 
 // ----------------------------------------------------------------------------
+// Lista de liquidation runs para un administrador (resumen)
+// ----------------------------------------------------------------------------
+
+export type LiquidationRunSummaryRow = {
+  id: string
+  managed_property_id: string
+  property_display_name: string | null
+  building_name: string | null
+  period_year: number | null
+  period_month: number | null
+  status: string
+  total_expenses: string | null
+  total_units: number | null
+  generated_at: string
+  closed_at: string | null
+}
+
+export async function listLiquidationRunSummariesByAdminFromPostgres(input: {
+  administrationId: string
+  limit: number
+}): Promise<LiquidationRunSummaryRow[]> {
+  const result = await pgQuery<LiquidationRunSummaryRow>(
+    `
+      select
+        r.id, r.managed_property_id,
+        mp.display_name as property_display_name,
+        b.name as building_name,
+        ap.period_year, ap.period_month,
+        r.status::text as status,
+        r.total_expenses::text as total_expenses,
+        r.total_units,
+        r.generated_at::text as generated_at,
+        r.closed_at::text as closed_at
+      from public.iadmin_liquidation_runs r
+      left join public.iadmin_managed_properties mp on mp.id = r.managed_property_id
+      left join public.buildings b on b.id = mp.building_id
+      left join public.iadmin_accounting_periods ap on ap.id = r.accounting_period_id
+      where r.administration_id = $1
+      order by r.generated_at desc
+      limit $2
+    `,
+    [input.administrationId, input.limit],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
 // Liquidation run detail (run + admin + property + period + profiles)
 // ----------------------------------------------------------------------------
 
