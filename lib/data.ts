@@ -712,11 +712,21 @@ function mapConsorcioComplaintCaseDetail(row: any, mentionableUsers: ComplaintCa
 }
 
 export async function getHomeData(): Promise<HomeData> {
-  const promotions = applyPromotionAutoRenewal(
-    (await getPublicPromotionsFromPostgres(12)).map(mapPromotionFromPostgresRow),
-  )
-  return {
-    promotions: promotions.slice(0, 12),
+  // En build time o si la DB no está configurada (p.ej. SSG prerender),
+  // devolvemos vacío en lugar de tirar.
+  if (!isPostgresConfigured()) {
+    return { promotions: [] }
+  }
+  try {
+    const promotions = applyPromotionAutoRenewal(
+      (await getPublicPromotionsFromPostgres(12)).map(mapPromotionFromPostgresRow),
+    )
+    return {
+      promotions: promotions.slice(0, 12),
+    }
+  } catch (error) {
+    console.error('[getHomeData] error leyendo de RDS:', error)
+    return { promotions: [] }
   }
 }
 
