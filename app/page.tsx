@@ -5,23 +5,19 @@ import { LandingExperience3D } from '@/components/landing/landing-experience-3d'
 import { getCurrentProfile } from '@/lib/auth'
 import { ROLE_HOME } from '@/lib/constants'
 import { getHomeData } from '@/lib/data'
-import { isSupabaseConfigured } from '@/lib/supabase/env'
 
 export default async function HomePage() {
+  const profile = await getCurrentProfile()
+  if (profile?.role) {
+    redirect(ROLE_HOME[profile.role])
+  }
+
   let featuredPromotions: Awaited<ReturnType<typeof getHomeData>>['promotions'] = []
-
-  if (isSupabaseConfigured()) {
-    const profile = await getCurrentProfile()
-    if (profile?.role) {
-      redirect(ROLE_HOME[profile.role])
-    }
-
-    try {
-      const { promotions } = await getHomeData()
-      featuredPromotions = promotions.slice(0, 3)
-    } catch (error) {
-      console.error('[HomePage] No se pudieron cargar las promociones destacadas:', error)
-    }
+  try {
+    const { promotions } = await getHomeData()
+    featuredPromotions = promotions.slice(0, 3)
+  } catch (error) {
+    console.error('[HomePage] No se pudieron cargar las promociones destacadas:', error)
   }
 
   const hasOptimizedModels =
