@@ -1,4 +1,4 @@
-import { pgQuery } from '@/lib/db/postgres'
+import { pgQuery, pgQueryAsProfile } from '@/lib/db/postgres'
 
 // ----------------------------------------------------------------------------
 // Push subscriptions (no es de business strictly pero comparte patron)
@@ -38,6 +38,7 @@ export async function updateBusinessFieldsInPostgres(
     latitude: number
     longitude: number
   }>,
+  actingProfileId?: string,
 ): Promise<void> {
   const cols: string[] = []
   const values: unknown[] = []
@@ -48,10 +49,13 @@ export async function updateBusinessFieldsInPostgres(
   }
   if (cols.length === 0) return
   values.push(businessId)
-  await pgQuery(
-    `update public.businesses set ${cols.join(', ')} where id = $${values.length}`,
-    values,
-  )
+  const sql = `update public.businesses set ${cols.join(', ')} where id = $${values.length}`
+  const result = actingProfileId
+    ? await pgQueryAsProfile(actingProfileId, sql, values)
+    : await pgQuery(sql, values)
+  if (result.rowCount === 0) {
+    throw new Error('No se pudo actualizar el negocio (RLS rechazo o id inexistente).')
+  }
 }
 
 export async function upsertPromotionInPostgres(input: {

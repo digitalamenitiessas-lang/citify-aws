@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    await updateBusinessFieldsInPostgres(profile.businessId, patch)
+    await updateBusinessFieldsInPostgres(profile.businessId, patch, profile.id)
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Error al actualizar' },
