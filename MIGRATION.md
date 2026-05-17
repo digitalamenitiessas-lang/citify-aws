@@ -136,24 +136,24 @@ Patrón: `if (isPostgresConfigured()) { try { ... } catch { /* fallback */ } } /
 - ✅ Dashboards (super admin, consorcio, business, consumer, owner)
 - ✅ Home / promotions
 
-**Pendiente reads en otros archivos**:
-- [ ] `lib/auth.ts` (3 referencias residuales en `getIAdminContext`)
-- [ ] `lib/ai/context-builders.ts`, `lib/iadmin/expense-anomalies.ts`, `lib/iadmin/public-liquidation.ts` (siguen importando `@/lib/supabase/*`)
+**Reads en otros archivos** — ✅ **todo migrado**:
+- ✅ `lib/auth.ts` (`getCurrentProfile` + `getIAdminContext` puro RDS/Cognito)
+- ✅ `lib/ai/context-builders.ts` (5 funciones de contexto IA)
+- ✅ `lib/iadmin/expense-anomalies.ts`
+- ✅ `lib/iadmin/public-liquidation.ts` (lookup por share token)
 
 ---
 
-## 6. Páginas (server components con guard de Supabase)
+## 6. Páginas — ✅ **todas limpias** (sin guard `isSupabaseConfigured()`)
 
-Algunas páginas tienen `if (!isSupabaseConfigured()) return <SetupNotice />`. Hay que sacarlos.
-
-- [x] `app/consorcio/page.tsx` (Codex lo limpió)
-- [ ] `app/page.tsx`
-- [ ] `app/admin/page.tsx`
-- [ ] `app/superadmin/page.tsx`
-- [ ] `app/usuario/page.tsx`
-- [ ] `app/propietario/page.tsx`
-- [ ] `app/iadmin/layout.tsx`
-- [ ] `app/print/liquidaciones/[id]/page.tsx`
+- ✅ `app/consorcio/page.tsx`
+- ✅ `app/page.tsx`
+- ✅ `app/admin/page.tsx`
+- ✅ `app/superadmin/page.tsx`
+- ✅ `app/usuario/page.tsx`
+- ✅ `app/propietario/page.tsx`
+- ✅ `app/iadmin/layout.tsx`
+- ✅ `app/print/liquidaciones/[id]/page.tsx`
 
 ---
 
@@ -170,13 +170,20 @@ Algunas páginas tienen `if (!isSupabaseConfigured()) return <SetupNotice />`. H
 
 ---
 
-## 8. Limpieza final (cuando todo esté validado en prod)
+## 8. Limpieza final — ✅ **completada**
 
-- [ ] Eliminar carpeta `lib/supabase/` (admin.ts, server.ts, client.ts, middleware.ts, env.ts)
-- [ ] Eliminar `components/setup-notice.tsx`
-- [ ] Quitar `@supabase/supabase-js` y `@supabase/ssr` de `package.json` + `pnpm install`
-- [ ] Sacar los `ARG NEXT_PUBLIC_SUPABASE_URL` y `ARG NEXT_PUBLIC_SUPABASE_ANON_KEY` del `Dockerfile`
-- [ ] Sacar `COPY supabase ./supabase` del Dockerfile (o decidir si la carpeta `supabase/migrations` se mantiene como histórico)
+- ✅ Eliminada carpeta `lib/supabase/`
+- ✅ Eliminado `components/setup-notice.tsx`
+- ✅ `@supabase/supabase-js` y `@supabase/ssr` desinstalados
+- ✅ Sacados `ARG NEXT_PUBLIC_SUPABASE_*` del Dockerfile
+- ✅ Sacado `COPY supabase ./supabase` del Dockerfile
+- ✅ Sacadas env vars `NEXT_PUBLIC_SUPABASE_*` y `SUPABASE_SERVICE_ROLE_KEY` del task definition ECS
+
+**Pendiente operativo** (afuera del código):
+- [ ] Sacar las mismas env vars de `.env.local` (no es bloqueante)
+- [ ] Marcar el proyecto Supabase como "archived" o pausado en el dashboard
+- [ ] Borrar `scripts/sync-rds-*.js` y `scripts/sync-cognito-users.js` (obsoletos)
+- [ ] Borrar `scripts/create-consorcio-admin.js` (ad-hoc, ya no necesario)
 - [ ] Eliminar las env vars `NEXT_PUBLIC_SUPABASE_*` y `SUPABASE_SERVICE_ROLE_KEY` del task definition ECS y del `.env.local`
 - [ ] Marcar el proyecto Supabase como "archived" o pausado en el dashboard
 - [ ] Borrar `scripts/sync-rds-*.js` y `scripts/sync-cognito-users.js` (se vuelven obsoletos una vez completada la migración de datos)
