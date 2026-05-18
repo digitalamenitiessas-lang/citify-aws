@@ -42,6 +42,7 @@ export interface Promotion {
   id: string
   businessId: string
   businessName: string
+  businessLogoUrl: string | null
   title: string
   description: string
   discount: string

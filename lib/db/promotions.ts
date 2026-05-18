@@ -4,6 +4,7 @@ export interface PromotionRow {
   id: string
   business_id: string
   business_name: string
+  business_logo_path: string | null
   title: string
   description: string
   discount: string
@@ -24,6 +25,7 @@ function basePromotionSelect() {
       p.id,
       p.business_id,
       coalesce(b.name, 'Comercio') as business_name,
+      b.logo_path as business_logo_path,
       p.title,
       p.description,
       p.discount,
@@ -51,6 +53,7 @@ export async function getPromotionsForBusinessFromPostgres(businessId: string): 
         p.id,
         p.business_id,
         b.name,
+        b.logo_path,
         p.title,
         p.description,
         p.discount,
@@ -77,6 +80,7 @@ export async function getAllActivePromotionsFromPostgres(): Promise<PromotionRow
         p.id,
         p.business_id,
         b.name,
+        b.logo_path,
         p.title,
         p.description,
         p.discount,

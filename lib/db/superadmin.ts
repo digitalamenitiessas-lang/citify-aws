@@ -16,6 +16,7 @@ export async function listAllPromotionsForSuperadminFromPostgres(): Promise<
     published_month: string | null
     source_promotion_id: string | null
     business_name: string | null
+    business_logo_path: string | null
     redemption_count: number
   }>
 > {
@@ -34,6 +35,7 @@ export async function listAllPromotionsForSuperadminFromPostgres(): Promise<
     published_month: string | null
     source_promotion_id: string | null
     business_name: string | null
+    business_logo_path: string | null
     redemption_count: number
   }>(
     `
@@ -44,6 +46,7 @@ export async function listAllPromotionsForSuperadminFromPostgres(): Promise<
         p.published_month::text as published_month,
         p.source_promotion_id,
         b.name as business_name,
+        b.logo_path as business_logo_path,
         coalesce((select count(*)::int from public.promotion_redemptions r where r.promotion_id = p.id), 0) as redemption_count
       from public.promotions p
       left join public.businesses b on b.id = p.business_id

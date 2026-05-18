@@ -58,7 +58,7 @@ export function PromotionCard({
       ) : null}
 
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <Badge variant="outline" className="text-xs border-primary/30 text-muted-foreground">
               {promotion.category}
@@ -66,7 +66,19 @@ export function PromotionCard({
             {isExpired ? <Badge variant="destructive" className="text-xs">Vencida</Badge> : null}
           </div>
           <h3 className="font-semibold text-foreground leading-snug text-balance">{promotion.title}</h3>
-          <p className="text-sm text-muted-foreground mt-0.5">{promotion.businessName}</p>
+          <div className="flex items-center gap-2 mt-1">
+            {promotion.businessLogoUrl ? (
+              <span className="inline-flex h-7 w-7 flex-shrink-0 overflow-hidden rounded-full border border-border/40 bg-secondary/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={promotion.businessLogoUrl} alt={promotion.businessName} className="h-full w-full object-cover" />
+              </span>
+            ) : (
+              <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-border/40 bg-secondary/40 text-[10px] font-semibold text-muted-foreground">
+                {promotion.businessName.slice(0, 2).toUpperCase()}
+              </span>
+            )}
+            <p className="text-sm text-muted-foreground truncate">{promotion.businessName}</p>
+          </div>
         </div>
         <div
           className="flex-shrink-0 px-3 py-1.5 rounded-lg text-center"
