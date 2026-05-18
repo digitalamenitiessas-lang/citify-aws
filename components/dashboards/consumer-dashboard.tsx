@@ -851,17 +851,17 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
     if (payload?.saved) {
       setSavedCoupons((prev) => (prev.includes(promotion.id) ? prev : [...prev, promotion.id]))
-      toast.success('Cup?n guardado.')
+      toast.success('Cupón guardado.')
       return
     }
 
     setSavedCoupons((prev) => prev.filter((id) => id !== promotion.id))
-    toast.success('Cup?n removido de tu billetera.')
+    toast.success('Cupón removido de tu billetera.')
   }
 
   async function handleWantCoupon(promotion: Promotion) {
     if (usedCoupons.includes(promotion.id)) {
-      toast.error('Esta promoci?n ya fue canjeada este mes.')
+      toast.error('Esta promoción ya fue canjeada este mes.')
       return
     }
 
@@ -874,7 +874,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       const payload = await readJsonResponse<{ error?: string; saved?: boolean }>(response)
 
       if (!response.ok) {
-        toast.error(payload?.error ?? 'No pudimos guardar el cup?n.')
+        toast.error(payload?.error ?? 'No pudimos guardar el cupón.')
         return
       }
 
@@ -882,7 +882,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         setSavedCoupons((prev) => (prev.includes(promotion.id) ? prev : [...prev, promotion.id]))
       }
 
-      toast.success('Cup?n guardado en tu billetera.')
+      toast.success('Cupón guardado en tu billetera.')
     }
 
     setMainView('my-coupons')
@@ -897,7 +897,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
   async function handleUse(promotion: Promotion) {
     if (usedCoupons.includes(promotion.id)) {
-      toast.error('Esta promoci?n ya fue usada.')
+      toast.error('Esta promoción ya fue usada.')
       return
     }
 
@@ -915,7 +915,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     setIsLoadingQr(false)
 
     if (!response.ok || !payload?.token) {
-      toast.error(payload?.error ?? 'No se pudo generar el c?digo del cup?n.')
+      toast.error(payload?.error ?? 'No se pudo generar el código del cupón.')
       closePromotionQr()
       return
     }
@@ -951,7 +951,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         setMainView('my-coupons')
         setCouponFilter('usados')
         closePromotionQr()
-        toast.success('Tu cup?n fue canjeado correctamente.')
+        toast.success('Tu cupón fue canjeado correctamente.')
         return
       }
 
@@ -994,12 +994,12 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     const result = await readJsonResponse<{ error?: string }>(response)
 
     if (!response.ok) {
-      toast.error(result?.error ?? 'No pudimos crear la publicaci?n.')
+      toast.error(result?.error ?? 'No pudimos crear la publicación.')
       return
     }
 
     setMarketplaceItems((prev) => [{ id: itemId, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, sellerId: profileId, sellerName: profileName, sellerAvatar: avatarText, sellerPhone: null, buildingId: initialData.building!.id, createdAt: new Date().toISOString(), imagePath, imageUrl, isActive: true }, ...prev])
-    toast.success('Publicaci?n creada.')
+    toast.success('Publicación creada.')
   }
 
   // ?????? Bottom nav items

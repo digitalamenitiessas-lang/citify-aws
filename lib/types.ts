@@ -587,7 +587,7 @@ export type IAdminCapability =
 export interface IAdminLegalInfoBank {
   name?: string
   cbu?: string
-  alias?: string
+  aliasí: string
   account?: string
 }
 

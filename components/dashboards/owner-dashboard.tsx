@@ -149,7 +149,7 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
 
       <ChatWidget
         suggestions={[
-          '¿Cuánto debo de expensas?',
+          '¿Cuánto debo de expensasí',
           '¿Cuál fue mi último pago?',
           '¿Hay avisos del edificio?',
           '¿Cuáles son mis unidades?',

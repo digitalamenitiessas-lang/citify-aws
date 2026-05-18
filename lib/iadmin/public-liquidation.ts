@@ -20,7 +20,7 @@ export type PublicLiquidationView = {
   balanceRemaining: number
   dueDates: Array<{ label: string; date: string; surchargePct: number; amount: number }>
   legalInfo: {
-    bank?: { name?: string; cbu?: string; alias?: string; account?: string }
+    bank?: { name?: string; cbu?: string; aliasí: string; account?: string }
     collectionSchedule?: string
     accountantName?: string
     accountantPhone?: string
