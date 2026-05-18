@@ -532,6 +532,8 @@ type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-
 
 const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household']
 const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v1'
+const NEIGHBOR_VIEW_STORAGE_KEY = 'citify-neighbor-view-v1'
+const NEIGHBOR_COUPON_FILTER_STORAGE_KEY = 'citify-neighbor-coupon-filter-v1'
 
 const NEIGHBOR_TOUR_STEPS_DESKTOP: Array<{
   selector: string
@@ -636,9 +638,24 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const rawView = searchParams.get('view')
-  const urlMainView: MainView = isMainView(rawView) ? rawView : 'home'
-  const urlCouponFilter = searchParams.get('couponFilter') === 'usados' ? 'usados' : 'disponibles'
-  const [mainView, setMainView] = useState<MainView>(urlMainView)
+  const rawCouponFilter = searchParams.get('couponFilter')
+  const urlMainView: MainView | null = isMainView(rawView) ? rawView : null
+  const urlCouponFilter: 'disponibles' | 'usados' | null =
+    rawCouponFilter === 'usados' ? 'usados' : rawCouponFilter === 'disponibles' ? 'disponibles' : null
+  // Fallback al localStorage si no viene en la URL (e.g. recarga directa sin query)
+  const initialMainView: MainView = (() => {
+    if (urlMainView) return urlMainView
+    if (typeof window === 'undefined') return 'home'
+    const stored = window.localStorage.getItem(NEIGHBOR_VIEW_STORAGE_KEY)
+    return stored && (MAIN_VIEW_OPTIONS as string[]).includes(stored) ? (stored as MainView) : 'home'
+  })()
+  const initialCouponFilter: 'disponibles' | 'usados' = (() => {
+    if (urlCouponFilter) return urlCouponFilter
+    if (typeof window === 'undefined') return 'disponibles'
+    const stored = window.localStorage.getItem(NEIGHBOR_COUPON_FILTER_STORAGE_KEY)
+    return stored === 'usados' ? 'usados' : 'disponibles'
+  })()
+  const [mainView, setMainView] = useState<MainView>(initialMainView)
   const [qrPromotion, setQrPromotion] = useState<Promotion | null>(null)
   const [qrToken, setQrToken] = useState<PromotionRedemptionToken | null>(null)
   const [isLoadingQr, setIsLoadingQr] = useState(false)
@@ -647,7 +664,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
-  const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>(urlCouponFilter)
+  const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>(initialCouponFilter)
   const [tourOpen, setTourOpen] = useState(false)
   const [tourStep, setTourStep] = useState(0)
   const [tourRect, setTourRect] = useState<DOMRect | null>(null)
@@ -740,20 +757,33 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   }
 
   useEffect(() => {
-    if (mainView !== urlMainView) {
+    if (urlMainView && mainView !== urlMainView) {
       setMainView(urlMainView)
     }
-    if (couponFilter !== urlCouponFilter) {
+    if (urlCouponFilter && couponFilter !== urlCouponFilter) {
       setCouponFilter(urlCouponFilter)
     }
   }, [urlCouponFilter, urlMainView])
 
+  // Persistir la sección activa en localStorage como fallback al refrescar
   useEffect(() => {
-    if (mainView !== urlMainView) {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(NEIGHBOR_VIEW_STORAGE_KEY, mainView)
+  }, [mainView])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(NEIGHBOR_COUPON_FILTER_STORAGE_KEY, couponFilter)
+  }, [couponFilter])
+
+  useEffect(() => {
+    // Sincronizar state → URL. Si la URL aún tiene un valor diferente del state
+    // (porque venimos de un cambio de URL), esperamos a que ese effect resuelva.
+    if (urlMainView && mainView !== urlMainView) {
       return
     }
 
-    if (mainView === 'my-coupons' && couponFilter !== urlCouponFilter) {
+    if (mainView === 'my-coupons' && urlCouponFilter && couponFilter !== urlCouponFilter) {
       return
     }
 
