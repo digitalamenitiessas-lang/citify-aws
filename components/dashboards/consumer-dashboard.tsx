@@ -894,30 +894,21 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     [savedCoupons, seenCouponIds],
   )
 
+  // Sincroniza state → URL. El check nextQuery !== currentQuery es la única
+  // guardia contra loops; no hace falta el early-return basado en urlMainView
+  // que antes bloqueaba el sync cuando el usuario cambiaba de sección.
   useEffect(() => {
-    // Sincronizar state → URL. Si la URL aún tiene un valor diferente del state
-    // (porque venimos de un cambio de URL), esperamos a que ese effect resuelva.
-    if (urlMainView && mainView !== urlMainView) {
-      return
-    }
-
-    if (mainView === 'my-coupons' && urlCouponFilter && couponFilter !== urlCouponFilter) {
-      return
-    }
-
     const params = new URLSearchParams(searchParams.toString())
     if (mainView === 'home') {
       params.delete('view')
     } else {
       params.set('view', mainView)
     }
-
     if (mainView === 'my-coupons') {
       params.set('couponFilter', couponFilter)
     } else {
       params.delete('couponFilter')
     }
-
     const nextQuery = params.toString()
     const currentQuery = searchParams.toString()
     if (nextQuery !== currentQuery) {

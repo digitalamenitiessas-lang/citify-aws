@@ -1690,12 +1690,16 @@ export function BusinessDashboard({
                         center={mapLocation ?? initialMapCenter}
                         zoom={mapLocation ? 17 : initialMapZoom}
                         recenterKey={recenterToken}
-                        interactive={isLocationEditing}
+                        // Drag/zoom siempre habilitados (igual que el mapa
+                        // del vecino). El click para colocar marker solo
+                        // funciona si está en modo edición.
+                        interactive
                         selectedLocation={mapLocation}
-                        onLocationSelect={(lat, lng) => {
-                          if (!isLocationEditing) return
-                          setMapLocation([lat, lng])
-                        }}
+                        onLocationSelect={
+                          isLocationEditing
+                            ? (lat, lng) => setMapLocation([lat, lng])
+                            : undefined
+                        }
                       />
                     </div>
                   </div>
