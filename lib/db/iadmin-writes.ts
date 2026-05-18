@@ -866,6 +866,33 @@ export async function findPrincipalMembershipForProfileFromPostgres(input: {
   return result.rows[0] ?? null
 }
 
+export async function findActiveMembershipsForProfileFromPostgres(profileId: string): Promise<
+  Array<{
+    id: string
+    unit_id: string
+    building_id: string
+    relationship_type: string
+    active: boolean
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    unit_id: string
+    building_id: string
+    relationship_type: string
+    active: boolean
+  }>(
+    `
+      select id, unit_id, building_id, relationship_type::text as relationship_type, active
+      from public.unit_profile_memberships
+      where profile_id = $1 and active = true
+      order by created_at asc
+    `,
+    [profileId],
+  )
+  return result.rows
+}
+
 export async function countActiveAdditionalNeighborsInPostgres(unitId: string): Promise<number> {
   const result = await pgQuery<{ c: number }>(
     `select count(*)::int as c from public.unit_profile_memberships where unit_id = $1 and relationship_type = 'vecino_adicional' and active = true`,
@@ -885,9 +912,9 @@ export async function findUnitProfileMembershipFromPostgres(input: {
   unitId: string
   profileId: string
   relationshipType: string
-}): Promise<{ id: string } | null> {
-  const result = await pgQuery<{ id: string }>(
-    `select id from public.unit_profile_memberships where unit_id = $1 and profile_id = $2 and relationship_type = $3 limit 1`,
+}): Promise<{ id: string; building_id: string; active: boolean } | null> {
+  const result = await pgQuery<{ id: string; building_id: string; active: boolean }>(
+    `select id, building_id, active from public.unit_profile_memberships where unit_id = $1 and profile_id = $2 and relationship_type = $3 limit 1`,
     [input.unitId, input.profileId, input.relationshipType],
   )
   return result.rows[0] ?? null

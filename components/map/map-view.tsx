@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
-import { MapPin, Building, Store } from 'lucide-react'
 
-// Fix default icons if ever needed (React-Leaflet standard fix)
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -14,9 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
-// Custom beautiful icons
 const createCustomIcon = (type: 'default' | 'business' | 'building' | 'selected') => {
-  const isDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   let iconHtml = ''
 
   if (type === 'building') {
@@ -57,6 +53,7 @@ export interface MapMarker {
 interface MapViewProps {
   center: [number, number]
   zoom?: number
+  recenterKey?: number
   markers?: MapMarker[]
   interactive?: boolean
   onLocationSelect?: (lat: number, lng: number) => void
@@ -73,50 +70,53 @@ function LocationSelector({ onSelect }: { onSelect: (lat: number, lng: number) =
   return null
 }
 
-// Solo re-centra cuando lat/lng/zoom realmente cambian (compara primitivos en
-// vez de identidad del array). Si el parent re-renderiza pasando un nuevo
-// `[lat, lng]` con los mismos valores, el efecto NO se dispara y no
-// interrumpe el drag/zoom manual del usuario.
-function ChangeView({ center, zoom }: { center: [number, number], zoom: number }) {
+function ChangeView({
+  center,
+  zoom,
+  recenterKey = 0,
+}: {
+  center: [number, number]
+  zoom: number
+  recenterKey?: number
+}) {
   const map = useMap()
-  const lat = center[0]
-  const lng = center[1]
   const initializedRef = useRef(false)
+  const lastRecenterKeyRef = useRef(recenterKey)
+
   useEffect(() => {
     if (!initializedRef.current) {
-      map.setView([lat, lng], zoom)
+      map.setView(center, zoom)
       initializedRef.current = true
+      lastRecenterKeyRef.current = recenterKey
       return
     }
-    // Después del primer render: solo reaccionamos si el cambio es grande
-    // (>50 metros aprox) — así un click cercano para colocar el marker no
-    // re-centra el mapa.
-    const current = map.getCenter()
-    const distance = Math.hypot(current.lat - lat, current.lng - lng)
-    if (distance > 0.0005 || map.getZoom() !== zoom) {
-      map.setView([lat, lng], zoom)
+
+    if (recenterKey !== lastRecenterKeyRef.current) {
+      map.setView(center, zoom)
+      lastRecenterKeyRef.current = recenterKey
     }
-  }, [lat, lng, zoom, map])
+  }, [center, zoom, recenterKey, map])
+
   return null
 }
 
 export default function MapView({
   center,
   zoom = 15,
+  recenterKey = 0,
   markers = [],
   interactive = true,
   onLocationSelect,
   selectedLocation,
   className = '',
 }: MapViewProps) {
-  // Use CartoDB Positron for a light, clean look that fits glassmorphism well.
-  // There is also CartoDB Dark Matter for dark mode.
   const [tileUrl, setTileUrl] = useState('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png')
 
   useEffect(() => {
-    // Basic dark mode detection for tiles
     if (typeof window !== 'undefined') {
-      const isDark = document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches
+      const isDark =
+        document.documentElement.classList.contains('dark') ||
+        window.matchMedia('(prefers-color-scheme: dark)').matches
       if (isDark) {
         setTileUrl('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png')
       }
@@ -124,7 +124,10 @@ export default function MapView({
   }, [])
 
   return (
-    <div className={`rounded-xl overflow-hidden glass border relative ${className}`} style={{ height: '100%', minHeight: '300px', width: '100%', zIndex: 0 }}>
+    <div
+      className={`rounded-xl overflow-hidden glass border relative ${className}`}
+      style={{ height: '100%', minHeight: '300px', width: '100%', zIndex: 0 }}
+    >
       <MapContainer
         center={center}
         zoom={zoom}
@@ -132,37 +135,20 @@ export default function MapView({
         dragging={interactive}
         style={{ height: '100%', width: '100%', zIndex: 1 }}
       >
-        <ChangeView center={center} zoom={zoom} />
-        <TileLayer
-          attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url={tileUrl}
-        />
-        
-        {onLocationSelect && <LocationSelector onSelect={onLocationSelect} />}
+        <ChangeView center={center} zoom={zoom} recenterKey={recenterKey} />
+        <TileLayer attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>' url={tileUrl} />
+
+        {onLocationSelect ? <LocationSelector onSelect={onLocationSelect} /> : null}
 
         {markers.map((marker) => (
-          <Marker
-            key={marker.id}
-            position={[marker.lat, marker.lng]}
-            icon={createCustomIcon(marker.type)}
-          >
-            {marker.popupContent && (
-              <Popup className="glass-popup">
-                {marker.popupContent}
-              </Popup>
-            )}
+          <Marker key={marker.id} position={[marker.lat, marker.lng]} icon={createCustomIcon(marker.type)}>
+            {marker.popupContent ? <Popup className="glass-popup">{marker.popupContent}</Popup> : null}
           </Marker>
         ))}
 
-        {selectedLocation && (
-          <Marker
-            position={selectedLocation}
-            icon={createCustomIcon('selected')}
-          />
-        )}
+        {selectedLocation ? <Marker position={selectedLocation} icon={createCustomIcon('selected')} /> : null}
       </MapContainer>
 
-      {/* Global CSS for the popup glassmorphism */}
       <style jsx global>{`
         .leaflet-popup-content-wrapper {
           background: rgba(var(--background), 0.8) !important;

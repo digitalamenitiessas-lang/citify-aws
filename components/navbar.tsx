@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { AUTH_STATE_CHANGED_EVENT, dispatchAuthStateChanged } from '@/lib/auth/client'
 import { ROLE_HOME, ROLE_LABELS } from '@/lib/constants'
 import type { UserRole } from '@/lib/types'
 
@@ -56,16 +57,23 @@ export function Navbar() {
     }
 
     void loadSession()
+    const handleAuthChanged = () => {
+      void loadSession()
+    }
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, handleAuthChanged)
 
     return () => {
       active = false
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, handleAuthChanged)
     }
   }, [pathname])
 
   async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
     setUserState(null)
     setAuthResolved(true)
-    await fetch('/api/auth/logout', { method: 'POST' })
+    setLogoutDialogOpen(false)
+    dispatchAuthStateChanged({ status: 'logout' })
     router.push('/login')
     router.refresh()
   }

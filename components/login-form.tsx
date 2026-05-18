@@ -6,6 +6,7 @@ import { Loader2, LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { dispatchAuthStateChanged } from '@/lib/auth/client'
 import { ROLE_HOME } from '@/lib/constants'
 import type { UserRole } from '@/lib/types'
 
@@ -37,6 +38,7 @@ export function LoginForm() {
       return
     }
 
+    dispatchAuthStateChanged({ status: 'login' })
     router.push(ROLE_HOME[payload.profile.role as UserRole])
     router.refresh()
   }

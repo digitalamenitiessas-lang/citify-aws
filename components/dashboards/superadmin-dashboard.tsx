@@ -1838,8 +1838,9 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                       <div className="flex-[1.35] overflow-hidden rounded-2xl border border-border/60 bg-background">
                         <div className="h-[320px]">
                           <DynamicMap
-                            center={consorcioRecenterToken > 0 && consorcioMapLocation ? consorcioMapLocation : consorcioInitialCenter}
-                            zoom={consorcioRecenterToken > 0 && consorcioMapLocation ? 17 : 13}
+                            center={consorcioMapLocation ?? consorcioInitialCenter}
+                            zoom={consorcioMapLocation ? 17 : 13}
+                            recenterKey={consorcioRecenterToken}
                             interactive
                             selectedLocation={consorcioMapLocation}
                             onLocationSelect={(lat, lng) =>

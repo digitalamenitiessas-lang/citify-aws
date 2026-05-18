@@ -1135,39 +1135,23 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           phone: householdDraft.phone || null,
           password: householdDraft.password,
         })
-        const now = new Date().toISOString()
-        setHouseholdMembers((prev) => [
-          ...prev,
-          {
-            id: result.profileId,
-            unitId: principalMembership.unitId,
-            buildingId: principalMembership.buildingId,
-            profileId: result.profileId,
-            relationshipType: 'vecino_adicional',
-            isPrimary: false,
-            active: true,
-            createdByProfileId: profileId,
-            createdAt: now,
-            unitCode: principalMembership.unitCode,
-            unitFloor: principalMembership.unitFloor,
-            buildingName: principalMembership.buildingName,
-            profile: {
-              id: result.profileId,
-              email: householdDraft.email,
-              fullName: householdDraft.fullName,
-              role: 'vecino',
-              avatarText: householdDraft.fullName.slice(0, 2).toUpperCase(),
-              businessId: null,
-              buildingId: principalMembership.buildingId,
-              floor: principalMembership.unitFloor,
-              unit: principalMembership.unitCode,
-              phone: householdDraft.phone || null,
-              createdAt: now,
-            },
-          },
-        ])
+        setHouseholdMembers((prev) => {
+          const nextMember = {
+            ...result.membership,
+            unitCode: result.membership.unitCode ?? principalMembership.unitCode,
+            unitFloor: result.membership.unitFloor ?? principalMembership.unitFloor,
+            buildingName: result.membership.buildingName ?? principalMembership.buildingName,
+          }
+          const existingIndex = prev.findIndex(
+            (membership) => membership.profileId === nextMember.profileId && membership.unitId === nextMember.unitId,
+          )
+          if (existingIndex >= 0) {
+            return prev.map((membership, index) => (index === existingIndex ? nextMember : membership))
+          }
+          return [...prev, nextMember]
+        })
         setHouseholdDraft({ fullName: '', email: '', phone: '', password: 'Citify2026!' })
-        toast.success('Familiar agregado a tu unidad.')
+        toast.success('Usuario agregado a tu unidad.')
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
       }
@@ -1631,9 +1615,21 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                   {sortedMapBusinesses.length > 0 ? sortedMapBusinesses.map(b => (
                     <div key={b.id} className="p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors border border-transparent hover:border-primary/20 group">
                       <div className="flex justify-between items-start gap-2">
-                        <div>
+                        <div className="flex items-start gap-3">
+                          {b.logoUrl ? (
+                            <div className="h-10 w-10 overflow-hidden rounded-full border border-border/40 bg-secondary/30">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={b.logoUrl} alt={b.name} className="h-full w-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-secondary/40 text-[11px] font-semibold text-muted-foreground">
+                              {b.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
                           <h4 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">{b.name}</h4>
                           <p className="text-xs text-muted-foreground mt-0.5">{b.address || 'Sin dirección específica'}</p>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between mt-3">

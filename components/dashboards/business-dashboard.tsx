@@ -1012,10 +1012,6 @@ export function BusinessDashboard({
   }
 
   useEffect(() => {
-    if (activeSection !== urlSection) {
-      return
-    }
-
     const params = new URLSearchParams(searchParams.toString())
     if (activeSection === 'home') {
       params.delete('section')
@@ -1691,11 +1687,9 @@ export function BusinessDashboard({
                   <div className="flex-[1.35] overflow-hidden rounded-2xl border border-border/60 bg-background">
                     <div className="h-[320px]">
                       <DynamicMap
-                        // El centro NO sigue al marker. Si querés re-centrar
-                        // (ej. al geocodificar dirección), bumpeamos
-                        // recenterToken vía el key y memorizamos un center nuevo.
-                        center={recenterToken > 0 && mapLocation ? mapLocation : initialMapCenter}
-                        zoom={recenterToken > 0 && mapLocation ? 17 : initialMapZoom}
+                        center={mapLocation ?? initialMapCenter}
+                        zoom={mapLocation ? 17 : initialMapZoom}
+                        recenterKey={recenterToken}
                         interactive={isLocationEditing}
                         selectedLocation={mapLocation}
                         onLocationSelect={(lat, lng) => {

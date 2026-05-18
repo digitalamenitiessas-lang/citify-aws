@@ -1,5 +1,6 @@
 'use client'
 
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { CircleAlert, Clock3, FileStack, MessageSquareText, Plus, Sparkles, Tags } from 'lucide-react'
 import { toast } from 'sonner'
@@ -105,10 +106,22 @@ export function NeighborCasesPanel({
   initialCases: ComplaintCaseListItem[]
   initialCaseDetails: ComplaintCaseDetailNeighborView[]
 }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const rawSection = searchParams.get('complaintsSection')
+  const initialSelectedSection: ComplaintCaseSection = (() => {
+    if (rawSection === 'summary' || rawSection === 'forum' || rawSection === 'events') {
+      return rawSection
+    }
+    if (typeof window === 'undefined') return 'summary'
+    const stored = window.localStorage.getItem('citify-neighbor-complaints-section-v1')
+    return stored === 'forum' || stored === 'events' ? stored : 'summary'
+  })()
   const [cases, setCases] = useState(initialCases)
   const [caseDetails, setCaseDetails] = useState(initialCaseDetails)
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialCases[0]?.id ?? null)
-  const [selectedSection, setSelectedSection] = useState<ComplaintCaseSection>('summary')
+  const [selectedSection, setSelectedSection] = useState<ComplaintCaseSection>(initialSelectedSection)
   const [selectedReasonIds, setSelectedReasonIds] = useState<string[]>([])
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -158,10 +171,35 @@ export function NeighborCasesPanel({
   }, [filteredCases, selectedCaseId])
 
   useEffect(() => {
-    if (selectedCase?.defaultSection) {
-      setSelectedSection(selectedCase.defaultSection)
+    if (rawSection === 'summary' || rawSection === 'forum' || rawSection === 'events') {
+      if (selectedSection !== rawSection) {
+        setSelectedSection(rawSection)
+      }
+      return
     }
-  }, [selectedCase?.id])
+    if (typeof window === 'undefined') return
+    const stored = window.localStorage.getItem('citify-neighbor-complaints-section-v1')
+    if ((stored === 'summary' || stored === 'forum' || stored === 'events') && stored !== selectedSection) {
+      setSelectedSection(stored)
+    }
+  }, [rawSection, selectedSection])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('citify-neighbor-complaints-section-v1', selectedSection)
+    }
+    const params = new URLSearchParams(searchParams.toString())
+    if (selectedSection === 'summary') {
+      params.delete('complaintsSection')
+    } else {
+      params.set('complaintsSection', selectedSection)
+    }
+    const nextQuery = params.toString()
+    const currentQuery = searchParams.toString()
+    if (nextQuery !== currentQuery) {
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
+    }
+  }, [pathname, router, searchParams, selectedSection])
 
   function toggleReason(reasonId: string) {
     setSelectedReasonIds((current) => (current.includes(reasonId) ? current.filter((value) => value !== reasonId) : [...current, reasonId]))
