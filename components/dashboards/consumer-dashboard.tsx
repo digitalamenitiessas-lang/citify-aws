@@ -534,6 +534,7 @@ const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 
 const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v1'
 const NEIGHBOR_VIEW_STORAGE_KEY = 'citify-neighbor-view-v1'
 const NEIGHBOR_COUPON_FILTER_STORAGE_KEY = 'citify-neighbor-coupon-filter-v1'
+const NEIGHBOR_COUPONS_SEEN_STORAGE_KEY = 'citify-neighbor-coupons-seen-v1'
 
 const NEIGHBOR_TOUR_STEPS_DESKTOP: Array<{
   selector: string
@@ -660,6 +661,15 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [qrToken, setQrToken] = useState<PromotionRedemptionToken | null>(null)
   const [isLoadingQr, setIsLoadingQr] = useState(false)
   const [savedCoupons, setSavedCoupons] = useState<string[]>(initialData.savedPromotionIds)
+  const [seenCouponIds, setSeenCouponIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return initialData.savedPromotionIds
+    try {
+      const stored = window.localStorage.getItem(NEIGHBOR_COUPONS_SEEN_STORAGE_KEY)
+      return stored ? (JSON.parse(stored) as string[]) : []
+    } catch {
+      return []
+    }
+  })
   const [usedCoupons, setUsedCoupons] = useState<string[]>(initialData.usedPromotionIds)
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -775,6 +785,25 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     if (typeof window === 'undefined') return
     window.localStorage.setItem(NEIGHBOR_COUPON_FILTER_STORAGE_KEY, couponFilter)
   }, [couponFilter])
+
+  // Cuando entra a "Mis cupones", marcamos todos los actuales como vistos
+  // para que el contador del badge "no leídos" se vacíe.
+  useEffect(() => {
+    if (mainView !== 'my-coupons') return
+    if (typeof window === 'undefined') return
+    setSeenCouponIds(savedCoupons)
+    try {
+      window.localStorage.setItem(NEIGHBOR_COUPONS_SEEN_STORAGE_KEY, JSON.stringify(savedCoupons))
+    } catch {
+      // localStorage puede estar deshabilitado, no es crítico
+    }
+  }, [mainView, savedCoupons])
+
+  // Cantidad de cupones nuevos (guardados pero todavía no vistos en "Mis cupones")
+  const unseenCouponsCount = useMemo(
+    () => savedCoupons.filter((id) => !seenCouponIds.includes(id)).length,
+    [savedCoupons, seenCouponIds],
+  )
 
   useEffect(() => {
     // Sincronizar state → URL. Si la URL aún tiene un valor diferente del state
@@ -1588,9 +1617,9 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                 >
                   {item.label}
                 </span>
-                {item.key === 'my-coupons' && savedCoupons.length > 0 && (
+                {item.key === 'my-coupons' && unseenCouponsCount > 0 && (
                   <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: 'var(--primary)' }}>
-                    {savedCoupons.length}
+                    {unseenCouponsCount}
                   </span>
                 )}
               </button>
