@@ -170,19 +170,15 @@ export function NeighborCasesPanel({
     }
   }, [filteredCases, selectedCaseId])
 
+  // URL → state. NO depende de `selectedSection`, porque si lo hacíamos, al
+  // cambiar de tab este effect se re-disparaba con la URL vieja y reseteaba
+  // el state al valor anterior (bucle visible saltando entre tabs).
   useEffect(() => {
     if (rawSection === 'summary' || rawSection === 'forum' || rawSection === 'events') {
-      if (selectedSection !== rawSection) {
-        setSelectedSection(rawSection)
-      }
-      return
+      setSelectedSection((prev) => (prev === rawSection ? prev : rawSection))
     }
-    if (typeof window === 'undefined') return
-    const stored = window.localStorage.getItem('citify-neighbor-complaints-section-v1')
-    if ((stored === 'summary' || stored === 'forum' || stored === 'events') && stored !== selectedSection) {
-      setSelectedSection(stored)
-    }
-  }, [rawSection, selectedSection])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSection])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

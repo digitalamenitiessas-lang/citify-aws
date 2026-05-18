@@ -524,8 +524,10 @@ export async function getConsorcioComplaintCasesByBuildingIdsFromPostgres(
               'message', m.message,
               'message_type', m.message_type::text,
               'created_at', m.created_at::text,
-              'author_label', m.author_label,
-              'author_role', m.author_role,
+              -- complaint_case_messages no tiene author_label/author_role en el schema;
+              -- los derivamos del profile (full_name + role).
+              'author_label', mp.full_name,
+              'author_role', mp.role::text,
               'profiles', json_build_object(
                 'id', mp.id,
                 'full_name', mp.full_name,

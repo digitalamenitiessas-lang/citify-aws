@@ -101,19 +101,14 @@ export function ConsorcioCasesPanel({ data }: { data: ConsorcioDashboardData }) 
     [selectedBuilding, selectedCaseId],
   )
 
+  // URL → state. NO depender de `selectedSection` (sino se revierte el state
+  // al valor anterior cuando el usuario cambia de tab → bucle visible).
   useEffect(() => {
     if (rawSection === 'summary' || rawSection === 'forum' || rawSection === 'events') {
-      if (selectedSection !== rawSection) {
-        setSelectedSection(rawSection)
-      }
-      return
+      setSelectedSection((prev) => (prev === rawSection ? prev : rawSection))
     }
-    if (typeof window === 'undefined') return
-    const stored = window.localStorage.getItem('citify-consorcio-complaints-section-v1')
-    if ((stored === 'summary' || stored === 'forum' || stored === 'events') && stored !== selectedSection) {
-      setSelectedSection(stored)
-    }
-  }, [rawSection, selectedSection])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSection])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
