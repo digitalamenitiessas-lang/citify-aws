@@ -425,25 +425,49 @@ function mapPromotionFromBusinessPostgresRow(row: PromotionRow): Promotion {
 }
 
 function applyPromotionAutoRenewal(promotions: Promotion[], referenceMonthStart = getMonthStart()): Promotion[] {
-  const currentByBusiness = new Set(
-    promotions.filter((promotion) => promotion.publishedMonth === referenceMonthStart).map((promotion) => promotion.businessId),
+  // Negocios que ya publicaron al menos una promo en el mes actual → no se les renueva nada.
+  const businessesWithCurrentMonth = new Set(
+    promotions
+      .filter((promotion) => promotion.publishedMonth === referenceMonthStart)
+      .map((promotion) => promotion.businessId),
   )
 
-  const latestActiveByBusiness = new Map<string, Promotion>()
-  for (const promotion of [...promotions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
-    if (!promotion.isActive || currentByBusiness.has(promotion.businessId) || latestActiveByBusiness.has(promotion.businessId)) continue
-    latestActiveByBusiness.set(promotion.businessId, promotion)
+  const previousMonthStart = getPreviousMonthStart(referenceMonthStart)
+
+  // Para los negocios que NO publicaron este mes, levantamos TODAS sus
+  // promos activas del mes anterior (no solo la última) y las renovamos
+  // al mes actual.
+  const renewableByBusiness = new Map<string, Promotion[]>()
+  for (const promotion of promotions) {
+    if (!promotion.isActive) continue
+    if (businessesWithCurrentMonth.has(promotion.businessId)) continue
+    if (promotion.publishedMonth !== previousMonthStart) continue
+    const arr = renewableByBusiness.get(promotion.businessId) ?? []
+    arr.push(promotion)
+    renewableByBusiness.set(promotion.businessId, arr)
   }
 
-  if (latestActiveByBusiness.size === 0) {
+  // Fallback: si un negocio no tiene promos activas del mes anterior pero
+  // sí tiene alguna activa más vieja, mostramos la más reciente (compatible
+  // con el comportamiento anterior).
+  for (const promotion of [...promotions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    if (!promotion.isActive) continue
+    if (businessesWithCurrentMonth.has(promotion.businessId)) continue
+    if (renewableByBusiness.has(promotion.businessId)) continue
+    renewableByBusiness.set(promotion.businessId, [promotion])
+  }
+
+  if (renewableByBusiness.size === 0) {
     return promotions
   }
 
+  const renewableIds = new Set<string>()
+  for (const arr of renewableByBusiness.values()) {
+    for (const p of arr) renewableIds.add(p.id)
+  }
+
   return promotions.map((promotion) => {
-    const fallbackPromotion = latestActiveByBusiness.get(promotion.businessId)
-    if (!fallbackPromotion || fallbackPromotion.id !== promotion.id) {
-      return promotion
-    }
+    if (!renewableIds.has(promotion.id)) return promotion
     return buildAutoRenewedPromotion(promotion, referenceMonthStart)
   })
 }
