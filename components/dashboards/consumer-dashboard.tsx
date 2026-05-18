@@ -96,6 +96,35 @@ async function readJsonResponse<T>(response: Response): Promise<T | null> {
   return response.json().catch(() => null)
 }
 
+// ─── BUSINESS AVATAR (logo redondo del negocio o iniciales como fallback) ──
+
+function BusinessAvatar({
+  url,
+  name,
+  size = 'md',
+}: {
+  url: string | null
+  name: string
+  size?: 'sm' | 'md'
+}) {
+  const dims = size === 'sm' ? 'h-5 w-5 text-[8px]' : 'h-7 w-7 text-[10px]'
+  if (url) {
+    return (
+      <span className={`inline-flex flex-shrink-0 overflow-hidden rounded-full border border-border/40 bg-secondary/30 ${dims}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={name} className="h-full w-full object-cover" />
+      </span>
+    )
+  }
+  return (
+    <span
+      className={`inline-flex flex-shrink-0 items-center justify-center rounded-full border border-border/40 bg-secondary/40 font-semibold text-muted-foreground ${dims}`}
+    >
+      {(name || '??').slice(0, 2).toUpperCase()}
+    </span>
+  )
+}
+
 // ─── QR MODAL ───────────────────────────────────────────────────────────────
 
 function QRModal({ promotion, onClose }: { promotion: Promotion; onClose: () => void }) {
@@ -333,7 +362,10 @@ function FeaturedBusinessCard({ promotion, isSaved, isUsed, onSaveToggle, onWant
           </span>
           <span className="text-xs text-muted-foreground ml-1">· {promotion.usageCount} canjes</span>
         </div>
-        <h3 className="font-semibold text-foreground text-sm leading-tight line-clamp-1">{promotion.businessName}</h3>
+        <div className="flex items-center gap-1.5 leading-tight">
+          <BusinessAvatar url={promotion.businessLogoUrl} name={promotion.businessName} size="sm" />
+          <h3 className="font-semibold text-foreground text-sm line-clamp-1">{promotion.businessName}</h3>
+        </div>
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{promotion.title}</p>
 
         <div className="flex gap-2 mt-3">
@@ -392,7 +424,10 @@ function HotCouponCard({ promotion, isSaved, isUsed, onSaveToggle, onWantCoupon 
         </div>
       </div>
       <div className="p-2.5">
-        <p className="font-semibold text-xs text-foreground line-clamp-1">{promotion.businessName}</p>
+        <div className="flex items-center gap-1.5">
+          <BusinessAvatar url={promotion.businessLogoUrl} name={promotion.businessName} size="sm" />
+          <p className="font-semibold text-xs text-foreground line-clamp-1">{promotion.businessName}</p>
+        </div>
         <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5 leading-tight">{promotion.title}</p>
         <div className="mt-2">
           {isExpired ? (
@@ -438,7 +473,10 @@ function ExclusiveCard({ promotion, isSaved, isUsed, onSaveToggle, onWantCoupon 
         )}
       </div>
       <div className="p-3">
-        <h3 className="font-semibold text-foreground text-sm line-clamp-1">{promotion.businessName}</h3>
+        <div className="flex items-center gap-1.5">
+          <BusinessAvatar url={promotion.businessLogoUrl} name={promotion.businessName} size="sm" />
+          <h3 className="font-semibold text-foreground text-sm line-clamp-1">{promotion.businessName}</h3>
+        </div>
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{promotion.title}</p>
         <DiscountBadge discount={promotion.discount} />
         <div className="flex gap-2 mt-3">
@@ -547,7 +585,10 @@ function FullPromotionsView({ promotions, savedCoupons, usedCoupons, onSaveToggl
                 </button>
               </div>
               <div className="p-4">
-                <h3 className="font-semibold text-foreground text-sm">{p.businessName}</h3>
+                <div className="flex items-center gap-1.5">
+                  <BusinessAvatar url={p.businessLogoUrl} name={p.businessName} size="sm" />
+                  <h3 className="font-semibold text-foreground text-sm line-clamp-1">{p.businessName}</h3>
+                </div>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
                 {usedCoupons.includes(p.id) ? (
                   <span className="block w-full rounded-xl bg-primary/10 py-2.5 text-center text-xs font-bold text-primary">
@@ -1386,7 +1427,10 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
                         )}
                       </div>
                       <div className="p-4">
-                        <h3 className="font-semibold text-foreground text-sm">{p.businessName}</h3>
+                        <div className="flex items-center gap-1.5">
+                          <BusinessAvatar url={p.businessLogoUrl} name={p.businessName} size="sm" />
+                          <h3 className="font-semibold text-foreground text-sm line-clamp-1">{p.businessName}</h3>
+                        </div>
                         <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2">{p.title}</p>
                         <div className="flex gap-2">
                           {!isUsed && !isExpired ? (

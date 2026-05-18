@@ -446,23 +446,72 @@ const addNeighborToBuildingSchema = z.object({
   email: z.string().trim().email().max(160),
   phone: z.string().trim().max(40).nullable().optional(),
   password: z.string().min(8).max(72),
+  unitId: z.string().uuid().nullable().optional(),
+  relationshipType: z.enum(['propietario', 'vecino_principal', 'vecino_adicional']).nullable().optional(),
 })
 
 export async function addNeighborToBuilding(input: z.input<typeof addNeighborToBuildingSchema>) {
   const parsed = addNeighborToBuildingSchema.parse(input)
   await requireProfile(['super_admin'])
 
+  const role: UserRole = parsed.relationshipType === 'propietario' ? 'propietario' : 'vecino'
+
   const profileId = await findOrCreatePlatformProfile({
     fullName: parsed.fullName,
     email: parsed.email,
     phone: parsed.phone ?? null,
     password: parsed.password,
-    role: 'vecino',
+    role,
     buildingId: parsed.buildingId,
   })
 
+  // Si nos pasaron unidad + rol, vinculamos la membresía. Para vecino_principal
+  // desactivamos cualquier principal previo de la unidad para evitar dos.
+  if (parsed.unitId && parsed.relationshipType) {
+    if (parsed.relationshipType === 'vecino_principal') {
+      await deactivateActivePrincipalMembershipsInPostgres(parsed.unitId)
+    }
+    const existing = await findUnitProfileMembershipFromPostgres({
+      unitId: parsed.unitId,
+      profileId,
+      relationshipType: parsed.relationshipType,
+    })
+    await upsertUnitProfileMembershipInPostgres({
+      membershipId: existing?.id ?? null,
+      unitId: parsed.unitId,
+      buildingId: parsed.buildingId,
+      profileId,
+      relationshipType: parsed.relationshipType,
+      isPrimary: parsed.relationshipType === 'propietario',
+      createdByProfileId: null,
+    })
+    if (parsed.relationshipType === 'propietario') {
+      const existingHolder = await findOwnerHolderForProfileFromPostgres({
+        unitId: parsed.unitId,
+        profileId,
+      })
+      if (!existingHolder) {
+        await insertOwnerHolderInPostgres({
+          unitId: parsed.unitId,
+          profileId,
+          fullName: parsed.fullName,
+          email: parsed.email.toLowerCase(),
+          phone: parsed.phone ?? null,
+        })
+      }
+    }
+  }
+
   revalidatePath('/superadmin')
   return { profileId }
+}
+
+// Lista las unidades de un edificio para el selector de "Agregar vecino"
+export async function listUnitsForBuildingAction(buildingId: string) {
+  await requireProfile(['super_admin'])
+  const propertyId = await getManagedPropertyIdByBuildingFromPostgres(buildingId)
+  if (!propertyId) return []
+  return listUnitsForOccupancyFromPostgres(propertyId)
 }
 
 const propertyKindValues = ['consorcio', 'barrio_privado', 'edificio', 'mixto'] as const

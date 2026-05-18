@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
@@ -32,6 +32,7 @@ import {
   createBusinessWithAdmin,
   createManagedProperty,
   createPlatformUser,
+  listUnitsForBuildingAction,
   updateBuilding,
 } from '@/app/superadmin/actions'
 import type {
@@ -365,12 +366,32 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
     latitude: building.latitude !== null ? String(building.latitude) : '',
     longitude: building.longitude !== null ? String(building.longitude) : '',
   })
-  const [neighborForm, setNeighborForm] = useState({
+  const [neighborForm, setNeighborForm] = useState<{
+    fullName: string
+    email: string
+    phone: string
+    password: string
+    unitId: string
+    relationshipType: '' | 'propietario' | 'vecino_principal' | 'vecino_adicional'
+  }>({
     fullName: '',
     email: '',
     phone: '',
     password: 'Citify2026!',
+    unitId: '',
+    relationshipType: '',
   })
+  const [buildingUnits, setBuildingUnits] = useState<Array<{ id: string; code: string; floor: string | null }>>([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!addNeighborOpen) return
+    setUnitsLoading(true)
+    listUnitsForBuildingAction(building.id)
+      .then((units) => setBuildingUnits(units))
+      .catch(() => setBuildingUnits([]))
+      .finally(() => setUnitsLoading(false))
+  }, [addNeighborOpen, building.id])
 
   function submitEdit() {
     startEditTransition(async () => {
@@ -397,6 +418,10 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
       toast.error('Completá nombre, email y password.')
       return
     }
+    if ((neighborForm.unitId && !neighborForm.relationshipType) || (!neighborForm.unitId && neighborForm.relationshipType)) {
+      toast.error('Elegí unidad y rol juntos (o ninguno para solo asignarlo al edificio).')
+      return
+    }
     startNeighborTransition(async () => {
       try {
         await addNeighborToBuilding({
@@ -405,10 +430,12 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
           email: neighborForm.email.trim(),
           phone: neighborForm.phone.trim() || null,
           password: neighborForm.password,
+          unitId: neighborForm.unitId || null,
+          relationshipType: neighborForm.relationshipType || null,
         })
-        toast.success('Vecino agregado.')
+        toast.success(neighborForm.unitId ? 'Vecino agregado y vinculado a la unidad.' : 'Vecino agregado al edificio.')
         setAddNeighborOpen(false)
-        setNeighborForm({ fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        setNeighborForm({ fullName: '', email: '', phone: '', password: 'Citify2026!', unitId: '', relationshipType: '' })
         router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'No se pudo agregar el vecino.')
@@ -490,6 +517,47 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                 <Label>Password inicial</Label>
                 <Input type="text" value={neighborForm.password} onChange={(e) => setNeighborForm({ ...neighborForm, password: e.target.value })} />
                 <p className="text-[11px] text-muted-foreground">El vecino la podrá cambiar después de su primer ingreso.</p>
+              </div>
+
+              <div className="rounded-lg border border-border/30 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vínculo con unidad (opcional)</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Dejar vacío para solo asignarlo al edificio.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label>Unidad</Label>
+                    <select
+                      value={neighborForm.unitId}
+                      onChange={(e) => setNeighborForm({ ...neighborForm, unitId: e.target.value })}
+                      className="w-full rounded-lg border border-border/50 bg-input/50 px-3 py-2 text-sm text-foreground"
+                      disabled={unitsLoading}
+                    >
+                      <option value="">{unitsLoading ? 'Cargando…' : '— sin unidad —'}</option>
+                      {buildingUnits.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.code}{u.floor ? ` · piso ${u.floor}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Rol en la unidad</Label>
+                    <select
+                      value={neighborForm.relationshipType}
+                      onChange={(e) => setNeighborForm({ ...neighborForm, relationshipType: e.target.value as typeof neighborForm.relationshipType })}
+                      className="w-full rounded-lg border border-border/50 bg-input/50 px-3 py-2 text-sm text-foreground"
+                    >
+                      <option value="">— sin rol —</option>
+                      <option value="vecino_principal">Vecino principal</option>
+                      <option value="vecino_adicional">Vecino adicional</option>
+                      <option value="propietario">Propietario</option>
+                    </select>
+                  </div>
+                </div>
+                {buildingUnits.length === 0 && !unitsLoading && (
+                  <p className="text-[11px] text-amber-600">Este edificio aún no tiene unidades cargadas. Importalas primero desde el wizard.</p>
+                )}
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">

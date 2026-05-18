@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { Pool } = require('pg')
 async function main() {
   const pool = new Pool({
@@ -5,10 +6,17 @@ async function main() {
     database: process.env.DB_NAME, user: process.env.DB_USER,
     password: process.env.DB_PASSWORD, ssl: { rejectUnauthorized: false },
   })
-  // Test the exact query findProfileById uses
-  const r = await pool.query(`select * from public.profiles where id = $1 limit 1`, ['24a80408-4011-7063-f083-972ccdc73d4e'])
-  console.log('keys:', Object.keys(r.rows[0] || {}))
-  console.log('row:', JSON.stringify(r.rows[0], null, 2))
+  const biz = await pool.query(`select id, name, logo_path from public.businesses order by name`)
+  console.log('businesses:', biz.rows)
+  const promos = await pool.query(`
+    select p.id, p.title, p.business_id, b.name as business_name, b.logo_path as business_logo_path
+    from public.promotions p
+    left join public.businesses b on b.id = p.business_id
+    where p.is_active = true
+    order by p.created_at desc
+    limit 10
+  `)
+  console.log('promos:', promos.rows)
   await pool.end()
 }
 module.exports = main
