@@ -248,7 +248,7 @@ export async function deactivateMarketplaceItemInPostgres(input: {
 
 // ----------------------------------------------------------------------------
 // Promotion redemption tokens (replicates the prior auth.uid()-based RPCs
-// in TypeScript so the flow keeps working on RDS without Supabase auth)
+// in TypeScript so the flow runs directly against RDS)
 // ----------------------------------------------------------------------------
 
 export async function getPromotionForRedemptionFromPostgres(promotionId: string): Promise<{

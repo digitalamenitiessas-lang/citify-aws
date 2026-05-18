@@ -3,7 +3,7 @@ const path = require("path");
 const { Client } = require("pg");
 
 const repoRoot = path.resolve(__dirname, "..");
-const migrationsDir = path.join(repoRoot, "supabase", "migrations");
+const migrationsDir = path.join(repoRoot, "db", "migrations");
 const credentialsFile = "C:\\tmp\\citify-rds-credentials.txt";
 const outputSqlFile = path.join(repoRoot, "scripts", "generated-rds-schema.sql");
 

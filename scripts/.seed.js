@@ -1,92 +1,42 @@
 /* eslint-disable */
 const { Pool } = require('pg')
-const {
-  CognitoIdentityProviderClient,
-  ListUsersCommand,
-  AdminDeleteUserCommand,
-  AdminCreateUserCommand,
-  AdminSetUserPasswordCommand,
-  AdminGetUserCommand,
-  UsernameExistsException,
-} = require('@aws-sdk/client-cognito-identity-provider')
-const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3')
 
 const PASSWORD = 'Test1234!'
-const REGION = 'us-east-1'
-const POOL_ID = process.env.AWS_COGNITO_USER_POOL_ID
-const BUCKET = process.env.AWS_S3_BUCKET || 'citify-prod-assets'
 
-const cognito = new CognitoIdentityProviderClient({ region: REGION })
-const s3 = new S3Client({ region: REGION })
-
-async function listAllCognitoUsers() {
-  const users = []
-  let token = undefined
-  while (true) {
-    const resp = await cognito.send(new ListUsersCommand({ UserPoolId: POOL_ID, Limit: 60, PaginationToken: token }))
-    for (const u of resp.Users || []) users.push(u.Username)
-    if (!resp.PaginationToken) break
-    token = resp.PaginationToken
-  }
-  return users
+// Subs Cognito creados en el paso previo (ver scripts/.subs.json)
+const SUBS = {
+  'admin@citify.com.ar':       '24d8d428-f051-706b-a34d-9ee6f4f178ce',
+  'consorcio@citify.com.ar':   '54a87468-f031-70da-8ac7-10b3296d71dc',
+  'propietario@citify.com.ar': 'e4d87428-d091-7021-e5f3-e2b384ea87a5',
+  'vecino1@citify.com.ar':     'a4288438-30f1-70b2-72f4-8fae31c0c444',
+  'vecino2@citify.com.ar':     '74782428-d0e1-7077-c1d7-a29abf855499',
+  'vecino3@citify.com.ar':     'd4d88458-1011-70d4-63e8-ab94bb6c9692',
+  'vecino4@citify.com.ar':     'd418a448-c091-70f6-39a4-f5205ce61115',
+  'vecino5@citify.com.ar':     '94c88478-d0d1-70bb-e687-72dd336845d2',
+  'vecino6@citify.com.ar':     '24584458-0091-70d8-7730-7292910670e6',
+  'vecino7@citify.com.ar':     'f458b488-8001-70f1-6572-09418d0e7b17',
+  'vecino8@citify.com.ar':     '04886498-d031-7047-8f81-315224ee5af6',
+  'cafe@citify.com.ar':        '24a80408-4011-7063-f083-972ccdc73d4e',
+  'almacen@citify.com.ar':     'f4082468-90f1-70fd-072a-b5059c1d5fd7',
 }
 
-async function deleteAllCognitoUsers() {
-  const users = await listAllCognitoUsers()
-  console.log(`> Borrando ${users.length} users de Cognito...`)
-  for (const username of users) {
-    try {
-      await cognito.send(new AdminDeleteUserCommand({ UserPoolId: POOL_ID, Username: username }))
-    } catch (e) {
-      console.error(`  - falla borrando ${username}:`, e.message)
-    }
-  }
-}
-
-async function emptyS3Bucket() {
-  console.log(`> Vaciando bucket s3://${BUCKET}/ ...`)
-  let token = undefined
-  let total = 0
-  while (true) {
-    const resp = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, ContinuationToken: token }))
-    const keys = (resp.Contents || []).map((o) => ({ Key: o.Key }))
-    if (keys.length > 0) {
-      await s3.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: keys, Quiet: true } }))
-      total += keys.length
-    }
-    if (!resp.IsTruncated) break
-    token = resp.NextContinuationToken
-  }
-  console.log(`  - ${total} objetos borrados`)
-}
-
-async function createCognitoUser(email, fullName) {
-  try {
-    await cognito.send(new AdminCreateUserCommand({
-      UserPoolId: POOL_ID,
-      Username: email,
-      MessageAction: 'SUPPRESS',
-      UserAttributes: [
-        { Name: 'email', Value: email },
-        { Name: 'email_verified', Value: 'true' },
-        { Name: 'name', Value: fullName },
-      ],
-    }))
-  } catch (e) {
-    if (!(e instanceof UsernameExistsException)) throw e
-  }
-  await cognito.send(new AdminSetUserPasswordCommand({
-    UserPoolId: POOL_ID, Username: email, Password: PASSWORD, Permanent: true,
-  }))
-  const desc = await cognito.send(new AdminGetUserCommand({ UserPoolId: POOL_ID, Username: email }))
-  const sub = desc.UserAttributes.find((a) => a.Name === 'sub').Value
-  return sub
-}
+const usersToCreate = [
+  { email: 'admin@citify.com.ar', name: 'Super Admin', role: 'super_admin' },
+  { email: 'consorcio@citify.com.ar', name: 'Laura Consorcio', role: 'consorcio_admin' },
+  { email: 'propietario@citify.com.ar', name: 'Pedro Propietario', role: 'propietario' },
+  { email: 'vecino1@citify.com.ar', name: 'Ana Vecino', role: 'vecino' },
+  { email: 'vecino2@citify.com.ar', name: 'Bruno Vecino', role: 'vecino' },
+  { email: 'vecino3@citify.com.ar', name: 'Carla Vecino', role: 'vecino' },
+  { email: 'vecino4@citify.com.ar', name: 'Daniel Vecino', role: 'vecino' },
+  { email: 'vecino5@citify.com.ar', name: 'Elena Vecino', role: 'vecino' },
+  { email: 'vecino6@citify.com.ar', name: 'Federico Vecino', role: 'vecino' },
+  { email: 'vecino7@citify.com.ar', name: 'Gabriela Vecino', role: 'vecino' },
+  { email: 'vecino8@citify.com.ar', name: 'Hugo Vecino', role: 'vecino' },
+  { email: 'cafe@citify.com.ar', name: 'Cafe Citify Admin', role: 'negocio_admin' },
+  { email: 'almacen@citify.com.ar', name: 'Almacen Norte Admin', role: 'negocio_admin' },
+]
 
 async function main() {
-  await deleteAllCognitoUsers()
-  await emptyS3Bucket()
-
   const pool = new Pool({
     host: process.env.DB_HOST,
     port: 5432,
@@ -98,7 +48,6 @@ async function main() {
   const client = await pool.connect()
   try {
     console.log('> TRUNCATE de tablas RDS...')
-    // Truncar en orden inverso de dependencia (CASCADE limpia el resto)
     const tables = [
       'iadmin_audit_logs', 'iadmin_reminders', 'iadmin_item_share_tokens',
       'iadmin_ai_document_extractions', 'iadmin_expense_documents',
@@ -116,30 +65,17 @@ async function main() {
       'push_subscriptions', 'iadmin_notifications',
       'businesses', 'profiles', 'buildings',
     ]
-    await client.query(`TRUNCATE ${tables.map((t) => `public.${t}`).join(', ')} CASCADE`)
-    console.log(`  - truncadas ${tables.length} tablas`)
-
-    console.log('> Creando users en Cognito y RDS...')
-    const subs = {}
-    const usersToCreate = [
-      { email: 'admin@citify.com.ar', name: 'Super Admin', role: 'super_admin' },
-      { email: 'consorcio@citify.com.ar', name: 'Laura Consorcio', role: 'consorcio_admin' },
-      { email: 'propietario@citify.com.ar', name: 'Pedro Propietario', role: 'propietario' },
-      { email: 'vecino1@citify.com.ar', name: 'Ana Vecino', role: 'vecino' },
-      { email: 'vecino2@citify.com.ar', name: 'Bruno Vecino', role: 'vecino' },
-      { email: 'vecino3@citify.com.ar', name: 'Carla Vecino', role: 'vecino' },
-      { email: 'vecino4@citify.com.ar', name: 'Daniel Vecino', role: 'vecino' },
-      { email: 'vecino5@citify.com.ar', name: 'Elena Vecino', role: 'vecino' },
-      { email: 'vecino6@citify.com.ar', name: 'Federico Vecino', role: 'vecino' },
-      { email: 'vecino7@citify.com.ar', name: 'Gabriela Vecino', role: 'vecino' },
-      { email: 'vecino8@citify.com.ar', name: 'Hugo Vecino', role: 'vecino' },
-      { email: 'cafe@citify.com.ar', name: 'Cafe Citify Admin', role: 'negocio_admin' },
-      { email: 'almacen@citify.com.ar', name: 'Almacen Norte Admin', role: 'negocio_admin' },
-    ]
-    for (const u of usersToCreate) {
-      subs[u.email] = await createCognitoUser(u.email, u.name)
-      console.log(`  + ${u.email} → ${subs[u.email]}`)
+    const existing = await client.query(
+      `select table_name from information_schema.tables where table_schema='public' and table_name = any($1::text[])`,
+      [tables],
+    )
+    const existingTables = existing.rows.map((r) => r.table_name)
+    if (existingTables.length > 0) {
+      await client.query(`TRUNCATE ${existingTables.map((t) => `public.${t}`).join(', ')} CASCADE`)
     }
+    console.log(`  - truncadas ${existingTables.length}/${tables.length} tablas`)
+
+    const p = (email) => SUBS[email]
 
     // ─── Buildings ───────────────────────────────────────────────────────────
     console.log('> Insertando buildings...')
@@ -151,9 +87,8 @@ async function main() {
         ($2, 'Edificio Norte',  'Av. Cabildo 5678, CABA', 4)
     `, [buildingCentro, buildingNorte])
 
-    // ─── Profiles (uno por user Cognito) ─────────────────────────────────────
+    // ─── Profiles ────────────────────────────────────────────────────────────
     console.log('> Insertando profiles...')
-    const p = (email) => subs[email]
     await client.query(`
       insert into public.profiles (id, email, full_name, avatar_text, role, building_id) values
         ($1,  lower('admin@citify.com.ar'),       'Super Admin',        'SA', 'super_admin',     null),
@@ -175,7 +110,6 @@ async function main() {
       p('cafe@citify.com.ar'),
       buildingCentro, buildingNorte,
     ])
-    // almacen profile (separado para incluir el business_id luego)
     await client.query(`
       insert into public.profiles (id, email, full_name, avatar_text, role)
       values ($1, lower('almacen@citify.com.ar'), 'Almacen Norte Admin', 'AN', 'negocio_admin')
@@ -186,8 +120,7 @@ async function main() {
     const adminId = '33333333-3333-3333-3333-333333333333'
     await client.query(`
       insert into public.iadmin_administrations (id, name, legal_name, tax_id, contact_email, contact_phone, is_active, legal_info)
-      values ($1, 'Administración Citify', 'Citify Administraciones SA', '30-12345678-9', 'contacto@citify.com.ar', '+5491155556666', true,
-        $2::jsonb)
+      values ($1, 'Administración Citify', 'Citify Administraciones SA', '30-12345678-9', 'contacto@citify.com.ar', '+5491155556666', true, $2::jsonb)
     `, [adminId, JSON.stringify({
       bank: { name: 'Banco Nación', cbu: '0110000000000000000000', alias: 'CITIFY.ADMIN', account: '1234567/8' },
       accountantName: 'Estudio Contable Pérez',
@@ -195,36 +128,33 @@ async function main() {
       collectionSchedule: 'Lunes a Viernes 9-17hs',
     })])
 
-    // role grant para consorcio_admin
     await client.query(`
       insert into public.iadmin_role_grants (administration_id, profile_id, operational_role, is_primary)
       values ($1, $2, 'titular', true)
     `, [adminId, p('consorcio@citify.com.ar')])
 
-    // building_admin_assignments
     await client.query(`
       insert into public.building_admin_assignments (profile_id, building_id, is_primary) values
         ($1, $2, true),
         ($1, $3, false)
     `, [p('consorcio@citify.com.ar'), buildingCentro, buildingNorte])
 
-    // managed_properties
     const mpCentro = '44444444-4444-4444-4444-444444444444'
     const mpNorte = '55555555-5555-5555-5555-555555555555'
     await client.query(`
       insert into public.iadmin_managed_properties (id, administration_id, building_id, display_name, property_kind, managed_since, management_fee_pct, is_active, legal_info)
       values
-        ($1, $3, $5, 'Centro Premium', 'edificio', '2024-01-01', 8.5, true, $7::jsonb),
-        ($2, $3, $6, 'Norte Familiar', 'edificio', '2024-03-15', 7.0, true, $7::jsonb)
-    `, [mpCentro, mpNorte, adminId, null, buildingCentro, buildingNorte, JSON.stringify({})])
+        ($1, $3, $4, 'Centro Premium', 'edificio', '2024-01-01', 8.5, true, $6::jsonb),
+        ($2, $3, $5, 'Norte Familiar', 'edificio', '2024-03-15', 7.0, true, $6::jsonb)
+    `, [mpCentro, mpNorte, adminId, buildingCentro, buildingNorte, JSON.stringify({})])
 
-    // ─── Units (4 por edificio) ──────────────────────────────────────────────
+    // ─── Units ───────────────────────────────────────────────────────────────
     console.log('> Insertando units + holders...')
-    const unitsCentro = ['c1', 'c2', 'c3', 'c4'].map((s) => ({
-      id: `aaaaaaaa-aaaa-aaaa-aaaa-${s.padEnd(12, '0')}`, code: s.toUpperCase(),
+    const unitsCentro = [1, 2, 3, 4].map((i) => ({
+      id: `aaaaaaaa-aaaa-aaaa-aaaa-c${String(i).padStart(11, '0')}`, code: `C${i}`,
     }))
-    const unitsNorte = ['n1', 'n2', 'n3', 'n4'].map((s) => ({
-      id: `bbbbbbbb-bbbb-bbbb-bbbb-${s.padEnd(12, '0')}`, code: s.toUpperCase(),
+    const unitsNorte = [1, 2, 3, 4].map((i) => ({
+      id: `bbbbbbbb-bbbb-bbbb-bbbb-d${String(i).padStart(11, '0')}`, code: `N${i}`,
     }))
     const allUnits = [
       ...unitsCentro.map((u, i) => ({ ...u, mp: mpCentro, building: buildingCentro, floor: String(i + 1), prorata: 0.25 })),
@@ -237,38 +167,36 @@ async function main() {
       `, [u.id, u.mp, u.code, u.floor, u.prorata])
     }
 
-    // ─── Memberships + Holders ───────────────────────────────────────────────
-    // Vecinos 1-4 en Centro (C1-C4), vecinos 5-8 en Norte (N1-N4)
-    // Propietario tiene C1 + N1 como holder
     const membershipsData = [
-      { vecino: 'vecino1@citify.com.ar', unit: unitsCentro[0], building: buildingCentro, kind: 'vecino_principal' },
-      { vecino: 'vecino2@citify.com.ar', unit: unitsCentro[1], building: buildingCentro, kind: 'vecino_principal' },
-      { vecino: 'vecino3@citify.com.ar', unit: unitsCentro[2], building: buildingCentro, kind: 'vecino_principal' },
-      { vecino: 'vecino4@citify.com.ar', unit: unitsCentro[3], building: buildingCentro, kind: 'vecino_principal' },
-      { vecino: 'vecino5@citify.com.ar', unit: unitsNorte[0],  building: buildingNorte,  kind: 'vecino_principal' },
-      { vecino: 'vecino6@citify.com.ar', unit: unitsNorte[1],  building: buildingNorte,  kind: 'vecino_principal' },
-      { vecino: 'vecino7@citify.com.ar', unit: unitsNorte[2],  building: buildingNorte,  kind: 'vecino_principal' },
-      { vecino: 'vecino8@citify.com.ar', unit: unitsNorte[3],  building: buildingNorte,  kind: 'vecino_principal' },
+      { vecino: 'vecino1@citify.com.ar', unit: unitsCentro[0], building: buildingCentro },
+      { vecino: 'vecino2@citify.com.ar', unit: unitsCentro[1], building: buildingCentro },
+      { vecino: 'vecino3@citify.com.ar', unit: unitsCentro[2], building: buildingCentro },
+      { vecino: 'vecino4@citify.com.ar', unit: unitsCentro[3], building: buildingCentro },
+      { vecino: 'vecino5@citify.com.ar', unit: unitsNorte[0],  building: buildingNorte  },
+      { vecino: 'vecino6@citify.com.ar', unit: unitsNorte[1],  building: buildingNorte  },
+      { vecino: 'vecino7@citify.com.ar', unit: unitsNorte[2],  building: buildingNorte  },
+      { vecino: 'vecino8@citify.com.ar', unit: unitsNorte[3],  building: buildingNorte  },
     ]
     for (const m of membershipsData) {
       await client.query(`
         insert into public.unit_profile_memberships (unit_id, building_id, profile_id, relationship_type, is_primary, active)
-        values ($1, $2, $3, $4, false, true)
-      `, [m.unit.id, m.building, p(m.vecino), m.kind])
+        values ($1, $2, $3, 'vecino_principal', false, true)
+      `, [m.unit.id, m.building, p(m.vecino)])
     }
-    // Propietario en C1 y N1 (membership)
-    for (const u of [unitsCentro[0], unitsNorte[0]]) {
+    // Propietario solo en C1 (su building_id es buildingCentro)
+    {
+      const u = unitsCentro[0]
       await client.query(`
         insert into public.unit_profile_memberships (unit_id, building_id, profile_id, relationship_type, is_primary, active)
         values ($1, $2, $3, 'propietario', true, true)
-      `, [u.id, u === unitsCentro[0] ? buildingCentro : buildingNorte, p('propietario@citify.com.ar')])
+      `, [u.id, buildingCentro, p('propietario@citify.com.ar')])
       await client.query(`
         insert into public.iadmin_unit_holders (unit_id, profile_id, full_name, holder_kind, email, is_active)
         values ($1, $2, 'Pedro Propietario', 'propietario', lower('propietario@citify.com.ar'), true)
       `, [u.id, p('propietario@citify.com.ar')])
     }
 
-    // ─── Cash accounts ───────────────────────────────────────────────────────
+    // ─── Cash + period + providers ──────────────────────────────────────────
     console.log('> Insertando cash accounts + accounting periods + providers...')
     const cashCentro = '66666666-6666-6666-6666-666666666666'
     const cashNorte = '77777777-7777-7777-7777-777777777777'
@@ -279,7 +207,6 @@ async function main() {
         ($2, $4, 'Cuenta corriente Norte',  'bank', 'Banco Nación', '0110000000000000222222', 'NORTE.CITIFY',  0, true)
     `, [cashCentro, cashNorte, mpCentro, mpNorte])
 
-    // ─── Accounting period del mes actual ────────────────────────────────────
     const now = new Date()
     const year = now.getFullYear()
     const month = now.getMonth() + 1
@@ -290,7 +217,6 @@ async function main() {
       values ($1, $3, $5, $6, 'open'), ($2, $4, $5, $6, 'open')
     `, [periodCentro, periodNorte, mpCentro, mpNorte, year, month])
 
-    // ─── Providers ──────────────────────────────────────────────────────────
     const provEdenor = 'e0e0e0e0-e0e0-e0e0-e0e0-e0e0e0e0e0e0'
     const provAysa   = 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'
     const provAsc    = 'a5a5a5a5-a5a5-a5a5-a5a5-a5a5a5a5a5a5'
@@ -301,7 +227,6 @@ async function main() {
         ($3, $4, 'Ascensores Otis', 'Mantenimiento', 'Mantenimiento', 'Service ascensor', true, 32000, 'ordinaria', true)
     `, [provEdenor, provAysa, provAsc, adminId])
 
-    // ─── Expenses imputados del mes ──────────────────────────────────────────
     console.log('> Insertando gastos imputados del mes...')
     const issuedAt = `${year}-${String(month).padStart(2, '0')}-05`
     for (const mp of [{ id: mpCentro, period: periodCentro }, { id: mpNorte, period: periodNorte }]) {
@@ -323,7 +248,6 @@ async function main() {
         ($2, 'Almacén Norte', 'Almacén',   'Almacén de barrio con productos locales','Av. Cabildo 5680, CABA',   $4)
     `, [bizCafe, bizAlmacen, p('cafe@citify.com.ar'), p('almacen@citify.com.ar')])
 
-    // actualizar profiles para tener business_id
     await client.query(`update public.profiles set business_id = $1 where id = $2`, [bizCafe, p('cafe@citify.com.ar')])
     await client.query(`update public.profiles set business_id = $1 where id = $2`, [bizAlmacen, p('almacen@citify.com.ar')])
 
@@ -333,9 +257,9 @@ async function main() {
     const exp = `${year}-12-31`
     await client.query(`
       insert into public.promotions (id, business_id, title, description, discount, category, expiration_date, building_id, is_active) values
-        ($1, $4, '2x1 en café',         'Comprá un café y llevate otro gratis',    '50% OFF',  'Cafetería', $7::date, null, true),
-        ($2, $4, 'Torta del día',       'Porción de torta a $1500',                '$1500',    'Cafetería', $7::date, null, true),
-        ($3, $5, '10% en almacén',      '10% off en compras mayores a $5000',      '10% OFF',  'Almacén',   $7::date, $6,  true)
+        ($1, $4, '2x1 en café',    'Comprá un café y llevate otro gratis', '50% OFF', 'Cafetería', $7::date, null, true),
+        ($2, $4, 'Torta del día',  'Porción de torta a $1500',             '$1500',   'Cafetería', $7::date, null, true),
+        ($3, $5, '10% en almacén', '10% off en compras mayores a $5000',   '10% OFF', 'Almacén',   $7::date, $6,  true)
     `, [promo1, promo2, promo3, bizCafe, bizAlmacen, buildingNorte, exp])
 
     console.log('> OK seed completo')

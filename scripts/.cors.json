@@ -1,0 +1,17 @@
+{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+      "AllowedOrigins": [
+        "https://citify.com.ar",
+        "https://www.citify.com.ar",
+        "http://citify-prod-alb-522648696.us-east-1.elb.amazonaws.com",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}

@@ -427,9 +427,9 @@ $$;
 -- Si no hay override explicito, devolvemos true para super_admin y true cuando el
 -- usuario tiene alguna grant en la administracion (los presets se aplican en TS,
 -- el SQL es permisivo por defecto y la UI/server actions hacen el gating fino).
--- Nota: evitamos `SELECT col INTO var FROM ...` porque el SQL editor de Supabase
--- lo interpreta erroneamente como `SELECT INTO table`. Usamos asignaciones con
--- subqueries que son equivalentes y robustas.
+-- Nota: usamos asignaciones con subqueries (var := (SELECT ...)) en lugar de
+-- `SELECT col INTO var FROM ...` porque algunos editores SQL lo interpretan
+-- erroneamente como `SELECT INTO table`.
 create or replace function public.iadmin_user_has_capability(target_admin_id uuid, target_capability text)
 returns boolean
 language plpgsql

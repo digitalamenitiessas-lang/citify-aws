@@ -1609,7 +1609,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           <p className="text-xs text-primary font-medium tracking-wider uppercase">Panel de super administrador</p>
         </div>
         <h1 className="font-serif text-2xl font-bold text-foreground">Resumen operativo de la plataforma</h1>
-        <p className="text-muted-foreground text-sm mt-1">Datos en tiempo real desde Supabase.</p>
+        <p className="text-muted-foreground text-sm mt-1">Datos en tiempo real.</p>
       </div>
 
       {/* Tabs */}

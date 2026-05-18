@@ -10,7 +10,4 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 tsconfig.tsbuildinfo
-supabase/*
-!supabase/migrations/
-!supabase/migrations/**
 .claude
