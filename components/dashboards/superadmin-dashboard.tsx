@@ -26,11 +26,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import {
+  addNeighborToBuilding,
   analyzeInitialOccupancyFile,
   confirmInitialOccupancyImport,
   createBusinessWithAdmin,
   createManagedProperty,
   createPlatformUser,
+  updateBuilding,
 } from '@/app/superadmin/actions'
 import type {
   IAdminPropertyKind,
@@ -351,6 +353,69 @@ function BuildingsList({
 
 // ─── CONSORCIO DETAIL ─────────────────────────────────────────────────────────
 function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDetail; onBack: () => void }) {
+  const router = useRouter()
+  const [editOpen, setEditOpen] = useState(false)
+  const [addNeighborOpen, setAddNeighborOpen] = useState(false)
+  const [editPending, startEditTransition] = useTransition()
+  const [neighborPending, startNeighborTransition] = useTransition()
+  const [editForm, setEditForm] = useState({
+    name: building.name,
+    address: building.address,
+    totalUnits: String(building.totalUnits ?? 0),
+    latitude: building.latitude !== null ? String(building.latitude) : '',
+    longitude: building.longitude !== null ? String(building.longitude) : '',
+  })
+  const [neighborForm, setNeighborForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: 'Citify2026!',
+  })
+
+  function submitEdit() {
+    startEditTransition(async () => {
+      try {
+        await updateBuilding({
+          buildingId: building.id,
+          name: editForm.name.trim(),
+          address: editForm.address.trim(),
+          totalUnits: Number(editForm.totalUnits) || 0,
+          latitude: editForm.latitude.trim() ? Number(editForm.latitude) : null,
+          longitude: editForm.longitude.trim() ? Number(editForm.longitude) : null,
+        })
+        toast.success('Edificio actualizado.')
+        setEditOpen(false)
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'No se pudo actualizar el edificio.')
+      }
+    })
+  }
+
+  function submitAddNeighbor() {
+    if (!neighborForm.fullName.trim() || !neighborForm.email.trim() || !neighborForm.password.trim()) {
+      toast.error('Completá nombre, email y password.')
+      return
+    }
+    startNeighborTransition(async () => {
+      try {
+        await addNeighborToBuilding({
+          buildingId: building.id,
+          fullName: neighborForm.fullName.trim(),
+          email: neighborForm.email.trim(),
+          phone: neighborForm.phone.trim() || null,
+          password: neighborForm.password,
+        })
+        toast.success('Vecino agregado.')
+        setAddNeighborOpen(false)
+        setNeighborForm({ fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'No se pudo agregar el vecino.')
+      }
+    })
+  }
+
   return (
     <div>
       <SectionHeader
@@ -358,6 +423,82 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
         subtitle={building.address}
         onBack={onBack}
       />
+
+      <div className="flex flex-wrap gap-2 mb-6">
+        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+          Editar edificio
+        </Button>
+        <Button size="sm" onClick={() => setAddNeighborOpen(true)}>
+          Agregar vecino
+        </Button>
+      </div>
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditOpen(false)}>
+          <div className="glass-card w-full max-w-lg rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-xl font-bold text-foreground mb-4">Editar edificio</h2>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Nombre</Label>
+                <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Dirección</Label>
+                <Input value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label>Unidades</Label>
+                  <Input type="number" min={0} value={editForm.totalUnits} onChange={(e) => setEditForm({ ...editForm, totalUnits: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Latitud</Label>
+                  <Input value={editForm.latitude} onChange={(e) => setEditForm({ ...editForm, latitude: e.target.value })} placeholder="-34.60" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Longitud</Label>
+                  <Input value={editForm.longitude} onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })} placeholder="-58.45" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editPending}>Cancelar</Button>
+              <Button onClick={submitEdit} disabled={editPending}>{editPending ? 'Guardando…' : 'Guardar cambios'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addNeighborOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAddNeighborOpen(false)}>
+          <div className="glass-card w-full max-w-md rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-xl font-bold text-foreground mb-4">Agregar vecino al edificio</h2>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Nombre completo</Label>
+                <Input value={neighborForm.fullName} onChange={(e) => setNeighborForm({ ...neighborForm, fullName: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Email</Label>
+                <Input type="email" value={neighborForm.email} onChange={(e) => setNeighborForm({ ...neighborForm, email: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Teléfono (opcional)</Label>
+                <Input value={neighborForm.phone} onChange={(e) => setNeighborForm({ ...neighborForm, phone: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Password inicial</Label>
+                <Input type="text" value={neighborForm.password} onChange={(e) => setNeighborForm({ ...neighborForm, password: e.target.value })} />
+                <p className="text-[11px] text-muted-foreground">El vecino la podrá cambiar después de su primer ingreso.</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAddNeighborOpen(false)} disabled={neighborPending}>Cancelar</Button>
+              <Button onClick={submitAddNeighbor} disabled={neighborPending}>{neighborPending ? 'Creando…' : 'Crear vecino'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

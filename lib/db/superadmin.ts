@@ -366,6 +366,34 @@ export async function getBuildingByIdFromPostgres(
   return result.rows[0] ?? null
 }
 
+export async function updateBuildingInPostgres(input: {
+  buildingId: string
+  name: string
+  address: string
+  totalUnits: number
+  latitude: number | null
+  longitude: number | null
+}): Promise<void> {
+  const result = await pgQuery(
+    `
+      update public.buildings
+      set name = $1, address = $2, total_units = $3, latitude = $4, longitude = $5
+      where id = $6
+    `,
+    [
+      input.name,
+      input.address,
+      input.totalUnits,
+      input.latitude,
+      input.longitude,
+      input.buildingId,
+    ],
+  )
+  if (result.rowCount === 0) {
+    throw new Error('No se encontró el edificio que querés actualizar.')
+  }
+}
+
 export async function getManagedPropertyIdByBuildingFromPostgres(
   buildingId: string,
 ): Promise<string | null> {

@@ -30,6 +30,7 @@ import {
   getManagedPropertyIdByBuildingFromPostgres,
   listUnitsForOccupancyFromPostgres,
   setBusinessOwnerInPostgres,
+  updateBuildingInPostgres,
 } from '@/lib/db/superadmin'
 import {
   deactivateActivePrincipalMembershipsInPostgres,
@@ -407,6 +408,58 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
       await assignIAdminRoleGrantInPostgres(profileId, administrationId, 'titular')
     }
   }
+
+  revalidatePath('/superadmin')
+  return { profileId }
+}
+
+const updateBuildingSchema = z.object({
+  buildingId: z.string().uuid(),
+  name: z.string().trim().min(2).max(120),
+  address: z.string().trim().min(3).max(200),
+  totalUnits: z.number().int().min(0).max(100000),
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
+})
+
+export async function updateBuilding(input: z.input<typeof updateBuildingSchema>) {
+  const parsed = updateBuildingSchema.parse(input)
+  await requireProfile(['super_admin'])
+
+  await updateBuildingInPostgres({
+    buildingId: parsed.buildingId,
+    name: parsed.name,
+    address: parsed.address,
+    totalUnits: parsed.totalUnits,
+    latitude: parsed.latitude,
+    longitude: parsed.longitude,
+  })
+
+  revalidatePath('/superadmin')
+  revalidatePath('/iadmin')
+  return { ok: true }
+}
+
+const addNeighborToBuildingSchema = z.object({
+  buildingId: z.string().uuid(),
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().trim().email().max(160),
+  phone: z.string().trim().max(40).nullable().optional(),
+  password: z.string().min(8).max(72),
+})
+
+export async function addNeighborToBuilding(input: z.input<typeof addNeighborToBuildingSchema>) {
+  const parsed = addNeighborToBuildingSchema.parse(input)
+  await requireProfile(['super_admin'])
+
+  const profileId = await findOrCreatePlatformProfile({
+    fullName: parsed.fullName,
+    email: parsed.email,
+    phone: parsed.phone ?? null,
+    password: parsed.password,
+    role: 'vecino',
+    buildingId: parsed.buildingId,
+  })
 
   revalidatePath('/superadmin')
   return { profileId }
