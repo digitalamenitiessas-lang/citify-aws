@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
@@ -1154,6 +1154,10 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   const [consorcioStepIndex, setConsorcioStepIndex] = useState(0)
   const [administrationNameTouched, setAdministrationNameTouched] = useState(false)
   const [consorcioLocationSearching, setConsorcioLocationSearching] = useState(false)
+  // Centro inicial fijo del mapa de "crear consorcio". Solo cambia cuando
+  // bumpeamos el token (después de geocodificar dirección), nunca con un click.
+  const consorcioInitialCenter = useMemo<[number, number]>(() => [-26.8306, -65.2038], [])
+  const [consorcioRecenterToken, setConsorcioRecenterToken] = useState(0)
   const [importStep, setImportStep] = useState<ImportWizardStep>('building')
   const [selectedImportBuildingId, setSelectedImportBuildingId] = useState('')
   const [importFile, setImportFile] = useState<{ fileName: string; mimeType: string; fileBase64: string } | null>(null)
@@ -1162,9 +1166,17 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   const totalUsage = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
   const consorcioAdmins = data.consorcioAdminOptions
   const activeTabParam = searchParams.get('tab')
+  // Si la URL no trae ?tab=..., caemos al último tab guardado en localStorage.
+  const fallbackTab: TabType = (() => {
+    if (typeof window === 'undefined') return 'overview'
+    const stored = window.localStorage.getItem('citify-superadmin-tab-v1')
+    return stored && ['buildings', 'users', 'businesses', 'promotions', 'overview'].includes(stored)
+      ? (stored as TabType)
+      : 'overview'
+  })()
   const activeTab: TabType = ['buildings', 'users', 'businesses', 'promotions'].includes(activeTabParam ?? '')
     ? (activeTabParam as TabType)
-    : 'overview'
+    : fallbackTab
   const selectedBuildingId = searchParams.get('buildingId')
   const selectedBusinessId = searchParams.get('businessId')
   const selectedBuilding =
@@ -1218,6 +1230,9 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       params.set('businessId', options.businessId)
     }
     const query = params.toString()
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('citify-superadmin-tab-v1', tab)
+    }
     router.replace(query ? `/superadmin?${query}` : '/superadmin')
   }
 
@@ -1286,6 +1301,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           latitude: String(parseFloat(data[0].lat)),
           longitude: String(parseFloat(data[0].lon)),
         }))
+        setConsorcioRecenterToken((t) => t + 1)
         toast.success('Ubicacion aproximada encontrada.', { id: 'consorcio-geocode' })
       } else {
         toast.error('No pudimos ubicarla. Puedes marcar el punto manualmente en el mapa.', { id: 'consorcio-geocode' })
@@ -1822,8 +1838,8 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                       <div className="flex-[1.35] overflow-hidden rounded-2xl border border-border/60 bg-background">
                         <div className="h-[320px]">
                           <DynamicMap
-                            center={consorcioMapLocation ?? [-26.8306, -65.2038]}
-                            zoom={consorcioMapLocation ? 16 : 13}
+                            center={consorcioRecenterToken > 0 && consorcioMapLocation ? consorcioMapLocation : consorcioInitialCenter}
+                            zoom={consorcioRecenterToken > 0 && consorcioMapLocation ? 17 : 13}
                             interactive
                             selectedLocation={consorcioMapLocation}
                             onLocationSelect={(lat, lng) =>

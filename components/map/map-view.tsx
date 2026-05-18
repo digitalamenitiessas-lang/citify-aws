@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -73,11 +73,30 @@ function LocationSelector({ onSelect }: { onSelect: (lat: number, lng: number) =
   return null
 }
 
+// Solo re-centra cuando lat/lng/zoom realmente cambian (compara primitivos en
+// vez de identidad del array). Si el parent re-renderiza pasando un nuevo
+// `[lat, lng]` con los mismos valores, el efecto NO se dispara y no
+// interrumpe el drag/zoom manual del usuario.
 function ChangeView({ center, zoom }: { center: [number, number], zoom: number }) {
   const map = useMap()
+  const lat = center[0]
+  const lng = center[1]
+  const initializedRef = useRef(false)
   useEffect(() => {
-    map.setView(center, zoom)
-  }, [center, zoom, map])
+    if (!initializedRef.current) {
+      map.setView([lat, lng], zoom)
+      initializedRef.current = true
+      return
+    }
+    // Después del primer render: solo reaccionamos si el cambio es grande
+    // (>50 metros aprox) — así un click cercano para colocar el marker no
+    // re-centra el mapa.
+    const current = map.getCenter()
+    const distance = Math.hypot(current.lat - lat, current.lng - lng)
+    if (distance > 0.0005 || map.getZoom() !== zoom) {
+      map.setView([lat, lng], zoom)
+    }
+  }, [lat, lng, zoom, map])
   return null
 }
 
