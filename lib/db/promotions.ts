@@ -45,10 +45,13 @@ function basePromotionSelect() {
 }
 
 export async function getPromotionsForBusinessFromPostgres(businessId: string): Promise<PromotionRow[]> {
+  // Filtramos promos desactivadas (soft-delete). Las redenciones históricas
+  // se mantienen vinculadas para métricas, pero el dueño no ve la promo en
+  // su lista de cupones activos.
   const result = await pgQuery<PromotionRow>(
     `
       ${basePromotionSelect()}
-      where p.business_id = $1
+      where p.business_id = $1 and p.is_active = true
       group by
         p.id,
         p.business_id,

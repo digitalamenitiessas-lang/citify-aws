@@ -1159,8 +1159,10 @@ export function BusinessDashboard({
       return
     }
 
+    // La promo se desactiva, no se borra. La sacamos de la lista visible para
+    // que el dueño no la vea más, pero el histórico (canjes, métricas) queda intacto.
     setPromotions((prev) => prev.filter((promotion) => promotion.id !== id))
-    toast.success('Promocion eliminada.')
+    toast.success('Promoción desactivada.')
   }
 
   function requestDeletePromotion(id: string) {

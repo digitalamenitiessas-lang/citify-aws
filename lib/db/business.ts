@@ -120,14 +120,16 @@ export async function upsertPromotionInPostgres(input: {
   )
 }
 
+// Soft-delete: la promoción no se borra para preservar el histórico de
+// canjes/redenciones (métricas). Simplemente se marca como inactiva.
 export async function deletePromotionInPostgres(input: {
   promotionId: string
   businessId: string
 }): Promise<void> {
-  await pgQuery(`delete from public.promotions where id = $1 and business_id = $2`, [
-    input.promotionId,
-    input.businessId,
-  ])
+  await pgQuery(
+    `update public.promotions set is_active = false where id = $1 and business_id = $2`,
+    [input.promotionId, input.businessId],
+  )
 }
 
 // ----------------------------------------------------------------------------
