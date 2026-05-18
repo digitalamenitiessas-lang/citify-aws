@@ -497,8 +497,19 @@ function buildPromotionMonthlyStatus(promotions: Promotion[], referenceMonthStar
   }
 }
 
+function toPublicUrlIfS3(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (path.startsWith('public/')) return buildPublicS3Url(path)
+  return null
+}
+
 function mapMarketplaceItem(client: any, row: any): MarketplaceItem {
   const seller = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  const extras: string[] = Array.isArray(row.extra_image_paths) ? row.extra_image_paths : []
+  const allPaths = [row.image_path, ...extras].filter(Boolean) as string[]
+  const allUrls: string[] = allPaths
+    .map((p) => toPublicUrlIfS3(p) ?? publicUrl(client, 'marketplace-images', p))
+    .filter((url): url is string => Boolean(url))
   return {
     id: row.id,
     title: row.title,
@@ -512,7 +523,9 @@ function mapMarketplaceItem(client: any, row: any): MarketplaceItem {
     buildingId: row.building_id,
     createdAt: row.created_at,
     imagePath: row.image_path ?? null,
-    imageUrl: publicUrl(client, 'marketplace-images', row.image_path),
+    imageUrl: allUrls[0] ?? null,
+    imagePaths: allPaths,
+    imageUrls: allUrls,
     isActive: Boolean(row.is_active),
   }
 }
@@ -1307,6 +1320,7 @@ export async function getConsumerDashboardData(profileId: string): Promise<Consu
         building_id: row.building_id,
         created_at: row.created_at,
         image_path: row.image_path,
+        extra_image_paths: row.extra_image_paths ?? [],
         is_active: row.is_active,
         profiles: {
           full_name: row.seller_full_name,

@@ -4950,3 +4950,18 @@ end;
 $generate_token$;
 
 
+
+
+
+
+-- Migration: 20260518_marketplace_multi_images.sql
+
+alter table public.marketplace_items
+  add column if not exists extra_image_paths text[] not null default '{}'::text[];
+
+alter table public.marketplace_items
+  drop constraint if exists marketplace_items_extra_images_max;
+
+alter table public.marketplace_items
+  add constraint marketplace_items_extra_images_max
+  check (array_length(extra_image_paths, 1) is null or array_length(extra_image_paths, 1) <= 3);

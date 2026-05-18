@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
+import { MarketplaceDetailModal } from '@/components/marketplace-detail-modal'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
@@ -177,21 +178,37 @@ function PromotionQrModal({
 
 // ─── CREATE MARKETPLACE MODAL ────────────────────────────────────────────────
 
+const MAX_MARKETPLACE_PHOTOS = 4
+
 function CreateMarketplaceModal({ onClose, onSave }: {
   onClose: () => void
-  onSave: (payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) => Promise<void>
+  onSave: (payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, files: File[]) => Promise<void>
 }) {
   const [title, setTitle] = useState('')
   const [price, setPrice] = useState('')
   const [description, setDescription] = useState('')
   const [condition, setCondition] = useState<MarketplaceCondition>('Buen Estado')
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
+
+  function addFiles(incoming: FileList | null) {
+    if (!incoming) return
+    const next = [...files]
+    for (const f of Array.from(incoming)) {
+      if (next.length >= MAX_MARKETPLACE_PHOTOS) break
+      next.push(f)
+    }
+    setFiles(next)
+  }
+
+  function removeFile(idx: number) {
+    setFiles(files.filter((_, i) => i !== idx))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    try { await onSave({ title, price: Number(price), description, condition }, imageFile); onClose() }
+    try { await onSave({ title, price: Number(price), description, condition }, files); onClose() }
     finally { setLoading(false) }
   }
 
@@ -221,7 +238,37 @@ function CreateMarketplaceModal({ onClose, onSave }: {
             <Label>Descripción</Label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} required className="w-full rounded-lg px-3 py-2 text-sm bg-input/50 border border-border/50 text-foreground placeholder:text-muted-foreground outline-none resize-none" placeholder="Detalles, zona de retiro, estado real..." />
           </div>
-          <ImageUploadField label={IMAGE_RULES.marketplace.label} helpText={IMAGE_RULES.marketplace.recommended} maxSizeMb={IMAGE_RULES.marketplace.maxSizeMb} minWidth={IMAGE_RULES.marketplace.minWidth} minHeight={IMAGE_RULES.marketplace.minHeight} onFileChange={setImageFile} />
+          <div className="flex flex-col gap-1.5">
+            <Label>Fotos ({files.length}/{MAX_MARKETPLACE_PHOTOS})</Label>
+            <div className="grid grid-cols-4 gap-2">
+              {files.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="relative aspect-square overflow-hidden rounded-lg border border-border/40">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={URL.createObjectURL(f)} alt="" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white hover:bg-red-600"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {files.length < MAX_MARKETPLACE_PHOTOS && (
+                <label className="flex aspect-square cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border/60 text-xl text-muted-foreground hover:border-primary hover:text-primary">
+                  +
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
+                  />
+                </label>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">La primera foto se usa como portada. Podés cambiarlas después desde el detalle.</p>
+          </div>
           <button type="submit" className="w-full py-3 rounded-xl text-sm font-semibold text-white btn-premium mt-2" disabled={loading}>
             {loading ? 'Publicando...' : 'Publicar artículo'}
           </button>
@@ -673,6 +720,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const [usedCoupons, setUsedCoupons] = useState<string[]>(initialData.usedPromotionIds)
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(initialData.marketplaceItems)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [marketplaceDetailItem, setMarketplaceDetailItem] = useState<MarketplaceItem | null>(null)
   const [search, setSearch] = useState('')
   const [couponFilter, setCouponFilter] = useState<'disponibles' | 'usados'>(initialCouponFilter)
   const [tourOpen, setTourOpen] = useState(false)
@@ -1027,16 +1075,24 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     }
   }, [qrPromotion, qrToken])
 
-  async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, file: File | null) {
+  async function createMarketplaceItem(payload: { title: string; price: number; description: string; condition: MarketplaceCondition }, files: File[]) {
     if (!initialData.building) { toast.error('No hay edificio asignado.'); return }
     const itemId = createClientUuid()
-    let imagePath: string | null = null
-    let imageUrl: string | null = null
-    if (file) {
-      const uploadedImage = await uploadMarketplaceImage(itemId, file)
-      imagePath = uploadedImage.imagePath
-      imageUrl = uploadedImage.imageUrl
+    const uploaded: { imagePath: string; imageUrl: string }[] = []
+    for (const file of files.slice(0, MAX_MARKETPLACE_PHOTOS)) {
+      try {
+        const u = await uploadMarketplaceImage(itemId, file)
+        uploaded.push(u)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Falló una subida de imagen.')
+        return
+      }
     }
+    const imagePath = uploaded[0]?.imagePath ?? null
+    const imageUrl = uploaded[0]?.imageUrl ?? null
+    const extraImagePaths = uploaded.slice(1).map((u) => u.imagePath)
+    const allImagePaths = uploaded.map((u) => u.imagePath)
+    const allImageUrls = uploaded.map((u) => u.imageUrl)
 
     const response = await fetch('/api/consumer/marketplace-items', {
       method: 'POST',
@@ -1048,6 +1104,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         description: payload.description,
         condition: payload.condition,
         imagePath,
+        extraImagePaths,
       }),
     })
     const result = await readJsonResponse<{ error?: string }>(response)
@@ -1057,7 +1114,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       return
     }
 
-    setMarketplaceItems((prev) => [{ id: itemId, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, sellerId: profileId, sellerName: profileName, sellerAvatar: avatarText, sellerPhone: null, buildingId: initialData.building!.id, createdAt: new Date().toISOString(), imagePath, imageUrl, isActive: true }, ...prev])
+    setMarketplaceItems((prev) => [{ id: itemId, title: payload.title, price: payload.price, description: payload.description, condition: payload.condition, sellerId: profileId, sellerName: profileName, sellerAvatar: avatarText, sellerPhone: null, buildingId: initialData.building!.id, createdAt: new Date().toISOString(), imagePath, imageUrl, imagePaths: allImagePaths, imageUrls: allImageUrls, isActive: true }, ...prev])
     toast.success('Publicación creada.')
   }
 
@@ -1491,31 +1548,44 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
             {filteredMarketplace.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredMarketplace.map(item => (
-                  <div key={item.id} className="glass-card glass-card-hover rounded-2xl overflow-hidden">
-                    <div className="h-36 bg-gradient-to-br from-secondary to-muted relative">
-                      {item.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Package className="w-10 h-10 text-muted-foreground opacity-30" /></div>
-                      )}
-                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium bg-white/90 text-foreground">{item.condition}</span>
-                    </div>
-                    <div className="p-4">
-                      <h3 className="font-semibold text-foreground text-sm">{item.title}</h3>
-                      <p className="text-xl font-bold text-primary mt-0.5">${item.price.toLocaleString()}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
-                      <div className="flex items-center gap-2 mt-3">
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg,#F04E23,#C73E15)' }}>{item.sellerAvatar}</div>
-                        <span className="text-xs text-muted-foreground">{item.sellerName}</span>
-                        {item.sellerPhone && (
-                          <a href={`tel:${item.sellerPhone}`} className="ml-auto text-xs text-primary font-medium hover:underline">Contactar</a>
+                {filteredMarketplace.map(item => {
+                  const totalPhotos = item.imageUrls?.length ?? (item.imageUrl ? 1 : 0)
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setMarketplaceDetailItem(item)}
+                      className="glass-card glass-card-hover rounded-2xl overflow-hidden text-left"
+                    >
+                      <div className="h-36 bg-gradient-to-br from-secondary to-muted relative">
+                        {item.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Package className="w-10 h-10 text-muted-foreground opacity-30" /></div>
+                        )}
+                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium bg-white/90 text-foreground">{item.condition}</span>
+                        {totalPhotos > 1 && (
+                          <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            +{totalPhotos - 1} fotos
+                          </span>
                         )}
                       </div>
-                    </div>
-                  </div>
-                ))}
+                      <div className="p-4">
+                        <h3 className="font-semibold text-foreground text-sm">{item.title}</h3>
+                        <p className="text-xl font-bold text-primary mt-0.5">${item.price.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
+                        <div className="flex items-center gap-2 mt-3">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg,#F04E23,#C73E15)' }}>{item.sellerAvatar}</div>
+                          <span className="text-xs text-muted-foreground">{item.sellerName}</span>
+                          {item.sellerId === profileId && (
+                            <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">Tuya</span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             ) : (
               <div className="text-center py-20 glass-card rounded-2xl">
@@ -1652,6 +1722,27 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
       {qrPromotion && <PromotionQrModal promotion={qrPromotion} token={qrToken} loading={isLoadingQr} onClose={closePromotionQr} />}
       {showCreateModal && <CreateMarketplaceModal onClose={() => setShowCreateModal(false)} onSave={createMarketplaceItem} />}
+      {marketplaceDetailItem && (
+        <MarketplaceDetailModal
+          item={marketplaceDetailItem}
+          isOwner={marketplaceDetailItem.sellerId === profileId}
+          onClose={() => setMarketplaceDetailItem(null)}
+          onContact={(item) => {
+            if (item.sellerPhone) {
+              window.open(`tel:${item.sellerPhone}`, '_self')
+            } else {
+              toast.error('El vecino no dejó teléfono de contacto.')
+            }
+          }}
+          onUpdated={(updated) => {
+            setMarketplaceItems((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+            setMarketplaceDetailItem(updated)
+          }}
+          onDeleted={(id) => {
+            setMarketplaceItems((prev) => prev.filter((p) => p.id !== id))
+          }}
+        />
+      )}
       {tourOpen ? (
         <div className="fixed inset-0 z-[90]">
           <div className="absolute inset-0 bg-black/60" />

@@ -170,6 +170,8 @@ export interface MarketplaceItem {
   createdAt: string
   imagePath: string | null
   imageUrl: string | null
+  imagePaths: string[]
+  imageUrls: string[]
   isActive: boolean
 }
 

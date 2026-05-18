@@ -175,13 +175,15 @@ export async function insertMarketplaceItemInPostgres(input: {
   description: string
   condition: string
   imagePath: string | null
+  extraImagePaths?: string[]
 }): Promise<void> {
   await pgQuery(
     `
       insert into public.marketplace_items (
-        id, seller_profile_id, building_id, title, price, description, condition, image_path, is_active
+        id, seller_profile_id, building_id, title, price, description, condition,
+        image_path, extra_image_paths, is_active
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, true)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
     `,
     [
       input.id,
@@ -192,8 +194,56 @@ export async function insertMarketplaceItemInPostgres(input: {
       input.description,
       input.condition,
       input.imagePath,
+      input.extraImagePaths ?? [],
     ],
   )
+}
+
+export async function updateMarketplaceItemInPostgres(input: {
+  itemId: string
+  sellerProfileId: string
+  title: string
+  price: number
+  description: string
+  condition: string
+  imagePath: string | null
+  extraImagePaths: string[]
+}): Promise<void> {
+  const result = await pgQuery(
+    `
+      update public.marketplace_items
+      set title = $1, price = $2, description = $3, condition = $4,
+          image_path = $5, extra_image_paths = $6
+      where id = $7 and seller_profile_id = $8 and is_active = true
+    `,
+    [
+      input.title,
+      input.price,
+      input.description,
+      input.condition,
+      input.imagePath,
+      input.extraImagePaths,
+      input.itemId,
+      input.sellerProfileId,
+    ],
+  )
+  if (result.rowCount === 0) {
+    throw new Error('No encontramos la publicación o no sos el dueño.')
+  }
+}
+
+// Soft-delete: marcamos como inactivo (no se borra para mantener historial).
+export async function deactivateMarketplaceItemInPostgres(input: {
+  itemId: string
+  sellerProfileId: string
+}): Promise<void> {
+  const result = await pgQuery(
+    `update public.marketplace_items set is_active = false where id = $1 and seller_profile_id = $2`,
+    [input.itemId, input.sellerProfileId],
+  )
+  if (result.rowCount === 0) {
+    throw new Error('No encontramos la publicación o no sos el dueño.')
+  }
 }
 
 // ----------------------------------------------------------------------------

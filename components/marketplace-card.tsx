@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button'
 interface MarketplaceCardProps {
   item: MarketplaceItem
   onContact?: (item: MarketplaceItem) => void
+  onOpenDetail?: (item: MarketplaceItem) => void
 }
 
-export function MarketplaceCard({ item, onContact }: MarketplaceCardProps) {
+export function MarketplaceCard({ item, onContact, onOpenDetail }: MarketplaceCardProps) {
+  const totalPhotos = item.imageUrls?.length ?? (item.imageUrl ? 1 : 0)
   const getConditionColor = (condition: string) => {
     switch (condition) {
       case 'Nuevo':
@@ -23,11 +25,19 @@ export function MarketplaceCard({ item, onContact }: MarketplaceCardProps) {
   }
 
   return (
-    <div className="glass-card glass-card-hover rounded-xl p-5 flex flex-col gap-4 border border-border/50">
+    <div
+      className={`glass-card glass-card-hover rounded-xl p-5 flex flex-col gap-4 border border-border/50 ${onOpenDetail ? 'cursor-pointer' : ''}`}
+      onClick={onOpenDetail ? () => onOpenDetail(item) : undefined}
+    >
       {item.imageUrl ? (
-        <div className="rounded-xl overflow-hidden border border-border/40 bg-secondary/20 aspect-[4/3]">
+        <div className="relative rounded-xl overflow-hidden border border-border/40 bg-secondary/20 aspect-[4/3]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+          {totalPhotos > 1 && (
+            <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">
+              +{totalPhotos - 1} fotos
+            </span>
+          )}
         </div>
       ) : null}
 
@@ -66,7 +76,14 @@ export function MarketplaceCard({ item, onContact }: MarketplaceCardProps) {
           </div>
         </div>
 
-        <Button size="sm" className="btn-premium gap-1.5 px-3" onClick={() => onContact?.(item)}>
+        <Button
+          size="sm"
+          className="btn-premium gap-1.5 px-3"
+          onClick={(e) => {
+            e.stopPropagation()
+            onContact?.(item)
+          }}
+        >
           <MessageCircle className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Contactar</span>
         </Button>

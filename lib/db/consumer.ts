@@ -123,6 +123,7 @@ export type MarketplaceItemRow = {
   description: string
   condition: string
   image_path: string | null
+  extra_image_paths: string[] | null
   is_active: boolean
   created_at: string
   seller_full_name: string | null
@@ -137,7 +138,8 @@ export async function listMarketplaceItemsForBuildingFromPostgres(
     `
       select m.id, m.building_id, m.seller_profile_id, m.title,
              m.price::text as price, m.description, m.condition,
-             m.image_path, m.is_active, m.created_at::text as created_at,
+             m.image_path, m.extra_image_paths,
+             m.is_active, m.created_at::text as created_at,
              p.full_name as seller_full_name,
              p.avatar_text as seller_avatar_text,
              p.phone as seller_phone
