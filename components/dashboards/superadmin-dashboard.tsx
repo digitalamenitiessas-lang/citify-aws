@@ -366,6 +366,45 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
     latitude: building.latitude !== null ? String(building.latitude) : '',
     longitude: building.longitude !== null ? String(building.longitude) : '',
   })
+  const [editGeocoding, setEditGeocoding] = useState(false)
+  const [editRecenterToken, setEditRecenterToken] = useState(0)
+  const editMapInitialCenter = useMemo<[number, number]>(() => [-26.8306, -65.2038], [])
+  const editMapLocation = useMemo<[number, number] | null>(() => {
+    const lat = Number(editForm.latitude.replace(',', '.'))
+    const lng = Number(editForm.longitude.replace(',', '.'))
+    if (!editForm.latitude || !editForm.longitude) return null
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return [lat, lng]
+  }, [editForm.latitude, editForm.longitude])
+
+  async function locateEditAddress() {
+    if (!editForm.address.trim()) {
+      toast.error('Ingresa una direccion antes de ubicar el edificio.')
+      return
+    }
+    setEditGeocoding(true)
+    toast.loading('Buscando direccion...', { id: 'edit-building-geocode' })
+    try {
+      const query = encodeURIComponent(`${editForm.address}, San Miguel de Tucuman, Argentina`)
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`)
+      const data = await response.json()
+      if (Array.isArray(data) && data.length > 0) {
+        setEditForm((current) => ({
+          ...current,
+          latitude: String(parseFloat(data[0].lat)),
+          longitude: String(parseFloat(data[0].lon)),
+        }))
+        setEditRecenterToken((t) => t + 1)
+        toast.success('Ubicacion aproximada encontrada.', { id: 'edit-building-geocode' })
+      } else {
+        toast.error('No pudimos ubicarla. Puedes marcar el punto manualmente en el mapa.', { id: 'edit-building-geocode' })
+      }
+    } catch {
+      toast.error('Error buscando la direccion.', { id: 'edit-building-geocode' })
+    } finally {
+      setEditGeocoding(false)
+    }
+  }
   const [neighborForm, setNeighborForm] = useState<{
     fullName: string
     email: string
@@ -462,7 +501,7 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
 
       {editOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditOpen(false)}>
-          <div className="glass-card w-full max-w-lg rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-card w-full max-w-3xl rounded-2xl p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-serif text-xl font-bold text-foreground mb-4">Editar edificio</h2>
             <div className="space-y-3">
               <div className="space-y-1">
@@ -470,22 +509,55 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                 <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
               <div className="space-y-1">
-                <Label>Dirección</Label>
-                <Input value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} />
+                <Label>Unidades</Label>
+                <Input type="number" min={0} value={editForm.totalUnits} onChange={(e) => setEditForm({ ...editForm, totalUnits: e.target.value })} />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label>Unidades</Label>
-                  <Input type="number" min={0} value={editForm.totalUnits} onChange={(e) => setEditForm({ ...editForm, totalUnits: e.target.value })} />
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  Ubicación
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Busca la dirección y, si hace falta, corrige el punto haciendo click en el mapa.
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={editForm.address}
+                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                    placeholder="Ej. Av. Sarmiento 2555"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={locateEditAddress}
+                    disabled={editGeocoding || !editForm.address.trim()}
+                  >
+                    {editGeocoding ? 'Ubicando...' : 'Ubicar'}
+                  </Button>
                 </div>
-                <div className="space-y-1">
-                  <Label>Latitud</Label>
-                  <Input value={editForm.latitude} onChange={(e) => setEditForm({ ...editForm, latitude: e.target.value })} placeholder="-34.60" />
+                <div className="overflow-hidden rounded-2xl border border-border/60 bg-background">
+                  <div className="h-[320px]">
+                    <DynamicMap
+                      center={editMapLocation ?? editMapInitialCenter}
+                      zoom={editMapLocation ? 17 : 13}
+                      recenterKey={editRecenterToken}
+                      interactive
+                      selectedLocation={editMapLocation}
+                      onLocationSelect={(lat, lng) =>
+                        setEditForm((current) => ({
+                          ...current,
+                          latitude: String(lat),
+                          longitude: String(lng),
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label>Longitud</Label>
-                  <Input value={editForm.longitude} onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })} placeholder="-58.45" />
-                </div>
+                {editMapLocation && (
+                  <p className="text-xs text-muted-foreground">
+                    Coordenadas: {editMapLocation[0].toFixed(5)}, {editMapLocation[1].toFixed(5)}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">

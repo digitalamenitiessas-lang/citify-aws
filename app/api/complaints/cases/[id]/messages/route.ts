@@ -23,6 +23,9 @@ export async function POST(
 
   const body = (await request.json().catch(() => null)) as MessageBody | null
   const messageBody = body?.body?.trim()
+  const mentionedProfileIds = Array.isArray(body?.mentionedProfileIds)
+    ? body!.mentionedProfileIds!.filter((id): id is string => typeof id === 'string')
+    : []
 
   if (!messageBody) {
     return NextResponse.json({ error: 'El comentario esta vacio.' }, { status: 400 })
@@ -31,8 +34,8 @@ export async function POST(
   try {
     const result = await pgQueryAsProfile(
       profile.id,
-      `select * from public.post_complaint_case_message($1, $2, 'comment'::public.complaint_case_message_type)`,
-      [caseId, messageBody],
+      `select * from public.post_complaint_case_message($1, $2, 'comment'::public.complaint_case_message_type, $3::uuid[])`,
+      [caseId, messageBody, mentionedProfileIds],
     )
     const row = result.rows[0]
     if (!row) {
