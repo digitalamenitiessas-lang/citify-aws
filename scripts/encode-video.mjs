@@ -19,7 +19,7 @@ const args = [
   '-an',
   '-c:v', 'libx264',
   '-preset', 'slow',
-  '-crf', '22',
+  '-crf', '26',
   '-g', '1',
   '-keyint_min', '1',
   '-sc_threshold', '0',

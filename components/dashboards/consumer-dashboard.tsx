@@ -894,10 +894,13 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     [savedCoupons, seenCouponIds],
   )
 
-  // Sincroniza state → URL. El check nextQuery !== currentQuery es la única
-  // guardia contra loops; no hace falta el early-return basado en urlMainView
-  // que antes bloqueaba el sync cuando el usuario cambiaba de sección.
+  // Sincroniza state → URL. Si la URL ya trae un view distinto del state, no
+  // escribimos: el efecto URL → state (arriba) está por actualizar mainView
+  // y, si escribiéramos acá con el state viejo, dispararíamos un ping-pong
+  // entre la sección anterior y la nueva (caso típico: tocar un link del
+  // menú del header desde mobile).
   useEffect(() => {
+    if (urlMainView !== null && urlMainView !== mainView) return
     const params = new URLSearchParams(searchParams.toString())
     if (mainView === 'home') {
       params.delete('view')
@@ -914,7 +917,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     if (nextQuery !== currentQuery) {
       router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
     }
-  }, [couponFilter, mainView, pathname, router, searchParams])
+  }, [couponFilter, mainView, pathname, router, searchParams, urlMainView])
   const buildingId = initialData.building?.id
   const principalMembership = initialData.unitMemberships.find((membership) => membership.relationshipType === 'vecino_principal')
   const additionalHouseholdCount = householdMembers.filter((membership) => membership.relationshipType === 'vecino_adicional' && membership.active).length

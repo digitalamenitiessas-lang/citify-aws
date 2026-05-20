@@ -14,7 +14,6 @@ export function ScrollVideoBackground({
   const seekingRef = useRef(false)
   const lastSeekedRef = useRef(0)
   const [ready, setReady] = useState(false)
-  const [bufferProgress, setBufferProgress] = useState(0)
   const [src, setSrc] = useState<string | null>(null)
 
   useEffect(() => {
@@ -29,19 +28,10 @@ export function ScrollVideoBackground({
     const video = videoRef.current
     if (!video || !src) return
 
-    const updateBuffer = () => {
-      const duration = video.duration
-      if (!Number.isFinite(duration) || duration <= 0) return
-      let bufferedEnd = 0
-      for (let i = 0; i < video.buffered.length; i++) {
-        bufferedEnd = Math.max(bufferedEnd, video.buffered.end(i))
-      }
-      const ratio = Math.min(bufferedEnd / duration, 1)
-      setBufferProgress(ratio)
-      if (ratio >= 0.995) setReady(true)
-    }
-
-    const onCanPlayThrough = () => setReady(true)
+    // Apenas tenemos el primer frame decodificado, sacamos el loader. El
+    // resto del buffer sigue bajando en background y el scroll-scrub
+    // funciona aun antes de que este 100% bufferizado.
+    const onFirstFrame = () => setReady(true)
 
     const tryFlush = () => {
       if (seekingRef.current) return
@@ -70,14 +60,13 @@ export function ScrollVideoBackground({
       tryFlush()
     }
 
-    video.addEventListener('progress', updateBuffer)
-    video.addEventListener('loadedmetadata', updateBuffer)
-    video.addEventListener('canplaythrough', onCanPlayThrough)
+    video.addEventListener('loadeddata', onFirstFrame)
     video.addEventListener('seeked', onSeeked)
     video.addEventListener('loadeddata', onScroll)
 
+    if (video.readyState >= 2) onFirstFrame()
+
     video.load()
-    updateBuffer()
     onScroll()
 
     window.addEventListener('scroll', onScroll, { passive: true })
@@ -85,9 +74,7 @@ export function ScrollVideoBackground({
     return () => {
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
-      video.removeEventListener('progress', updateBuffer)
-      video.removeEventListener('loadedmetadata', updateBuffer)
-      video.removeEventListener('canplaythrough', onCanPlayThrough)
+      video.removeEventListener('loadeddata', onFirstFrame)
       video.removeEventListener('seeked', onSeeked)
       video.removeEventListener('loadeddata', onScroll)
     }
@@ -109,14 +96,8 @@ export function ScrollVideoBackground({
       ) : null}
       <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-transparent to-black/30" />
       {!ready ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs uppercase tracking-[0.28em] text-white/65">
-          <span>Cargando · {Math.round(bufferProgress * 100)}%</span>
-          <div className="h-0.5 w-40 overflow-hidden rounded-full bg-white/15">
-            <div
-              className="h-full bg-white/70 transition-[width] duration-200"
-              style={{ width: `${Math.round(bufferProgress * 100)}%` }}
-            />
-          </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white/80" />
         </div>
       ) : null}
     </div>
