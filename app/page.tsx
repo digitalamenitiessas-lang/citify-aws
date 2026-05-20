@@ -33,7 +33,15 @@ export default async function HomePage() {
           width={180}
           height={180}
           priority
-          className="mb-8 h-28 w-auto md:h-36"
+          className="mb-8 h-28 w-auto md:h-36 dark:hidden"
+        />
+        <Image
+          src="/citify-isologo-light.svg"
+          alt="Citify"
+          width={180}
+          height={180}
+          priority
+          className="mb-8 hidden h-28 w-auto md:h-36 dark:block"
         />
 
         <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-6xl">
