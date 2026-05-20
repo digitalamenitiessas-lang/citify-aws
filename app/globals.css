@@ -291,6 +291,18 @@
   50% { transform: scale(2); opacity: 0; }
 }
 
+/* Marquee horizontal para el carrusel de marcas en la landing */
+@keyframes brand-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.brand-marquee-track {
+  animation: brand-marquee 40s linear infinite;
+}
+.brand-marquee-track:hover {
+  animation-play-state: paused;
+}
+
 /* Shadow de la columna sticky cuando hay scroll horizontal */
 .sticky-shadow-right::after {
   content: '';
