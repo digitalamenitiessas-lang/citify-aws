@@ -136,7 +136,7 @@ admins, negocio admins), con:
 - [x] Componente compartido `components/change-password-form.tsx` para
   ambos casos, controlado por prop `requireCurrent`.
 
-### ⏳ Phase 3 — Consorcio notifications (IN PROGRESS)
+### ✅ Phase 3 — Consorcio notifications (DONE)
 
 **Expedientes (DONE):**
 - [x] Templates: `complaint-created.ts`, `complaint-message.ts`,
@@ -157,14 +157,24 @@ admins, negocio admins), con:
   `complaint_message:{messageId}:{recipientId}`,
   `complaint_status:{caseId}:{from}->{to}` — retries no duplican.
 
-**Liquidaciones (TODO):**
-- [ ] Template `liquidation-issued.ts`.
-- [ ] Template `liquidation-closed.ts`.
-- [ ] Helper `lib/email/notifications/liquidations.ts` con
-  `notifyLiquidationIssued(periodId)` → propietarios con link público
-  via share token; `notifyLiquidationClosed(periodId)` → admin.
-- [ ] Hook en el flow de cambio de estado de período contable
-  (`changeAccountingPeriodStatusInPostgres` o equivalente).
+**Liquidaciones (DONE):**
+- [x] Template `liquidation-issued.ts` con desglose ARS (ordinarias,
+  extraordinarias, saldo previo, total) + link público al share token.
+- [x] Template `liquidation-closed.ts` para el admin del edificio.
+- [x] Helper `lib/email/notifications/liquidations.ts`:
+  - `notifyLiquidationIssued(runId)`: para cada item, busca propietarios
+    activos (`unit_profile_memberships.relationship_type='propietario'
+    AND active=true`) + token vigente
+    (`iadmin_item_share_tokens.revoked_at IS NULL`) y manda mail con
+    link `SITE_URL/l/{token}`. Skipea items sin token.
+  - `notifyLiquidationClosed(runId, closedByProfileId)`: notifica a los
+    consorcio_admins del edificio (excluye al que cerró).
+- [x] Hook en `changeLiquidationStatus` (`app/iadmin/liquidaciones/actions.ts`):
+  cuando `nextStatus === 'issued'` → `notifyLiquidationIssued`;
+  cuando `nextStatus === 'closed'` → `notifyLiquidationClosed`.
+- Idempotencia: `liquidation_issued:{runId}:{unitId}:{ownerId}` y
+  `liquidation_closed:{runId}:{adminId}` — re-emisión / re-cierre no
+  duplica mails al mismo recipient para el mismo evento.
 
 ### ✅ Phase 2.2 — Forzar cambio de pwd en re-onboardings (DONE)
 

@@ -6,6 +6,10 @@ import { findMembership, requireIAdmin } from '@/lib/auth'
 import { canLiquidationTransition } from '@/lib/iadmin/liquidation-status'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
+  notifyLiquidationClosed,
+  notifyLiquidationIssued,
+} from '@/lib/email/notifications/liquidations'
+import {
   bulkInsertLiquidationItemsInPostgres,
   deleteLiquidationItemsForRunInPostgres,
   getAccountingPeriodFromPostgres,
@@ -225,6 +229,17 @@ export async function changeLiquidationStatus(input: z.input<typeof transitionSc
     entityId: parsed.runId,
     action: `liquidation.${parsed.nextStatus}`,
   })
+
+  // Notificaciones por mail. Solo en transiciones a issued/closed; los
+  // helpers son best-effort (capturan errores internamente) y se disparan
+  // fire-and-forget para no bloquear la response del backoffice. La
+  // idempotencia evita doble envio si por alguna razon la action se
+  // reintenta.
+  if (parsed.nextStatus === 'issued') {
+    void notifyLiquidationIssued(parsed.runId)
+  } else if (parsed.nextStatus === 'closed') {
+    void notifyLiquidationClosed(parsed.runId, profile.id)
+  }
 
   revalidatePath('/iadmin/liquidaciones')
   revalidatePath(`/iadmin/liquidaciones/${parsed.runId}`)
