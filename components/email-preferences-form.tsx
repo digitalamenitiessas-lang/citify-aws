@@ -10,6 +10,9 @@ import { updateEmailPreferencesAction, type EmailPreferences } from '@/app/confi
 
 interface Props {
   initial: EmailPreferences
+  // Subset de keys a mostrar. Si no se pasa, se muestran todas. Lo computa
+  // el caller en base al rol del profile.
+  visibleKeys?: Array<keyof EmailPreferences>
 }
 
 const ITEMS: Array<{
@@ -39,9 +42,13 @@ const ITEMS: Array<{
   },
 ]
 
-export function EmailPreferencesForm({ initial }: Props) {
+export function EmailPreferencesForm({ initial, visibleKeys }: Props) {
   const [values, setValues] = useState<EmailPreferences>(initial)
   const [pending, startTransition] = useTransition()
+
+  const items = visibleKeys
+    ? ITEMS.filter((item) => visibleKeys.includes(item.key))
+    : ITEMS
 
   function toggle(key: keyof EmailPreferences) {
     setValues((current) => ({ ...current, [key]: !current[key] }))
@@ -61,7 +68,7 @@ export function EmailPreferencesForm({ initial }: Props) {
   return (
     <div className="space-y-4">
       <div className="space-y-3">
-        {ITEMS.map((item) => (
+        {items.map((item) => (
           <div
             key={item.key}
             className="flex items-start justify-between gap-4 rounded-xl border border-border/60 px-4 py-3"

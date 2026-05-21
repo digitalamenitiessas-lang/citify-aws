@@ -4,13 +4,26 @@ import { EmailPreferencesForm } from '@/components/email-preferences-form'
 import { ChangePasswordForm } from '@/components/change-password-form'
 import { requireProfile } from '@/lib/auth'
 import { findProfileById } from '@/lib/db/profiles'
-import { getEmailPreferencesAction } from '@/app/configuracion/actions'
+import { getEmailPreferencesAction, type EmailPreferences } from '@/app/configuracion/actions'
+import type { UserRole } from '@/lib/types'
+
+// Que categorias de notificaciones aplican a cada rol. Mostramos solo lo
+// que tiene sentido recibir para ese rol; el negocio_admin no tiene nada
+// relacionado al edificio, asi que la seccion entera desaparece.
+const VISIBLE_KEYS_BY_ROLE: Record<UserRole, Array<keyof EmailPreferences>> = {
+  super_admin: ['complaints', 'liquidations', 'announcements', 'promotions'],
+  vecino: ['complaints', 'liquidations', 'announcements', 'promotions'],
+  propietario: ['complaints', 'liquidations', 'announcements', 'promotions'],
+  consorcio_admin: ['complaints', 'liquidations'],
+  negocio_admin: [],
+}
 
 export default async function ConfiguracionPage() {
   const { profile } = await requireProfile(undefined, { allowMustChange: true })
   const fullProfile = await findProfileById(profile.id)
   const preferences = await getEmailPreferencesAction()
   const mustChange = fullProfile?.passwordMustChange ?? false
+  const visibleNotificationKeys = VISIBLE_KEYS_BY_ROLE[profile.role] ?? []
 
   return (
     <div className="min-h-screen bg-background pt-20 pb-16">
@@ -18,7 +31,10 @@ export default async function ConfiguracionPage() {
         <div className="mb-8">
           <h1 className="font-serif text-3xl font-bold text-foreground">Configuración</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Hola {profile.fullName}. Acá podés ajustar cómo te avisamos y manejar tu contraseña.
+            Hola {profile.fullName}.{' '}
+            {visibleNotificationKeys.length > 0
+              ? 'Acá podés ajustar cómo te avisamos y manejar tu contraseña.'
+              : 'Acá podés manejar tu contraseña.'}
           </p>
         </div>
 
@@ -47,14 +63,16 @@ export default async function ConfiguracionPage() {
           <ChangePasswordForm requireCurrent={true} />
         </div>
 
-        <div className="glass-card rounded-2xl p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-1">Notificaciones por mail</h2>
-          <p className="text-sm text-muted-foreground mb-5">
-            Mantenemos siempre los mails transaccionales (bienvenida, restablecer contraseña, alertas
-            de seguridad). El resto lo controlás vos.
-          </p>
-          <EmailPreferencesForm initial={preferences} />
-        </div>
+        {visibleNotificationKeys.length > 0 ? (
+          <div className="glass-card rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-foreground mb-1">Notificaciones por mail</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              Mantenemos siempre los mails transaccionales (bienvenida, restablecer contraseña, alertas
+              de seguridad). El resto lo controlás vos.
+            </p>
+            <EmailPreferencesForm initial={preferences} visibleKeys={visibleNotificationKeys} />
+          </div>
+        ) : null}
       </div>
     </div>
   )
