@@ -731,19 +731,14 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const urlMainView: MainView | null = isMainView(rawView) ? rawView : null
   const urlCouponFilter: 'disponibles' | 'usados' | null =
     rawCouponFilter === 'usados' ? 'usados' : rawCouponFilter === 'disponibles' ? 'disponibles' : null
-  // Fallback al localStorage si no viene en la URL (e.g. recarga directa sin query)
-  const initialMainView: MainView = (() => {
-    if (urlMainView) return urlMainView
-    if (typeof window === 'undefined') return 'home'
-    const stored = window.localStorage.getItem(NEIGHBOR_VIEW_STORAGE_KEY)
-    return stored && (MAIN_VIEW_OPTIONS as string[]).includes(stored) ? (stored as MainView) : 'home'
-  })()
-  const initialCouponFilter: 'disponibles' | 'usados' = (() => {
-    if (urlCouponFilter) return urlCouponFilter
-    if (typeof window === 'undefined') return 'disponibles'
-    const stored = window.localStorage.getItem(NEIGHBOR_COUPON_FILTER_STORAGE_KEY)
-    return stored === 'usados' ? 'usados' : 'disponibles'
-  })()
+  // URL es la unica fuente de verdad. No usamos localStorage como fallback
+  // porque en client-side navigation a /usuario (ej. user toca su nombre en
+  // el navbar -> href=/usuario sin query) el IIFE corre en el browser con
+  // localStorage disponible y leeria la seccion previa (ej. 'household'),
+  // mostrandole esa seccion en vez de home. Causa observable: "toco para ir
+  // a mi panel y veo la seccion donde estaba parado".
+  const initialMainView: MainView = urlMainView ?? 'home'
+  const initialCouponFilter: 'disponibles' | 'usados' = urlCouponFilter ?? 'disponibles'
   const [mainView, setMainView] = useState<MainView>(initialMainView)
   const [qrPromotion, setQrPromotion] = useState<Promotion | null>(null)
   const [qrToken, setQrToken] = useState<PromotionRedemptionToken | null>(null)
@@ -858,24 +853,16 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   // Refs para detectar QUE cambio entre renders: si solo cambio la URL
   // (navegacion externa, ej. link del header), la URL es la fuente de
   // verdad y reflejamos en state. Si solo cambio el state (user toco un
-  // tab del bottom nav), reflejamos en la URL. Si ambos cambian (raro),
-  // el URL gana (asumimos navegacion explicita).
+  // tab del bottom nav), reflejamos en la URL.
   const prevUrlMainViewRef = useRef<MainView | null>(urlMainView)
   const prevMainViewRef = useRef<MainView>(mainView)
   const prevUrlCouponFilterRef = useRef<'disponibles' | 'usados' | null>(urlCouponFilter)
   const prevCouponFilterRef = useRef<'disponibles' | 'usados'>(couponFilter)
-  // Marker para que el efecto URL→state respete el initialMainView del
-  // primer mount (que incluye fallback a localStorage si no hay view= en
-  // la URL). Despues del primer render, la URL es source-of-truth: si
-  // urlMainView se va a null (ej. user toca "Ir a mi panel" -> /usuario
-  // sin query), forzamos mainView a 'home'.
-  const mountedRef = useRef(false)
 
+  // URL → state: URL siempre es source-of-truth. Si urlMainView se va a
+  // null (user toca "Ir a mi panel" -> /usuario sin query), reseteamos
+  // a 'home'.
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true
-      return
-    }
     const nextMain: MainView = urlMainView ?? 'home'
     if (nextMain !== mainView) {
       setMainView(nextMain)
