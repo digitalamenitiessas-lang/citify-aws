@@ -13,6 +13,7 @@ function mapProfileRow(row: any): Profile {
     floor: row.floor ?? null,
     unit: row.unit ?? null,
     phone: row.phone ?? null,
+    passwordMustChange: row.password_must_change ?? false,
     createdAt: row.created_at,
   }
 }
@@ -44,11 +45,15 @@ export async function upsertProfile(input: {
   phone: string | null
   buildingId: string | null
   businessId: string | null
+  // Si se pasa, se setea SOLO en el INSERT (no se pisa al hacer upsert sobre
+  // un row existente). Para forzar el cambio en un user que ya existia,
+  // hay que llamar a markPasswordMustChange().
+  passwordMustChangeOnCreate?: boolean
 }): Promise<Profile> {
   const result = await pgQuery(
     `
-      insert into public.profiles (id, email, full_name, avatar_text, role, phone, building_id, business_id)
-      values ($1, lower($2), $3, $4, $5, $6, $7, $8)
+      insert into public.profiles (id, email, full_name, avatar_text, role, phone, building_id, business_id, password_must_change)
+      values ($1, lower($2), $3, $4, $5, $6, $7, $8, coalesce($9, false))
       on conflict (id) do update set
         email = excluded.email,
         full_name = excluded.full_name,
@@ -68,10 +73,18 @@ export async function upsertProfile(input: {
       input.phone,
       input.buildingId,
       input.businessId,
+      input.passwordMustChangeOnCreate ?? null,
     ],
   )
 
   return mapProfileRow(result.rows[0])
+}
+
+export async function clearPasswordMustChange(profileId: string): Promise<void> {
+  await pgQuery(
+    `update public.profiles set password_must_change = false where id = $1`,
+    [profileId],
+  )
 }
 
 export async function findProfileById(id: string) {

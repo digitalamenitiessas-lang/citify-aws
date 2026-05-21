@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentProfile } from '@/lib/auth'
+import { adminSetCognitoPassword, signInWithCognitoPassword } from '@/lib/aws/cognito'
+import { clearPasswordMustChange, findProfileById } from '@/lib/db/profiles'
+
+function validatePassword(pwd: string): string | null {
+  if (typeof pwd !== 'string') return 'Contraseña inválida.'
+  if (pwd.length < 8) return 'La contraseña debe tener al menos 8 caracteres.'
+  if (pwd.length > 72) return 'La contraseña es demasiado larga.'
+  return null
+}
+
+export async function POST(req: NextRequest) {
+  const profile = await getCurrentProfile()
+  if (!profile) {
+    return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+  }
+
+  const body = (await req.json().catch(() => null)) as
+    | { currentPassword?: string; newPassword?: string }
+    | null
+  const newPassword = body?.newPassword
+  const currentPassword = body?.currentPassword
+
+  if (!newPassword) {
+    return NextResponse.json({ error: 'Falta la nueva contraseña.' }, { status: 400 })
+  }
+  const validationError = validatePassword(newPassword)
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 })
+  }
+
+  // Re-leemos el profile completo para tener password_must_change actualizado.
+  const fullProfile = await findProfileById(profile.id)
+  if (!fullProfile) {
+    return NextResponse.json({ error: 'Perfil no encontrado.' }, { status: 404 })
+  }
+
+  // En cambio in-session (cuando NO es el primer login forzado) exigimos
+  // re-autenticación con la contraseña actual para no permitir que una
+  // sesión secuestrada cambie la pwd sin conocerla.
+  if (!fullProfile.passwordMustChange) {
+    if (!currentPassword) {
+      return NextResponse.json(
+        { error: 'Tenés que ingresar tu contraseña actual.' },
+        { status: 400 },
+      )
+    }
+    try {
+      await signInWithCognitoPassword(fullProfile.email, currentPassword)
+    } catch (error: unknown) {
+      const name = (error as { name?: string } | null)?.name
+      const message =
+        name === 'NotAuthorizedException'
+          ? 'La contraseña actual no es correcta.'
+          : 'No pudimos verificar tu contraseña actual. Probá de nuevo.'
+      return NextResponse.json({ error: message }, { status: 401 })
+    }
+  }
+
+  // Evitar pisarla con la misma password (Cognito acepta igual pero no tiene
+  // sentido y ademas en el caso first-login defeats the purpose).
+  if (currentPassword && currentPassword === newPassword) {
+    return NextResponse.json(
+      { error: 'La nueva contraseña tiene que ser distinta de la actual.' },
+      { status: 400 },
+    )
+  }
+
+  try {
+    await adminSetCognitoPassword({ email: fullProfile.email, newPassword })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Error de auth'
+    return NextResponse.json(
+      { error: `No pudimos actualizar la contraseña: ${msg}` },
+      { status: 502 },
+    )
+  }
+
+  await clearPasswordMustChange(fullProfile.id)
+
+  return NextResponse.json({ ok: true, wasForced: fullProfile.passwordMustChange })
+}

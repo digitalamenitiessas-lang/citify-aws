@@ -378,6 +378,10 @@ async function findOrCreatePlatformProfile(input: {
     phone: input.phone,
     buildingId: input.buildingId,
     businessId: input.businessId ?? null,
+    // Solo se aplica al INSERT (no pisa el flag en re-altas / updates).
+    // Asi los usuarios nuevos arrancan con must-change y los existentes
+    // mantienen su estado.
+    passwordMustChangeOnCreate: created ? true : undefined,
   })
 
   return { profileId, created }

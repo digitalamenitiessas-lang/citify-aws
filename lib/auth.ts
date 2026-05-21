@@ -42,7 +42,10 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   return profile ?? null
 }
 
-export async function requireProfile(allowedRoles?: UserRole[]) {
+export async function requireProfile(
+  allowedRoles?: UserRole[],
+  options: { allowMustChange?: boolean } = {},
+) {
   const profile = await getCurrentProfile()
 
   if (!profile) {
@@ -51,6 +54,14 @@ export async function requireProfile(allowedRoles?: UserRole[]) {
 
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
     redirect('/login')
+  }
+
+  // Si el usuario tiene flag de cambio forzado, lo mandamos a la pantalla de
+  // cambio de password antes de entrar a cualquier panel. Las paginas que
+  // legitimamente necesitan trabajar en este estado (la propia
+  // /cambiar-password y /configuracion) deben pasar allowMustChange: true.
+  if (profile.passwordMustChange && !options.allowMustChange) {
+    redirect('/cambiar-password?first=1')
   }
 
   return { profile }
