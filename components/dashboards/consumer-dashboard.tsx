@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
@@ -855,9 +855,30 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     setTourStep((prev) => prev + 1)
   }
 
+  // Refs para detectar QUE cambio entre renders: si solo cambio la URL
+  // (navegacion externa, ej. link del header), la URL es la fuente de
+  // verdad y reflejamos en state. Si solo cambio el state (user toco un
+  // tab del bottom nav), reflejamos en la URL. Si ambos cambian (raro),
+  // el URL gana (asumimos navegacion explicita).
+  const prevUrlMainViewRef = useRef<MainView | null>(urlMainView)
+  const prevMainViewRef = useRef<MainView>(mainView)
+  const prevUrlCouponFilterRef = useRef<'disponibles' | 'usados' | null>(urlCouponFilter)
+  const prevCouponFilterRef = useRef<'disponibles' | 'usados'>(couponFilter)
+  // Marker para que el efecto URL→state respete el initialMainView del
+  // primer mount (que incluye fallback a localStorage si no hay view= en
+  // la URL). Despues del primer render, la URL es source-of-truth: si
+  // urlMainView se va a null (ej. user toca "Ir a mi panel" -> /usuario
+  // sin query), forzamos mainView a 'home'.
+  const mountedRef = useRef(false)
+
   useEffect(() => {
-    if (urlMainView && mainView !== urlMainView) {
-      setMainView(urlMainView)
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      return
+    }
+    const nextMain: MainView = urlMainView ?? 'home'
+    if (nextMain !== mainView) {
+      setMainView(nextMain)
     }
     if (urlCouponFilter && couponFilter !== urlCouponFilter) {
       setCouponFilter(urlCouponFilter)
@@ -894,13 +915,32 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     [savedCoupons, seenCouponIds],
   )
 
-  // Sincroniza state → URL. Si la URL ya trae un view distinto del state, no
-  // escribimos: el efecto URL → state (arriba) está por actualizar mainView
-  // y, si escribiéramos acá con el state viejo, dispararíamos un ping-pong
-  // entre la sección anterior y la nueva (caso típico: tocar un link del
-  // menú del header desde mobile).
+  // Sincroniza state → URL. Discrimina la fuente del cambio comparando con
+  // refs:
+  //  - solo cambió la URL (navegación externa): no reescribimos, el efecto
+  //    URL → state (arriba) está por actualizar mainView. Si escribiéramos
+  //    con el mainView viejo provocaríamos ping-pong.
+  //  - cambió el state (user tocó un tab): escribimos a la URL, incluso si
+  //    el urlMainView previo era distinto.
+  //  - nada cambió en estas dimensiones: no hacemos nada (otros deps como
+  //    pathname/router/searchParams pueden dispararlo igual).
   useEffect(() => {
-    if (urlMainView !== null && urlMainView !== mainView) return
+    const urlMainChanged = prevUrlMainViewRef.current !== urlMainView
+    const stateMainChanged = prevMainViewRef.current !== mainView
+    const urlCouponChanged = prevUrlCouponFilterRef.current !== urlCouponFilter
+    const stateCouponChanged = prevCouponFilterRef.current !== couponFilter
+    prevUrlMainViewRef.current = urlMainView
+    prevMainViewRef.current = mainView
+    prevUrlCouponFilterRef.current = urlCouponFilter
+    prevCouponFilterRef.current = couponFilter
+
+    // Si la URL cambió pero el state todavía no, no escribimos: el efecto
+    // URL → state está por actualizar el state en el próximo render.
+    const onlyUrlChanged =
+      (urlMainChanged && !stateMainChanged) ||
+      (urlCouponChanged && !stateCouponChanged)
+    if (onlyUrlChanged) return
+
     const params = new URLSearchParams(searchParams.toString())
     if (mainView === 'home') {
       params.delete('view')
@@ -917,7 +957,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     if (nextQuery !== currentQuery) {
       router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
     }
-  }, [couponFilter, mainView, pathname, router, searchParams, urlMainView])
+  }, [couponFilter, mainView, pathname, router, searchParams, urlCouponFilter, urlMainView])
   const buildingId = initialData.building?.id
   const principalMembership = initialData.unitMemberships.find((membership) => membership.relationshipType === 'vecino_principal')
   const additionalHouseholdCount = householdMembers.filter((membership) => membership.relationshipType === 'vecino_adicional' && membership.active).length
