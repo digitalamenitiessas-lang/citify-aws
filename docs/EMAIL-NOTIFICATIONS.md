@@ -104,10 +104,37 @@ admins, negocio admins), con:
   (`reason: business_admin_created`).
 - [x] `findOrCreatePlatformProfile()` ahora devuelve `{ profileId, created }`
   para que solo mandemos welcome a creaciones reales (no re-altas).
-- [x] `app/configuracion/page.tsx` — UI mínima de preferencias accesible
-  para cualquier rol autenticado en `/configuracion`. Toggles: complaints,
-  liquidations, announcements, promotions. Persiste en
-  `profiles.email_notifications`.
+- [x] `app/configuracion/page.tsx` — UI accesible para cualquier rol
+  autenticado en `/configuracion`. Contiene:
+  - Banner amber si `password_must_change=true`.
+  - Sección "Contraseña" con `ChangePasswordForm` (in-session).
+  - Sección "Notificaciones por mail" con toggles granulares.
+
+### ✅ Phase 2.1 — Hotfixes auth (DONE, commit `09f1e8d`)
+
+- [x] **Bug del modal de "Olvidé mi contraseña"**: el `<form>` del modal
+  estaba anidado dentro del `<form>` del login → HTML inválido, el
+  browser des-anidaba y el submit del modal se procesaba como submit del
+  login (cerraba el modal sin avisar nada). Fix: modal a nivel sibling,
+  botones `type="button"` con `onClick` + handler de Enter en el input.
+  Agrega estado `forgotError` para mostrar feedback explícito.
+- [x] **First-login forced change**: nueva migración
+  `20260521_password_must_change_flag` con columna
+  `profiles.password_must_change` (default `false`).
+  `findOrCreatePlatformProfile` la setea `true` solo en creaciones
+  reales (no en re-altas). El login API expone el flag, la LoginForm
+  redirige a `/cambiar-password?first=1`, y `requireProfile()` enforza
+  el redirect server-side para que no se bypassee por navegación
+  directa. `/cambiar-password` y `/configuracion` opt-out con
+  `{ allowMustChange: true }`.
+- [x] **In-session change password**: `POST /api/auth/change-password`
+  acepta `currentPassword` + `newPassword`. Si el flag must-change está
+  on, la actual es opcional (recién logueado, ya autenticado). Si no,
+  la verifica con `signInWithCognitoPassword` antes de pisarla con
+  `adminSetCognitoPassword`. Limpia el flag con
+  `clearPasswordMustChange()`.
+- [x] Componente compartido `components/change-password-form.tsx` para
+  ambos casos, controlado por prop `requireCurrent`.
 
 ### 🔜 Phase 3 — Consorcio notifications
 
