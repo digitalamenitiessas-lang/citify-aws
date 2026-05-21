@@ -48,7 +48,6 @@ export async function POST(request: NextRequest) {
       where t.token_hash = $1
         and t.used_at is null
         and t.expires_at > now()
-        and p.is_active = true
       limit 1`,
     [tokenHash],
   )
@@ -92,7 +91,6 @@ export async function GET(request: NextRequest) {
       where t.token_hash = $1
         and t.used_at is null
         and t.expires_at > now()
-        and p.is_active = true
       limit 1`,
     [tokenHash],
   )

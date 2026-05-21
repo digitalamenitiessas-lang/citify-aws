@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   // Lookup del profile. NO devolvemos al cliente si existe o no — siempre
   // 200 ok para no permitir enumeración de cuentas.
   const profileRes = await pgQuery<{ id: string; full_name: string; email: string }>(
-    `select id, full_name, email from public.profiles where lower(email) = lower($1) and is_active = true limit 1`,
+    `select id, full_name, email from public.profiles where lower(email) = lower($1) limit 1`,
     [rawEmail],
   )
   const profile = profileRes.rows[0]
