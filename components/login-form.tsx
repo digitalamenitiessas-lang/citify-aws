@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, LogIn } from 'lucide-react'
+import { CheckCircle2, Loader2, LogIn, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,6 +16,32 @@ export function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
+  const [forgotLoading, setForgotLoading] = useState(false)
+
+  async function handleForgot(event: React.FormEvent) {
+    event.preventDefault()
+    if (!forgotEmail.trim()) return
+    setForgotLoading(true)
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+    } finally {
+      setForgotLoading(false)
+      setForgotSent(true)
+    }
+  }
+
+  function openForgot() {
+    setForgotEmail(email)
+    setForgotSent(false)
+    setForgotOpen(true)
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -88,6 +114,83 @@ export function LoginForm() {
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
         Ingresar
       </Button>
+
+      <button
+        type="button"
+        onClick={openForgot}
+        className="block w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        Olvidé mi contraseña
+      </button>
+
+      {forgotOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setForgotOpen(false)}
+        >
+          <div
+            className="glass-card w-full max-w-sm rounded-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {forgotSent ? (
+              <div className="space-y-4 text-center">
+                <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
+                <div>
+                  <h3 className="font-semibold text-foreground">Revisá tu mail</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Si el email está registrado, te enviamos un link para crear una nueva contraseña.
+                    Expira en 24 horas.
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => setForgotOpen(false)} className="w-full">
+                  Cerrar
+                </Button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgot} className="space-y-4" autoComplete="off">
+                <div>
+                  <h3 className="font-semibold text-foreground">Restablecer contraseña</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Ingresá tu email y te mandamos un link para crear una nueva contraseña.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="forgot-email">Email</Label>
+                  <Input
+                    id="forgot-email"
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="tu@email.com"
+                    required
+                    autoFocus
+                    className="bg-input/50 border-border/50"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setForgotOpen(false)}
+                    className="flex-1"
+                    disabled={forgotLoading}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="flex-1 gap-2" disabled={forgotLoading}>
+                    {forgotLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mail className="h-4 w-4" />
+                    )}
+                    Enviar link
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : null}
     </form>
   )
 }

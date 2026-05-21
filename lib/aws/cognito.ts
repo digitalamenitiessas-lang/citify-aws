@@ -126,6 +126,30 @@ export async function adminCreateCognitoUser(input: {
   return { sub, alreadyExisted }
 }
 
+// Setea una nueva contraseña permanente para un usuario existente. Lo usa el
+// flujo de magic-link de reset de password: cuando el usuario consume un
+// token válido, pisamos su contraseña con AdminSetUserPassword.
+export async function adminSetCognitoPassword(input: {
+  email: string
+  newPassword: string
+}): Promise<void> {
+  const env = getCognitoEnv()
+  const client = getCognitoClient()
+
+  if (!env || !client) {
+    throw new Error('Cognito no esta configurado.')
+  }
+
+  await client.send(
+    new AdminSetUserPasswordCommand({
+      UserPoolId: env.userPoolId,
+      Username: input.email.trim().toLowerCase(),
+      Password: input.newPassword,
+      Permanent: true,
+    }),
+  )
+}
+
 export async function signInWithCognitoPassword(email: string, password: string) {
   const env = getCognitoEnv()
   const client = getCognitoClient()

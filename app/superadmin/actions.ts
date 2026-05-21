@@ -18,6 +18,7 @@ import type {
 } from '@/lib/types'
 import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy-ai'
 import { adminCreateCognitoUser } from '@/lib/aws/cognito'
+import { sendWelcomeEmail } from '@/lib/email/notifications/welcome'
 import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 import {
   assignBuildingAdminInPostgres,
@@ -353,11 +354,12 @@ async function findOrCreatePlatformProfile(input: {
   role: UserRole
   buildingId: string | null
   businessId?: string | null
-}) {
+}): Promise<{ profileId: string; created: boolean }> {
   const normalizedEmail = input.email.toLowerCase()
   const existing = await findProfileByEmail(normalizedEmail)
 
   let profileId = existing?.id
+  const created = !profileId
   if (!profileId) {
     const { sub } = await adminCreateCognitoUser({
       email: normalizedEmail,
@@ -378,7 +380,7 @@ async function findOrCreatePlatformProfile(input: {
     businessId: input.businessId ?? null,
   })
 
-  return profileId
+  return { profileId, created }
 }
 
 export async function createPlatformUser(input: z.input<typeof createPlatformUserSchema>) {
@@ -386,7 +388,7 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
   await requireProfile(['super_admin'])
 
   const role = parsed.role as UserRole
-  const profileId = await findOrCreatePlatformProfile({
+  const { profileId, created } = await findOrCreatePlatformProfile({
     fullName: parsed.fullName,
     email: parsed.email,
     phone: parsed.phone ?? null,
@@ -407,6 +409,19 @@ export async function createPlatformUser(input: z.input<typeof createPlatformUse
     if (administrationId) {
       await assignIAdminRoleGrantInPostgres(profileId, administrationId, 'titular')
     }
+  }
+
+  if (created) {
+    await sendWelcomeEmail({
+      profileId,
+      email: parsed.email,
+      fullName: parsed.fullName,
+      role,
+      buildingId: role === 'consorcio_admin' ? parsed.buildingId ?? null : parsed.buildingId ?? null,
+      businessId: parsed.businessId ?? null,
+      temporaryPassword: parsed.password,
+      reason: 'platform_user_created',
+    })
   }
 
   revalidatePath('/superadmin')
@@ -456,7 +471,7 @@ export async function addNeighborToBuilding(input: z.input<typeof addNeighborToB
 
   const role: UserRole = parsed.relationshipType === 'propietario' ? 'propietario' : 'vecino'
 
-  const profileId = await findOrCreatePlatformProfile({
+  const { profileId, created } = await findOrCreatePlatformProfile({
     fullName: parsed.fullName,
     email: parsed.email,
     phone: parsed.phone ?? null,
@@ -500,6 +515,18 @@ export async function addNeighborToBuilding(input: z.input<typeof addNeighborToB
         })
       }
     }
+  }
+
+  if (created) {
+    await sendWelcomeEmail({
+      profileId,
+      email: parsed.email,
+      fullName: parsed.fullName,
+      role,
+      buildingId: parsed.buildingId,
+      temporaryPassword: parsed.password,
+      reason: 'neighbor_added',
+    })
   }
 
   revalidatePath('/superadmin')
@@ -769,6 +796,16 @@ export async function confirmInitialOccupancyImport(
   let linkedMemberships = 0
   let updatedMemberships = 0
   const errors: string[] = []
+  // Welcomes para los users recién creados: los disparamos fire-and-forget
+  // al final, con throttle, para no bloquear la action ~1s por usuario.
+  const welcomeBatch: Array<{
+    profileId: string
+    email: string
+    fullName: string
+    role: UserRole
+    buildingId: string
+    password: string
+  }> = []
 
   for (const row of parsed.rows as ConfirmableImportRow[]) {
     if (row.status !== 'ready') continue
@@ -783,7 +820,7 @@ export async function confirmInitialOccupancyImport(
         if (existingUnit) {
           unitId = existingUnit.id
         } else {
-          const created = await insertUnitFromCrudInPostgres({
+          const createdUnit = await insertUnitFromCrudInPostgres({
             managedPropertyId: propertyId,
             code: row.unitCode,
             kind: row.unitKind,
@@ -791,14 +828,12 @@ export async function confirmInitialOccupancyImport(
             surfaceM2: null,
             prorataCoefficient: null,
           })
-          unitId = created.id
+          unitId = createdUnit.id
           createdUnits += 1
         }
       }
 
-      const existingProfile = await findProfileByEmail(row.email.toLowerCase())
-
-      const profileId = await findOrCreatePlatformProfile({
+      const { profileId, created } = await findOrCreatePlatformProfile({
         fullName: row.fullName,
         email: row.email,
         phone: row.phone || null,
@@ -807,7 +842,17 @@ export async function confirmInitialOccupancyImport(
         buildingId: parsed.buildingId,
       })
 
-      if (!existingProfile) createdUsers += 1
+      if (created) {
+        createdUsers += 1
+        welcomeBatch.push({
+          profileId,
+          email: row.email,
+          fullName: row.fullName,
+          role: relationshipRole(row.relationshipType),
+          buildingId: parsed.buildingId,
+          password: 'Citify2026!',
+        })
+      }
 
       if (row.relationshipType === 'vecino_principal') {
         await deactivateActivePrincipalMembershipsInPostgres(unitId)
@@ -854,9 +899,40 @@ export async function confirmInitialOccupancyImport(
     }
   }
 
+  // Welcomes en background con throttle 1.1s (respeta MaxSendRate=1/s del
+  // sandbox SES). Dedup por idempotency_key — si la action se reintenta,
+  // los welcomes ya enviados no se repiten.
+  void dispatchWelcomeBatch(welcomeBatch, 'bulk_imported')
+
   revalidatePath('/superadmin')
   revalidatePath('/iadmin')
   return { createdUsers, createdUnits, linkedMemberships, updatedMemberships, errors }
+}
+
+async function dispatchWelcomeBatch(
+  batch: Array<{
+    profileId: string
+    email: string
+    fullName: string
+    role: UserRole
+    buildingId: string
+    password: string
+  }>,
+  reason: 'bulk_imported',
+): Promise<void> {
+  for (const item of batch) {
+    await sendWelcomeEmail({
+      profileId: item.profileId,
+      email: item.email,
+      fullName: item.fullName,
+      role: item.role,
+      buildingId: item.buildingId,
+      temporaryPassword: item.password,
+      reason,
+    })
+    // Throttle para respetar SES MaxSendRate=1/s en sandbox.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+  }
 }
 
 const bulkImportInitialOccupancySchema = z.object({
@@ -871,6 +947,14 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
   let createdUnits = 0
   let linkedUsers = 0
   const errors: string[] = []
+  const welcomeBatch: Array<{
+    profileId: string
+    email: string
+    fullName: string
+    role: UserRole
+    buildingId: string
+    password: string
+  }> = []
 
   for (const { row, line } of rows) {
     try {
@@ -904,7 +988,7 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
       if (existingUnit) {
         unitId = existingUnit.id
       } else {
-        const created = await insertUnitFromCrudInPostgres({
+        const createdUnit = await insertUnitFromCrudInPostgres({
           managedPropertyId: propertyId,
           code: unitCode,
           kind,
@@ -912,11 +996,11 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
           surfaceM2: null,
           prorataCoefficient: null,
         })
-        unitId = created.id
+        unitId = createdUnit.id
         createdUnits += 1
       }
 
-      const profileId = await findOrCreatePlatformProfile({
+      const { profileId, created } = await findOrCreatePlatformProfile({
         fullName,
         email,
         phone,
@@ -924,6 +1008,17 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
         role: relationshipRole(relationship),
         buildingId,
       })
+
+      if (created) {
+        welcomeBatch.push({
+          profileId,
+          email,
+          fullName,
+          role: relationshipRole(relationship),
+          buildingId,
+          password,
+        })
+      }
 
       if (relationship === 'vecino_principal') {
         await deactivateActivePrincipalMembershipsInPostgres(unitId)
@@ -965,6 +1060,8 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
     }
   }
 
+  void dispatchWelcomeBatch(welcomeBatch, 'bulk_imported')
+
   revalidatePath('/superadmin')
   revalidatePath('/iadmin')
   return { createdUnits, linkedUsers, errors }
@@ -992,7 +1089,7 @@ export async function createBusinessWithAdmin(input: z.input<typeof createBusine
     address: parsed.address ?? null,
   })
 
-  const profileId = await findOrCreatePlatformProfile({
+  const { profileId, created } = await findOrCreatePlatformProfile({
     fullName: parsed.adminFullName,
     email: parsed.adminEmail,
     phone: parsed.adminPhone ?? null,
@@ -1003,6 +1100,18 @@ export async function createBusinessWithAdmin(input: z.input<typeof createBusine
   })
 
   await setBusinessOwnerInPostgres(business.id, profileId)
+
+  if (created) {
+    await sendWelcomeEmail({
+      profileId,
+      email: parsed.adminEmail,
+      fullName: parsed.adminFullName,
+      role: 'negocio_admin',
+      businessId: business.id,
+      temporaryPassword: parsed.adminPassword,
+      reason: 'business_admin_created',
+    })
+  }
 
   revalidatePath('/superadmin')
   return { businessId: business.id, profileId }
