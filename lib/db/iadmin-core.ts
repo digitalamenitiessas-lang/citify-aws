@@ -728,14 +728,15 @@ export async function getOwnerLiquidationItemsByUnitIdsFromPostgres(
         ) as iadmin_units,
         json_build_object(
           'id', lr.id,
-          'period_year', lr.period_year,
-          'period_month', lr.period_month,
+          'period_year', ap.period_year,
+          'period_month', ap.period_month,
           'status', lr.status::text,
           'generated_at', lr.generated_at::text
         ) as iadmin_liquidation_runs
       from public.iadmin_liquidation_items li
       inner join public.iadmin_units u on u.id = li.unit_id
       inner join public.iadmin_liquidation_runs lr on lr.id = li.liquidation_run_id
+      inner join public.iadmin_accounting_periods ap on ap.id = lr.accounting_period_id
       where li.unit_id = any($1::uuid[])
       order by lr.generated_at desc nulls last
     `,
