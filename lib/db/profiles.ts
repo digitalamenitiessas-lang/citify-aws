@@ -87,6 +87,17 @@ export async function clearPasswordMustChange(profileId: string): Promise<void> 
   )
 }
 
+// Forzar el cambio de password al proximo login. Lo usa el flujo de
+// onboarding del admin: cuando se le carga (o re-carga) un password
+// temporal a un usuario, queremos que ese usuario cambie su pwd en su
+// primer ingreso.
+export async function markPasswordMustChange(profileId: string): Promise<void> {
+  await pgQuery(
+    `update public.profiles set password_must_change = true where id = $1`,
+    [profileId],
+  )
+}
+
 export async function findProfileById(id: string) {
   const result = await pgQuery(
     `

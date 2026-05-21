@@ -19,7 +19,7 @@ import type {
 import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy-ai'
 import { adminCreateCognitoUser } from '@/lib/aws/cognito'
 import { sendWelcomeEmail } from '@/lib/email/notifications/welcome'
-import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
+import { findProfileByEmail, markPasswordMustChange, upsertProfile } from '@/lib/db/profiles'
 import {
   assignBuildingAdminInPostgres,
   assignIAdminRoleGrantInPostgres,
@@ -357,17 +357,21 @@ async function findOrCreatePlatformProfile(input: {
 }): Promise<{ profileId: string; created: boolean }> {
   const normalizedEmail = input.email.toLowerCase()
   const existing = await findProfileByEmail(normalizedEmail)
+  const created = !existing
 
-  let profileId = existing?.id
-  const created = !profileId
-  if (!profileId) {
-    const { sub } = await adminCreateCognitoUser({
-      email: normalizedEmail,
-      password: input.password,
-      fullName: input.fullName,
-    })
-    profileId = sub
-  }
+  // SIEMPRE llamamos adminCreateCognitoUser. Internamente:
+  //   - si no existe en Cognito: lo crea.
+  //   - si ya existe (UsernameExistsException): lo deja y sigue.
+  //   - luego SIEMPRE corre AdminSetUserPassword con la pwd recibida.
+  // Asi un re-onboarding desde /superadmin efectivamente rota la pwd del
+  // usuario, en vez de tipear un "Password temporal" que no hace nada
+  // (bug previo: si el profile existia en DB, nunca se llegaba a Cognito).
+  const { sub } = await adminCreateCognitoUser({
+    email: normalizedEmail,
+    password: input.password,
+    fullName: input.fullName,
+  })
+  const profileId = existing?.id ?? sub
 
   await upsertProfile({
     id: profileId,
@@ -378,11 +382,18 @@ async function findOrCreatePlatformProfile(input: {
     phone: input.phone,
     buildingId: input.buildingId,
     businessId: input.businessId ?? null,
-    // Solo se aplica al INSERT (no pisa el flag en re-altas / updates).
-    // Asi los usuarios nuevos arrancan con must-change y los existentes
-    // mantienen su estado.
-    passwordMustChangeOnCreate: created ? true : undefined,
+    // Inserts nuevos quedan con must_change=true. Para profiles que ya
+    // existian usamos markPasswordMustChange abajo (el ON CONFLICT del
+    // upsert no toca esa columna).
+    passwordMustChangeOnCreate: true,
   })
+
+  // El admin acaba de rotar la pwd, asi que en el primer ingreso siguiente
+  // el usuario tiene que cambiarla. Si ya existia, el upsert no piso el
+  // flag, asi que lo seteamos explicitamente.
+  if (!created) {
+    await markPasswordMustChange(profileId)
+  }
 
   return { profileId, created }
 }

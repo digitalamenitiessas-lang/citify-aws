@@ -136,13 +136,59 @@ admins, negocio admins), con:
 - [x] Componente compartido `components/change-password-form.tsx` para
   ambos casos, controlado por prop `requireCurrent`.
 
-### 🔜 Phase 3 — Consorcio notifications
+### ⏳ Phase 3 — Consorcio notifications (IN PROGRESS)
 
-- [ ] `complaint_created` → consorcio_admin del building.
-- [ ] `complaint_message` → creador + mencionados (debounce 10min).
-- [ ] `complaint_status_changed` → creador.
-- [ ] `liquidation_issued` → propietarios con link público (share token).
-- [ ] `liquidation_closed` → consorcio_admin.
+**Expedientes (DONE):**
+- [x] Templates: `complaint-created.ts`, `complaint-message.ts`,
+  `complaint-status-changed.ts`.
+- [x] Helper `lib/email/notifications/complaints.ts` con
+  `notifyComplaintCreated`, `notifyComplaintMessage`,
+  `notifyComplaintStatusChanged`. Deep-links auto-resuelven al panel del
+  rol del recipient (`/usuario?view=complaints&caseId=...` o
+  `/iadmin/expedientes?caseId=...`).
+- [x] Hook en `POST /api/complaints/neighbor/cases` → admins del edificio.
+- [x] Hook en `POST /api/complaints/cases/[id]/messages` → autor del
+  expediente + admins + mencionados (excluye al autor del mensaje;
+  marca isMention=true en su mail con copy distinto).
+- [x] Hook en `POST /api/complaints/cases/[id]/status` → autor del
+  expediente cuando un admin cambia el estado. Captura previousStatus
+  antes del UPDATE para incluirlo en el mail.
+- Idempotencia: `complaint_created:{caseId}:{recipientId}`,
+  `complaint_message:{messageId}:{recipientId}`,
+  `complaint_status:{caseId}:{from}->{to}` — retries no duplican.
+
+**Liquidaciones (TODO):**
+- [ ] Template `liquidation-issued.ts`.
+- [ ] Template `liquidation-closed.ts`.
+- [ ] Helper `lib/email/notifications/liquidations.ts` con
+  `notifyLiquidationIssued(periodId)` → propietarios con link público
+  via share token; `notifyLiquidationClosed(periodId)` → admin.
+- [ ] Hook en el flow de cambio de estado de período contable
+  (`changeAccountingPeriodStatusInPostgres` o equivalente).
+
+### ✅ Phase 2.2 — Forzar cambio de pwd en re-onboardings (DONE)
+
+Problema original: el admin tipeaba un "Password temporal" en
+/superadmin pero si el profile ya existía en DB, `findOrCreatePlatformProfile`
+no llegaba a Cognito y el password no se aplicaba. Adicionalmente, el
+flag `password_must_change` solo se seteaba en INSERTs nuevos.
+
+- [x] `findOrCreatePlatformProfile` ahora SIEMPRE llama
+  `adminCreateCognitoUser` (que internamente rota la pwd con
+  `AdminSetUserPassword` aunque el usuario ya exista en Cognito).
+- [x] Helper `markPasswordMustChange(profileId)` en `lib/db/profiles.ts`
+  para forzar el flag en profiles que ya existían (ON CONFLICT del
+  upsert no tocaba esa columna).
+- [x] Tras el upsert, si `created=false`, llamamos
+  `markPasswordMustChange` explícitamente.
+
+### ✅ Navbar (DONE)
+
+- [x] Desktop: pill del nombre ahora linkea a `/configuracion` (antes
+  iba a `ROLE_HOME[role]`). Agregamos un botón "Mi panel" al lado para
+  no perder ese acceso.
+- [x] Mobile menu: nuevo botón "Configuración" debajo de "Ir a mi
+  panel".
 
 ### 🔜 Phase 4 — Opcionales
 

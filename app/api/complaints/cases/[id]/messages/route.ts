@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentProfile } from '@/lib/auth'
 import { pgQueryAsProfile } from '@/lib/db/postgres'
+import { notifyComplaintMessage } from '@/lib/email/notifications/complaints'
 
 type MessageBody = {
   body?: string
@@ -37,10 +38,13 @@ export async function POST(
       `select * from public.post_complaint_case_message($1, $2, 'comment'::public.complaint_case_message_type, $3::uuid[])`,
       [caseId, messageBody, mentionedProfileIds],
     )
-    const row = result.rows[0]
+    const row = result.rows[0] as { id?: string } | undefined
     if (!row) {
       return NextResponse.json({ error: 'No se pudo registrar el comentario.' }, { status: 500 })
     }
+    // Disparamos mail a autor del expediente + admins + mencionados en
+    // background; el helper captura errores internamente.
+    if (row.id) void notifyComplaintMessage(row.id)
     return NextResponse.json({ ok: true, message: row })
   } catch (error) {
     return NextResponse.json(

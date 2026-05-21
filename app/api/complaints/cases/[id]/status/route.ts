@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentProfile } from '@/lib/auth'
-import { pgQueryAsProfile } from '@/lib/db/postgres'
+import { pgQuery, pgQueryAsProfile } from '@/lib/db/postgres'
+import { notifyComplaintStatusChanged } from '@/lib/email/notifications/complaints'
 import type { ComplaintCaseStatus } from '@/lib/types'
 
 type StatusBody = {
@@ -38,11 +39,25 @@ export async function POST(
   }
 
   try {
+    // Capturamos el estado anterior antes de la actualizacion para poder
+    // pasarlo a la notificacion. Si no existe el expediente, dejamos que
+    // el RPC tire el error correspondiente.
+    const prevRes = await pgQuery<{ status: string }>(
+      `select status::text as status from public.complaint_cases where id = $1 limit 1`,
+      [caseId],
+    )
+    const previousStatus = prevRes.rows[0]?.status ?? null
+
     const result = await pgQueryAsProfile(
       profile.id,
       `select * from public.update_complaint_case_status($1, $2::public.complaint_case_status)`,
       [caseId, nextStatus],
     )
+
+    if (previousStatus && previousStatus !== nextStatus) {
+      void notifyComplaintStatusChanged(caseId, previousStatus, nextStatus, profile.id)
+    }
+
     return NextResponse.json({ ok: true, result: result.rows[0] ?? null })
   } catch (error) {
     return NextResponse.json(

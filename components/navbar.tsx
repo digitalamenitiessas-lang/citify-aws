@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { CircleAlert, LogOut, UserRound, Users, X } from 'lucide-react'
+import { CircleAlert, LogOut, Settings, UserRound, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -105,8 +105,9 @@ export function Navbar() {
           {userState ? (
             <>
               <Link
-                href={ROLE_HOME[userState.role]}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium"
+                href="/configuracion"
+                title="Ir a configuración"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium transition-colors hover:brightness-110"
                 style={{
                   background: 'rgba(240, 78, 35, 0.08)',
                   border: '1px solid rgba(240, 78, 35, 0.2)',
@@ -115,6 +116,9 @@ export function Navbar() {
               >
                 <UserRound className="h-3.5 w-3.5" />
                 {userState.fullName} · <span className="font-semibold text-foreground">{ROLE_LABELS[userState.role]}</span>
+              </Link>
+              <Link href={ROLE_HOME[userState.role]}>
+                <Button variant="outline" size="sm">Mi panel</Button>
               </Link>
               <Button variant="outline" size="sm" className="gap-2" onClick={() => setLogoutDialogOpen(true)}>
                 <LogOut className="h-4 w-4" />
@@ -171,6 +175,12 @@ export function Navbar() {
               </div>
               <Link href={ROLE_HOME[userState.role]} className="w-full" onClick={closeMobileMenu}>
                 <Button className="w-full btn-premium">Ir a mi panel</Button>
+              </Link>
+              <Link href="/configuracion" className="w-full" onClick={closeMobileMenu}>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Settings className="h-4 w-4" />
+                  Configuración
+                </Button>
               </Link>
               {userState.role === 'vecino' ? (
                 <>

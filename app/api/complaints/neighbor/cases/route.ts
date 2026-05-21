@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getCurrentProfile } from '@/lib/auth'
 import { pgQueryAsProfile } from '@/lib/db/postgres'
+import { notifyComplaintCreated } from '@/lib/email/notifications/complaints'
 
 type CreateNeighborCaseBody = {
   title?: string
@@ -37,10 +38,13 @@ export async function POST(request: Request) {
       `select * from public.create_neighbor_complaint_case($1, $2, $3, $4::uuid[], $5)`,
       [profile.buildingId, title, description, reasonIds, otherReasonText],
     )
-    const row = result.rows[0]
+    const row = result.rows[0] as { id?: string } | undefined
     if (!row) {
       return NextResponse.json({ error: 'No se pudo recuperar el expediente creado.' }, { status: 500 })
     }
+    // Disparamos mail a los admins del edificio en background — el helper
+    // captura errores internamente para no bloquear la creacion.
+    if (row.id) void notifyComplaintCreated(row.id)
     return NextResponse.json({ ok: true, case: row })
   } catch (error) {
     return NextResponse.json(
