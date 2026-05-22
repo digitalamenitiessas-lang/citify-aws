@@ -51,6 +51,7 @@ interface OwnerRow {
   profile_id: string
   email: string
   full_name: string
+  relationship_type: 'propietario' | 'vecino_principal'
 }
 
 // notifyLiquidationIssued: cuando la liquidacion pasa a 'issued', mail a
@@ -83,19 +84,27 @@ export async function notifyLiquidationIssued(runId: string): Promise<void> {
 
     const unitIds = items.map((it: ItemRow) => it.unit_id)
 
-    // Propietarios activos: relationshipType='propietario' y membership activo.
+    // Responsables del pago: propietarios + vecinos principales. El
+    // vecino_adicional (familiar/conviviente) no es responsable financiero,
+    // asi que no recibe la liquidacion. Si una misma persona es propietario
+    // Y vecino_principal de la unidad (caso edge), dedup por profile_id
+    // mas abajo.
     const ownersRes = await pgQuery<OwnerRow>(
-      `select m.unit_id, m.profile_id, p.email, p.full_name
+      `select m.unit_id, m.profile_id, p.email, p.full_name,
+              m.relationship_type::text as relationship_type
          from public.unit_profile_memberships m
          join public.profiles p on p.id = m.profile_id
         where m.unit_id = any($1::uuid[])
-          and m.relationship_type = 'propietario'
+          and m.relationship_type in ('propietario', 'vecino_principal')
           and m.active = true`,
       [unitIds],
     )
     const ownersByUnit = new Map<string, OwnerRow[]>()
     for (const o of ownersRes.rows) {
       const arr = ownersByUnit.get(o.unit_id) ?? []
+      // Dedup: si el mismo profile_id ya esta como propietario, no lo
+      // sumamos otra vez como vecino_principal.
+      if (arr.some((existing) => existing.profile_id === o.profile_id)) continue
       arr.push(o)
       ownersByUnit.set(o.unit_id, arr)
     }
