@@ -1183,6 +1183,84 @@ export interface IAdminLiquidationItem {
   payments: IAdminPayment[]
 }
 
+// Cobranzas — payload del modulo /iadmin/cobranzas
+export interface IAdminCollectionsKpis {
+  collectedThisMonth: number
+  paymentsThisMonth: number
+  openBalanceTotal: number
+  overdueOver30d: number
+}
+
+export interface IAdminCollectionPayment {
+  id: string
+  administrationId: string
+  managedPropertyId: string
+  propertyDisplayName: string | null
+  buildingName: string | null
+  liquidationRunId: string | null
+  liquidationItemId: string | null
+  periodYear: number | null
+  periodMonth: number | null
+  unitId: string | null
+  unitCode: string | null
+  holderName: string | null
+  cashAccountId: string | null
+  cashAccountName: string | null
+  bankMovementId: string | null
+  amount: number
+  surchargeAmount: number
+  paidAt: string
+  method: string | null
+  reference: string | null
+  receiptNumber: string | null
+  dueLabel: string | null
+  notes: string | null
+  isVoid: boolean
+  voidedAt: string | null
+  voidedByName: string | null
+  voidReason: string | null
+  createdAt: string
+  createdByName: string | null
+}
+
+export interface IAdminOpenLiquidationItem {
+  itemId: string
+  unitId: string
+  unitCode: string
+  unitKind: string | null
+  holderName: string | null
+  managedPropertyId: string
+  propertyDisplayName: string | null
+  buildingName: string | null
+  liquidationRunId: string
+  runStatus: string
+  periodYear: number
+  periodMonth: number
+  ordinaryAmount: number
+  extraordinaryAmount: number
+  previousBalance: number
+  subtotal: number
+  paid: number
+  balanceRemaining: number
+  dueDates: IAdminDueDate[]
+}
+
+export interface IAdminCollectionsFilters {
+  periodYear: number | null
+  periodMonth: number | null
+  unitId: string | null
+  status: 'live' | 'voided' | 'all'
+  method: string | null
+}
+
+export interface IAdminCollectionsData {
+  kpis: IAdminCollectionsKpis
+  payments: IAdminCollectionPayment[]
+  eligibleItems: IAdminOpenLiquidationItem[]
+  cashAccounts: IAdminCashAccountWithBalance[]
+  filters: IAdminCollectionsFilters
+}
+
 export interface IAdminExpenseLineInRun {
   id: string
   issuedAt: string | null

@@ -58,6 +58,11 @@ import type {
   IAdminUnitAccountStatement,
   IAdminUnitPaymentReceipt,
   IAdminPayment,
+  IAdminCollectionPayment,
+  IAdminCollectionsData,
+  IAdminCollectionsFilters,
+  IAdminCollectionsKpis,
+  IAdminOpenLiquidationItem,
   IAdminReminder,
   IAdminReminderStatus,
   IAdminPeriodCollections,
@@ -114,6 +119,9 @@ import {
   getExpensePaymentInfoFromPostgres,
   listCashAccountsWithBalanceFromPostgres,
   listCashMovementsFromPostgres,
+  listPaymentsByAdminFromPostgres,
+  listOpenLiquidationItemsByAdminFromPostgres,
+  computeCollectionsKpisFromPostgres,
   countActiveRecurringProvidersFromPostgres,
   countActiveUnitsByPropertyFromPostgres,
   countExpensesForPeriodFromPostgres,
@@ -1818,6 +1826,143 @@ function mapUnitHolder(row: any): IAdminUnitHolder {
 export async function getIAdminProviders(administrationId: string): Promise<IAdminProvider[]> {
   const rows = await getIAdminProvidersFromPostgres(administrationId)
   return rows.map(mapProviderFromPostgresRow)
+}
+
+// ----------------------------------------------------------------------------
+// Cobranzas — payload completo del modulo /iadmin/cobranzas. Reune KPIs,
+// pagos historicos filtrados, items con saldo abierto (para registrar nuevos
+// pagos) y cuentas de caja disponibles.
+// ----------------------------------------------------------------------------
+
+function mapCollectionPayment(row: Awaited<ReturnType<typeof listPaymentsByAdminFromPostgres>>[number]): IAdminCollectionPayment {
+  return {
+    id: row.id,
+    administrationId: row.administration_id,
+    managedPropertyId: row.managed_property_id,
+    propertyDisplayName: row.property_display_name,
+    buildingName: row.building_name,
+    liquidationRunId: row.liquidation_run_id,
+    liquidationItemId: row.liquidation_item_id,
+    periodYear: row.period_year,
+    periodMonth: row.period_month,
+    unitId: row.unit_id,
+    unitCode: row.unit_code,
+    holderName: row.holder_name,
+    cashAccountId: row.cash_account_id,
+    cashAccountName: row.cash_account_name,
+    bankMovementId: row.bank_movement_id,
+    amount: Number(row.amount),
+    surchargeAmount: Number(row.surcharge_amount),
+    paidAt: row.paid_at,
+    method: row.method,
+    reference: row.reference,
+    receiptNumber: row.receipt_number,
+    dueLabel: row.due_label,
+    notes: row.notes,
+    isVoid: row.is_void,
+    voidedAt: row.voided_at,
+    voidedByName: row.voided_by_name,
+    voidReason: row.void_reason,
+    createdAt: row.created_at,
+    createdByName: row.created_by_name,
+  }
+}
+
+function mapOpenLiquidationItem(row: Awaited<ReturnType<typeof listOpenLiquidationItemsByAdminFromPostgres>>[number]): IAdminOpenLiquidationItem {
+  const rawDueDates = Array.isArray(row.due_dates) ? row.due_dates : []
+  const dueDates: IAdminDueDate[] = rawDueDates.map((d: any) => ({
+    label: String(d?.label ?? ''),
+    date: String(d?.date ?? ''),
+    surchargePct: Number(d?.surcharge_pct ?? 0),
+  }))
+  return {
+    itemId: row.item_id,
+    unitId: row.unit_id,
+    unitCode: row.unit_code,
+    unitKind: row.unit_kind,
+    holderName: row.holder_name,
+    managedPropertyId: row.managed_property_id,
+    propertyDisplayName: row.property_display_name,
+    buildingName: row.building_name,
+    liquidationRunId: row.liquidation_run_id,
+    runStatus: row.run_status,
+    periodYear: row.period_year,
+    periodMonth: row.period_month,
+    ordinaryAmount: Number(row.ordinary_amount),
+    extraordinaryAmount: Number(row.extraordinary_amount),
+    previousBalance: Number(row.previous_balance),
+    subtotal: Number(row.subtotal),
+    paid: Number(row.paid),
+    balanceRemaining: Number(row.balance_remaining),
+    dueDates,
+  }
+}
+
+export async function getIAdminCollectionsData(
+  administrationId: string,
+  filters: IAdminCollectionsFilters,
+): Promise<IAdminCollectionsData> {
+  const [paymentsRows, openItemsRows, kpisRow, cashAccountsRows] = await Promise.all([
+    listPaymentsByAdminFromPostgres({
+      administrationId,
+      periodYear: filters.periodYear,
+      periodMonth: filters.periodMonth,
+      unitId: filters.unitId,
+      status: filters.status,
+      method: filters.method,
+    }),
+    listOpenLiquidationItemsByAdminFromPostgres({ administrationId }),
+    computeCollectionsKpisFromPostgres({ administrationId }),
+    // Las cuentas de caja se piden por managed_property. Como un admin puede
+    // tener varios consorcios, juntamos las cuentas de todos los properties
+    // que aparezcan en los items abiertos.
+    Promise.resolve([]) as Promise<IAdminCashAccountWithBalance[]>,
+  ])
+
+  // Cuentas de caja: traer las de todos los managed_property del admin (los
+  // que tengan items abiertos + los que tengan payments).
+  const propertyIds = new Set<string>()
+  for (const it of openItemsRows) propertyIds.add(it.managed_property_id)
+  for (const p of paymentsRows) propertyIds.add(p.managed_property_id)
+  const cashAccounts: IAdminCashAccountWithBalance[] = []
+  for (const pid of propertyIds) {
+    const accs = await listCashAccountsWithBalanceFromPostgres(pid)
+    for (const a of accs) {
+      cashAccounts.push({
+        id: a.id,
+        managedPropertyId: a.managed_property_id,
+        name: a.name,
+        kind: a.kind as IAdminCashAccount['kind'],
+        bankName: a.bank_name,
+        accountNumber: a.account_number,
+        cbu: a.cbu,
+        alias: a.alias,
+        openingBalance: Number(a.opening_balance ?? 0),
+        currentBalance: Number(a.current_balance ?? 0),
+        isActive: Boolean(a.is_active),
+        notes: a.notes,
+        createdAt: a.created_at,
+      } as IAdminCashAccountWithBalance)
+    }
+  }
+
+  // KPI fallback if no data
+  void cashAccountsRows
+
+  const kpis: IAdminCollectionsKpis = {
+    collectedThisMonth: Number(kpisRow.collected_this_month ?? 0),
+    paymentsThisMonth: Number(kpisRow.payments_this_month ?? 0),
+    openBalanceTotal: Number(kpisRow.open_balance_total ?? 0),
+    overdueOver30d: Number(kpisRow.overdue_over_30d ?? 0),
+  }
+
+  return {
+    kpis,
+    payments: paymentsRows.map(mapCollectionPayment),
+    eligibleItems: openItemsRows.map(mapOpenLiquidationItem),
+    cashAccounts,
+    filters,
+  }
 }
 
 export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAdminUnitWithHolders[]> {
