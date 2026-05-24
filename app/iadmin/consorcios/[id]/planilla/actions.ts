@@ -37,6 +37,7 @@ import {
   updateExpenseAmountInPostgres,
   upsertIssuedLiquidationRunInPostgres,
 } from '@/lib/db/iadmin-writes'
+import { notifyLiquidationIssued } from '@/lib/email/notifications/liquidations'
 import type { IAdminExpenseStatus, IAdminUnitAccountStatement } from '@/lib/types'
 
 const cellSchema = z.object({
@@ -514,6 +515,14 @@ export async function emitAndNotify(
     action: 'liquidation.emitted_from_planilla',
     metadata: { period: periodLabelShort, neighbors: neighbors.length, total: totalExpenses },
   })
+
+  // Disparar mail a propietarios + vecinos principales en background. El
+  // helper captura errores internamente para no bloquear la emision; la
+  // idempotencia por (runId, unitId, profileId) evita re-envios en retry.
+  // (Path principal: la UI usa esta action para emitir, no
+  // changeLiquidationStatus. El hook que tiene esa otra action sigue
+  // sirviendo si alguien transiciona via API directa.)
+  void notifyLiquidationIssued(run.id)
 
   revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
   revalidatePath(`/iadmin/liquidaciones/${run.id}`)
