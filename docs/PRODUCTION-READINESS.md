@@ -82,7 +82,33 @@ abrir este doc da el estado de cada item.
 - [ ] Restore test de RDS snapshot (nunca se hizo)
 - [ ] Service worker cache busting (DEPLOY.md menciona el problema)
 - [ ] Dashboard / alarma de bounce rate SES (>5% suspende sending)
-- [ ] Comunicados (DB + UI + email — feature gap clave)
+- [x] **Comunicados** ✅
+  - Migración `20260525_building_announcements`:
+    - `building_announcements` (id, building_id, author_profile_id,
+      title, body, pinned, expires_at, published_at, timestamps).
+    - `building_announcement_reads` (PK compuesta + read_at) para
+      tracking de lectura por vecino.
+    - Índices: building+published_at desc, pinned partial,
+      reads por profile.
+  - `lib/db/announcements.ts` con reads (admin con read counts,
+    vecino con is_read, count de no leídos, recipients filtrados
+    por preference + email_blocked) y writes (insert / update /
+    delete / mark-read idempotente).
+  - Server actions:
+    - `publishAnnouncement` valida que el building esté en la
+      administración del admin, audita, dispara mail fire-and-forget.
+    - `updateAnnouncement` / `deleteAnnouncement` con audit.
+    - `markAnnouncementReadAction` para el vecino (idempotente).
+  - Email template `announcement.ts` branded + helper
+    `notifyAnnouncementPublished` que filtra recipients por preference
+    `'announcements'` + dedup por (announcementId, recipientId).
+  - Admin UI en `/iadmin/comunicaciones`: 3 secciones — Publicar,
+    Historial (con read counts + delete), AI composer (existente,
+    como helper opcional).
+  - Vecino UI: nueva mainView `'announcements'` en consumer
+    dashboard + entrada en desktopExtraNav + link "Comunicados" en
+    header mobile menu. Panel con cards expandibles, pinned arriba,
+    auto mark-as-read al entrar a la sección.
 - [ ] Onboarding self-service form ("quiero sumar mi consorcio")
 - [ ] Reminders cron + UI (tabla `iadmin_reminders` ya existe)
 - [ ] Mobile responsive en `/iadmin/*` (built para desktop)
