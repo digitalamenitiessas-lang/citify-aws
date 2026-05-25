@@ -32,9 +32,24 @@ export function SiteFooter() {
           </span>
         </div>
       </div>
-      <p className="border-t border-white/10 px-6 py-2 text-center text-[11px] text-white/50 md:hidden">
-        Desarrollado por Digital Amenities
-      </p>
+      <div className="border-t border-white/10 px-6 py-2 flex flex-col items-center gap-2 md:flex-row md:justify-between md:gap-3">
+        <p className="text-[11px] text-white/50 md:hidden">
+          Desarrollado por Digital Amenities
+        </p>
+        <div className="flex items-center gap-3 text-[11px] text-white/60 md:ml-auto">
+          <Link href="/legal/terminos" className="hover:text-white/90 transition-colors">
+            Términos
+          </Link>
+          <span aria-hidden className="text-white/30">·</span>
+          <Link href="/legal/privacidad" className="hover:text-white/90 transition-colors">
+            Privacidad
+          </Link>
+          <span aria-hidden className="text-white/30">·</span>
+          <Link href="/legal/cookies" className="hover:text-white/90 transition-colors">
+            Cookies
+          </Link>
+        </div>
+      </div>
     </footer>
   )
 }
