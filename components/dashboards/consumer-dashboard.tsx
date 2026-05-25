@@ -22,6 +22,8 @@ import {
   Tag,
   Ticket,
   Info,
+  Megaphone,
+  Pin,
   Users,
   X,
 } from 'lucide-react'
@@ -30,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
+import { NeighborAnnouncementsPanel } from '@/components/announcements/neighbor-announcements-panel'
 import { MarketplaceDetailModal } from '@/components/marketplace-detail-modal'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
@@ -616,9 +619,9 @@ function FullPromotionsView({ promotions, savedCoupons, usedCoupons, onSaveToggl
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 
-type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household'
+type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household' | 'announcements'
 
-const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household']
+const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household', 'announcements']
 const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v1'
 const NEIGHBOR_VIEW_STORAGE_KEY = 'citify-neighbor-view-v1'
 const NEIGHBOR_COUPON_FILTER_STORAGE_KEY = 'citify-neighbor-coupon-filter-v1'
@@ -1231,6 +1234,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
   const desktopExtraNav = [
     { key: 'household', label: 'Unidad', icon: Users },
     { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
+    { key: 'announcements', label: 'Comunicados', icon: Megaphone },
   ] as const
 
   return (
@@ -1657,6 +1661,14 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
             initialMentionableUsers={initialData.complaintMentionableUsers}
             initialCases={initialData.complaintCases}
             initialCaseDetails={initialData.complaintCaseDetails}
+          />
+        )}
+
+        {mainView === 'announcements' && (
+          <NeighborAnnouncementsPanel
+            announcements={initialData.announcements}
+            onBack={() => setMainView('home')}
+            focusedId={searchParams.get('id')}
           />
         )}
 

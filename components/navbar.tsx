@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { CircleAlert, LogOut, Settings, UserRound, Users, X } from 'lucide-react'
+import { CircleAlert, LogOut, Megaphone, Settings, UserRound, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -194,6 +194,12 @@ export function Navbar() {
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <CircleAlert className="h-4 w-4" />
                       Expedientes
+                    </Button>
+                  </Link>
+                  <Link href="/usuario?view=announcements" className="w-full" onClick={closeMobileMenu}>
+                    <Button variant="outline" className="w-full justify-start gap-2">
+                      <Megaphone className="h-4 w-4" />
+                      Comunicados
                     </Button>
                   </Link>
                 </>

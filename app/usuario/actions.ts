@@ -168,3 +168,22 @@ export async function createHouseholdNeighbor(input: z.input<typeof householdNei
       : new Error('No pudimos completar el alta del vecino adicional. Revisa los datos e inténtalo nuevamente.')
   }
 }
+
+// Marca un comunicado como leído por el vecino logueado. Idempotente: si
+// ya estaba leído (PK announcement_id+profile_id), el ON CONFLICT lo deja
+// pasar sin error.
+const markReadSchema = z.object({
+  announcementId: z.string().uuid(),
+})
+
+export async function markAnnouncementReadAction(input: z.input<typeof markReadSchema>) {
+  const parsed = markReadSchema.parse(input)
+  const { profile } = await requireProfile()
+  const { markAnnouncementReadInPostgres } = await import('@/lib/db/announcements')
+  await markAnnouncementReadInPostgres({
+    announcementId: parsed.announcementId,
+    profileId: profile.id,
+  })
+  revalidatePath('/usuario')
+  return { ok: true }
+}
