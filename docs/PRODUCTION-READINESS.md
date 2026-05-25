@@ -41,7 +41,10 @@ abrir este doc da el estado de cada item.
     Ley 25.326).
   - `app/legal/cookies/page.tsx` — Política de Cookies (citify usa
     solo cookies estrictamente necesarias).
-  - Links en el footer del landing (`landing-experience-3d.tsx`).
+  - Links en `components/home/site-footer.tsx` (footer del landing
+    actual). En el commit de cleanup también se borró la landing
+    vieja huérfana (`components/landing/` entero), los videos
+    `public/edificios{,-mobile}.mp4` y los scripts `encode-video*.mjs`.
   - Marcadas como "Borrador inicial — pendiente de revisión legal"
     para que el abogado vea el banner y reemplace los `[PLACEHOLDER]`.
 - [x] **Error pages** ✅
