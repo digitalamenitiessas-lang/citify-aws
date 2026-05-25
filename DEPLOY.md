@@ -1,5 +1,16 @@
 # Deploy a AWS — guía rápida
 
+> **🤖 Path principal: GitHub Actions.** Cualquier `git push origin main`
+> dispara automáticamente `.github/workflows/deploy.yml`: build → push a
+> ECR → force-new-deployment → wait services-stable → smoke test. Ver
+> resultados en `Actions` tab del repo.
+>
+> Para migraciones SQL: `Actions → migrate-prod → Run workflow` con el
+> path del archivo `.sql`.
+>
+> **El procedimiento manual de abajo es el fallback** para cuando Actions
+> esté caído o necesites debuggear con tu Docker Desktop local.
+
 Infraestructura: **ECR** (imagen Docker) → **ECS Fargate** (servicio `citify-prod-service` en cluster `citify-prod-cluster`) detrás de un **ALB**, con **RDS Postgres** y **Cognito** en la misma cuenta. La región es siempre `us-east-1`.
 
 Las IDs concretas (security groups, subnets, etc.) están al final del documento.

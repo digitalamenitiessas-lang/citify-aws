@@ -60,7 +60,25 @@ abrir este doc da el estado de cada item.
 ## Sprint 1 — Operacionales (te queman post-launch)
 
 - [ ] Staging environment (task def + RDS de staging)
-- [ ] CI/CD con GitHub Actions (build + test + push al merge a main)
+- [x] **CI/CD con GitHub Actions** ✅
+  - OIDC provider `token.actions.githubusercontent.com` creado en IAM.
+  - IAM role `citify-github-actions-deploy` con trust restringido a
+    `repo:digitalamenitiessas-lang/citify-aws:*`. Inline policy
+    `CitifyDeployPolicy` con permisos mínimos (ECR push limitado al
+    repo `citify/citify-web-prod`, ECS update/describe/run-task,
+    `iam:PassRole` solo a las roles de ECS task, S3 PutObject solo
+    en `_tmp/`, logs read).
+  - `.github/workflows/deploy.yml`: dispara en push a main (ignora
+    docs/, **/*.md, scripts/.*). Build con Buildx + cache GHA, push
+    a ECR :3730a83, force-new-deployment, wait services-stable, smoke
+    test GET / → 200. `concurrency: deploy-prod` evita carreras.
+  - `.github/workflows/migrate.yml`: workflow_dispatch manual con
+    input del archivo `.sql`. Upload a S3, ECS run-task contra la
+    task def activa del service, espera exit code 0.
+  - Primer run real verificado: digest `0675d6ae…` deployado y
+    smoke test OK.
+  - DEPLOY.md sigue siendo la referencia para el fallback manual
+    (Docker Desktop local) si Actions cae.
 - [ ] Restore test de RDS snapshot (nunca se hizo)
 - [ ] Service worker cache busting (DEPLOY.md menciona el problema)
 - [ ] Dashboard / alarma de bounce rate SES (>5% suspende sending)
