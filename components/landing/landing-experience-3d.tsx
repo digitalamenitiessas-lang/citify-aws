@@ -1043,6 +1043,19 @@ function LandingFooter() {
             })}
           </div>
           <p className="text-xs text-muted-foreground">Desarrollado por Digital Amenities</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground md:justify-end">
+            <a href="/legal/terminos" className="hover:text-foreground transition-colors">
+              Términos
+            </a>
+            <span aria-hidden>·</span>
+            <a href="/legal/privacidad" className="hover:text-foreground transition-colors">
+              Privacidad
+            </a>
+            <span aria-hidden>·</span>
+            <a href="/legal/cookies" className="hover:text-foreground transition-colors">
+              Cookies
+            </a>
+          </div>
         </div>
       </div>
     </footer>

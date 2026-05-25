@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { pgQuery } from '@/lib/db/postgres'
 import { sendNotificationEmail } from '@/lib/email/send'
 import { renderPasswordResetEmail } from '@/lib/email/templates/password-reset'
+import { getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 const RESET_EXPIRES_HOURS = 24
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://citify.com.ar'
@@ -17,12 +18,22 @@ function newToken(): { plain: string; hash: string } {
 }
 
 export async function POST(request: NextRequest) {
+  // Doble rate limit:
+  //   - por IP: 10 por hora (evita spam masivo desde un atacante).
+  //   - por email: 3 por hora (evita molestar a un usuario con muchos mails).
+  const rateLimitIp = getClientIp(request.headers)
+  const ipLimited = rateLimitResponse(`auth:forgot:ip:${rateLimitIp}`, { max: 10, windowSeconds: 3600 })
+  if (ipLimited) return ipLimited
+
   const body = (await request.json().catch(() => null)) as { email?: string } | null
   const rawEmail = body?.email?.trim().toLowerCase()
 
   if (!rawEmail) {
     return NextResponse.json({ error: 'Email requerido.' }, { status: 400 })
   }
+
+  const emailLimited = rateLimitResponse(`auth:forgot:email:${rawEmail}`, { max: 3, windowSeconds: 3600 })
+  if (emailLimited) return emailLimited
 
   // Lookup del profile. NO devolvemos al cliente si existe o no — siempre
   // 200 ok para no permitir enumeración de cuentas.
