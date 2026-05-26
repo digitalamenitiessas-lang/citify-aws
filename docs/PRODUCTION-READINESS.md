@@ -152,7 +152,34 @@ abrir este doc da el estado de cada item.
     (Contactado / Calificar / Convertir / Descartar / Reabrir),
     textarea de notas internas opcional.
   - Link en superadmin dashboard junto a Email health.
-- [ ] Reminders cron + UI (tabla `iadmin_reminders` ya existe)
+- [x] **Reminders cron + UI** ✅
+  - `lib/iadmin/reminder-generator.ts`: helper puro
+    `generateRemindersForAdmin({ administrationId, managedPropertyId?, daysBeforeDue? })`
+    extraído del server action — comparte código entre el botón manual
+    del admin y el cron de sistema. Computa candidatos
+    (`pre_due` / `overdue_first` / `overdue_second` / `overdue_heavy`)
+    a partir de items con saldo > 0 y vencimientos, e inserta en
+    `iadmin_reminders` (unique index daily evita duplicados).
+  - `app/iadmin/recordatorios/actions.ts`: `generateReminders` ahora
+    delega al helper. Nueva action `sendReminderByEmail({ reminderId })`
+    con capability `reminders.send`: envía mail al propietario +
+    vecino_principal de la unidad, marca el reminder como `sent` y
+    audita.
+  - `lib/email/templates/reminder.ts` + `lib/email/notifications/reminders.ts`:
+    template con badge por tipo de reminder + monto + due label, deep
+    link al `/l/[token]` público de la liquidación si hay token vigente.
+    Dedup por `reminder:${id}:${profileId}` idempotency key.
+  - `lib/email/types.ts`: agregadas `reminder` template + `reminders`
+    preference key.
+  - `components/admin-backoffice/recordatorios/reminders-inbox.tsx`:
+    botón "Mail" junto a WhatsApp en cada row pending. Toast diferenciado
+    cuando hay 0 destinatarios (sin propietario con mail o desactivado).
+  - `app/api/cron/generate-reminders/route.ts`: POST endpoint con
+    header `X-Cron-Secret`, itera todas las `iadmin_administrations` y
+    corre el generador. Devuelve totals + per-admin results.
+  - Pendiente operativo (no código): crear `CRON_SECRET` en Secrets
+    Manager, agregarlo a la task def, y crear EventBridge schedule
+    diario ~9 AM ART que haga POST al endpoint.
 - [x] **Mobile responsive en `/iadmin/*`** ✅ (primera pasada)
   - `components/admin-backoffice/shell/iadmin-mobile-topbar.tsx`
     (client): hamburger sticky abajo del navbar global, abre drawer

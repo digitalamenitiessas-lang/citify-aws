@@ -7,6 +7,7 @@ export type EmailPreferenceKey =
   | 'complaints'
   | 'liquidations'
   | 'announcements'
+  | 'reminders'
   | 'promotions'
 
 // Templates registrados. El template_key se guarda en email_events para que
@@ -24,6 +25,7 @@ export type EmailTemplateKey =
   | 'liquidation_issued'
   | 'liquidation_closed'
   | 'announcement'
+  | 'reminder'
   | 'promotion_new'
 
 export interface EmailRecipient {
