@@ -186,7 +186,8 @@ export function PaymentsTable({
         <EmptyState hasIssuedRuns={hasIssuedRuns} hasActiveFilters={hasActiveFilters} onClearFilters={clearFilters} />
       ) : (
         <div className="glass-card rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted/30">
                 <th className="text-left px-4 py-3 font-medium">Recibo</th>
@@ -236,6 +237,7 @@ export function PaymentsTable({
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 

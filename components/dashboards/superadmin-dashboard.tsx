@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
+  Activity,
   AlertTriangle,
   ArrowLeft,
   Building2,
@@ -1769,20 +1771,29 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl mb-8 w-fit flex-wrap" style={{ background: 'rgba(0,0,0,0.03)' }}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => handleTabChange(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.key ? 'text-white' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : {}}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-          </button>
-        ))}
+      <div className="flex items-center gap-3 mb-8 flex-wrap">
+        <div className="flex gap-1 p-1 rounded-xl w-fit flex-wrap" style={{ background: 'rgba(0,0,0,0.03)' }}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === tab.key ? 'text-white' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : {}}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <Link
+          href="/superadmin/email-health"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-border/60 transition-colors"
+        >
+          <Activity className="w-4 h-4" />
+          Email health
+        </Link>
       </div>
 
       {/* OVERVIEW */}

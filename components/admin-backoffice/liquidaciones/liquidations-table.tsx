@@ -27,7 +27,8 @@ export function LiquidationsTable({ runs }: { runs: IAdminLiquidationRunSummary[
 
   return (
     <div className="glass-card rounded-2xl overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted/30">
             <th className="text-left px-5 py-3 font-medium">Consorcio</th>
@@ -61,6 +62,7 @@ export function LiquidationsTable({ runs }: { runs: IAdminLiquidationRunSummary[
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
