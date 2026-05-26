@@ -1802,3 +1802,51 @@ export async function listMorososByAdminFromPostgres(input: {
   )
   return result.rows
 }
+
+// ----------------------------------------------------------------------------
+// Profiles del building disponibles para vincular a una unidad
+// ----------------------------------------------------------------------------
+
+export async function listLinkableProfilesByBuildingFromPostgres(
+  buildingId: string,
+): Promise<
+  Array<{
+    id: string
+    email: string
+    full_name: string
+    role: 'vecino' | 'propietario'
+    phone: string | null
+    active_memberships_count: number
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    email: string
+    full_name: string
+    role: 'vecino' | 'propietario'
+    phone: string | null
+    active_memberships_count: number
+  }>(
+    `
+      select
+        p.id,
+        p.email,
+        p.full_name,
+        p.role,
+        p.phone,
+        coalesce(m.active_count, 0)::int as active_memberships_count
+      from public.profiles p
+      left join (
+        select profile_id, count(*) as active_count
+        from public.unit_profile_memberships
+        where building_id = $1 and active = true
+        group by profile_id
+      ) m on m.profile_id = p.id
+      where p.building_id = $1
+        and p.role in ('vecino', 'propietario')
+      order by coalesce(m.active_count, 0) asc, p.full_name asc
+    `,
+    [buildingId],
+  )
+  return result.rows
+}

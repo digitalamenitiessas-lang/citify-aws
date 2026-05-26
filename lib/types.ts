@@ -795,6 +795,15 @@ export interface IAdminAIExtraction {
   validationNotes: string | null
 }
 
+export interface IAdminLinkableProfile {
+  id: string
+  email: string
+  fullName: string
+  role: 'vecino' | 'propietario'
+  phone: string | null
+  activeMembershipsCount: number
+}
+
 export interface IAdminConsorcioDetail {
   property: IAdminManagedProperty
   units: IAdminUnit[]
