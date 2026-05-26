@@ -201,7 +201,34 @@ superadmin dashboard (antes solo era accesible via URL directa).
 ## Sprint 2 — Features gaps
 
 - [ ] PDF de liquidación / recibo verificado E2E
-- [ ] Reportes / morosos / export CSV en cobranzas
+- [x] **Reportes / morosos / export CSV en cobranzas** ✅
+  - Nuevo read `listMorososByAdminFromPostgres` en
+    `lib/db/iadmin-reads.ts`: agrega los items abiertos por unidad,
+    calcula buckets de aging (al día / 0-30 / 31-60 / 61-90 / +90) en
+    una sola query con CTEs, incluye titular elegido, último pago y
+    vencimiento más viejo.
+  - Nueva página `app/iadmin/cobranzas/reportes/page.tsx` gateada por
+    capability `reports.view`: KPIs de cabecera (unidades con deuda,
+    total a cobrar, mora > 30 días) + tabla `MorososTable` con búsqueda
+    por unidad/titular y filtro por consorcio. Colores por severidad
+    (rosa para +90 días, naranja para 61-90, ámbar para 31-60).
+  - Helper `lib/iadmin/csv.ts`: `buildCsv` con escape RFC 4180 + BOM
+    UTF-8 (Excel ES-AR abre sin garabatos), `csvResponseHeaders` con
+    `Content-Disposition: attachment` y filename con fecha,
+    `formatMoneyAr` para columnas numéricas.
+  - Dos rutas de export:
+    - `GET /iadmin/cobranzas/reportes/export-morosos`: dump completo de
+      morosos por unidad, 14 columnas (consorcio, unidad, titular, mail,
+      teléfono, items abiertos, total, buckets, vencimiento más viejo,
+      último pago).
+    - `GET /iadmin/cobranzas/reportes/export-pagos?...`: dump de pagos
+      respetando los mismos filtros del payments-table (period,
+      unitId, status, method). Cap a 5000 rows. 16 columnas (recibo,
+      fecha, consorcio, unidad, titular, período, monto, recargo,
+      método, ref, cuenta, estado, motivo anulación, anulado por/el,
+      cargado por).
+  - Link "Ver reportes" agregado al header de `/iadmin/cobranzas`
+    (visible si `reports.view`).
 - [ ] Multi-tenant Countrify limpiar (`lib/aws/cognito.ts` con pool por hostname)
 - [ ] Conciliación bancaria CSV import
 - [ ] Restaurar / asignar `iadmin_unit_holders` desde UI

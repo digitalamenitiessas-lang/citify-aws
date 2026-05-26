@@ -1,3 +1,5 @@
+import Link from 'next/link'
+import { BarChart3 } from 'lucide-react'
 import { CobranzasOverview } from '@/components/admin-backoffice/cobranzas/cobranzas-overview'
 import { PaymentsTable } from '@/components/admin-backoffice/cobranzas/payments-table'
 import { can, requireIAdmin } from '@/lib/auth'
@@ -54,17 +56,31 @@ export default async function CobranzasPage({
 
   const data = await getIAdminCollectionsData(administrationId, filters)
   const canVoid = can(context, 'collections.void')
+  const canViewReports = can(context, 'reports.view')
   const hasIssuedRuns = data.eligibleItems.length > 0 || data.payments.length > 0
 
   return (
     <div className="space-y-4">
       <header className="glass-card rounded-2xl p-6">
-        <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>
-        <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Cobranzas y deuda</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Registro de pagos contra liquidaciones emitidas. Cada pago genera un recibo numerado y un
-          movimiento bancario asociado.
-        </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>
+            <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Cobranzas y deuda</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Registro de pagos contra liquidaciones emitidas. Cada pago genera un recibo numerado y
+              un movimiento bancario asociado.
+            </p>
+          </div>
+          {canViewReports ? (
+            <Link
+              href="/iadmin/cobranzas/reportes"
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted shrink-0"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Ver reportes
+            </Link>
+          ) : null}
+        </div>
       </header>
 
       <CobranzasOverview kpis={data.kpis} />
