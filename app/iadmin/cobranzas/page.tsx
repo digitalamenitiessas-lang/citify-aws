@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { BarChart3 } from 'lucide-react'
+import { BarChart3, FileSpreadsheet } from 'lucide-react'
 import { CobranzasOverview } from '@/components/admin-backoffice/cobranzas/cobranzas-overview'
 import { PaymentsTable } from '@/components/admin-backoffice/cobranzas/payments-table'
 import { can, requireIAdmin } from '@/lib/auth'
@@ -71,15 +71,25 @@ export default async function CobranzasPage({
               un movimiento bancario asociado.
             </p>
           </div>
-          {canViewReports ? (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Link
-              href="/iadmin/cobranzas/reportes"
-              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted shrink-0"
+              href="/iadmin/consorcios"
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted"
+              title="Importar extracto bancario y conciliar"
             >
-              <BarChart3 className="w-4 h-4" />
-              Ver reportes
+              <FileSpreadsheet className="w-4 h-4" />
+              Conciliación bancaria
             </Link>
-          ) : null}
+            {canViewReports ? (
+              <Link
+                href="/iadmin/cobranzas/reportes"
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted"
+              >
+                <BarChart3 className="w-4 h-4" />
+                Ver reportes
+              </Link>
+            ) : null}
+          </div>
         </div>
       </header>
 

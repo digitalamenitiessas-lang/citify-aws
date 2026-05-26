@@ -251,8 +251,34 @@ superadmin dashboard (antes solo era accesible via URL directa).
   - Link "Ver reportes" agregado al header de `/iadmin/cobranzas`
     (visible si `reports.view`).
 - [ ] Multi-tenant Countrify limpiar (`lib/aws/cognito.ts` con pool por hostname)
-- [ ] Conciliación bancaria CSV import
-- [ ] Restaurar / asignar `iadmin_unit_holders` desde UI
+- [x] **Conciliación bancaria CSV import** ✅ (ya estaba, agregada
+  discoverabilidad)
+  - El feature ya estaba implementado: parser XLSX/CSV en
+    `components/admin-backoffice/consorcio/reconciliation-wizard.tsx`
+    (XLSX.read + auto-detección de columnas fecha/desc/monto/ref),
+    server actions `analyzeBankStatement` + `applyReconciliation` en
+    `app/iadmin/consorcios/[id]/conciliacion/actions.ts` (matching
+    fuzzy por nombre + monto contra items abiertos y gastos pendientes,
+    aplica como bank movements + payments atómicos).
+  - Lo que faltaba era discoverabilidad: el wizard solo se llegaba via
+    `/iadmin/consorcios/[id]/configuracion` → tab "Conciliación
+    bancaria". Agregado link directo en el header de `/iadmin/cobranzas`
+    "Conciliación bancaria" que va al listing de consorcios para que el
+    admin elija el que quiere conciliar.
+  - Capability gate: `collections.register` (tanto en page load como en
+    las actions de analyze/apply).
+- [x] **Restaurar / asignar `iadmin_unit_holders` desde UI** ✅ (ya estaba)
+  - Auditoría confirmó que el feature está completo:
+    `components/admin-backoffice/consorcio/units-manager.tsx` tiene
+    listado de titulares activos por unidad, form "Agregar titular"
+    (con kind propietario/inquilino/apoderado/otro + checkbox "reemplazar
+    activo del mismo tipo"), y botón "Finalizar" para soft-delete con
+    `end_date`.
+  - Server actions `createUnitHolder` + `endUnitHolder` en
+    `app/iadmin/consorcios/[id]/actions.ts`, gateadas por
+    `holders.manage`, con audit log.
+  - UI accesible desde `/iadmin/consorcios/[id]/gestion` → expandir
+    unidad → sección "Titulares".
 
 ## Roadmap v1.5+
 
