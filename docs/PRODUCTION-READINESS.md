@@ -136,7 +136,23 @@ abrir este doc da el estado de cada item.
     auto mark-as-read al entrar a la sección.
 - [ ] Onboarding self-service form ("quiero sumar mi consorcio")
 - [ ] Reminders cron + UI (tabla `iadmin_reminders` ya existe)
-- [ ] Mobile responsive en `/iadmin/*` (built para desktop)
+- [x] **Mobile responsive en `/iadmin/*`** ✅ (primera pasada)
+  - `components/admin-backoffice/shell/iadmin-mobile-topbar.tsx`
+    (client): hamburger sticky abajo del navbar global, abre drawer
+    izquierdo con `IAdminNav`. Cierra en cambio de ruta, en Esc, y
+    lock del body scroll. Visible solo `<lg`.
+  - `iadmin-shell.tsx`: monta el topbar mobile, reduce padding
+    (`px-4 md:px-6`, `py-4 md:py-6`), breadcrumb con
+    `overflow-x-auto` para no romper, gap menor en mobile.
+  - `payments-table.tsx` y `liquidations-table.tsx`: tabla envuelta
+    en `overflow-x-auto` con `min-w` para que en mobile haga scroll
+    horizontal en vez de squishearse.
+  - Próxima iteración cubrirá: heros con padding mas grande, formularios
+    de expedientes/comunicaciones, vista `/iadmin/consorcios/[id]`
+    (la mas densa), y el wizard de creación de consorcio.
+
+Adicional: link a `/superadmin/email-health` agregado al header del
+superadmin dashboard (antes solo era accesible via URL directa).
 
 ## Sprint 2 — Features gaps
 
