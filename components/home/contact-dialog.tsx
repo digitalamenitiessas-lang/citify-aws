@@ -53,6 +53,9 @@ export function ContactDialog({ open, onOpenChange, kind }: ContactDialogProps) 
   const [phone, setPhone] = useState('')
   const [organization, setOrganization] = useState('')
   const [message, setMessage] = useState('')
+  // Honeypot: nunca lo mostramos visualmente. Si un bot llena este campo,
+  // el endpoint lo descarta silenciosamente.
+  const [website, setWebsite] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -63,6 +66,7 @@ export function ContactDialog({ open, onOpenChange, kind }: ContactDialogProps) 
     setPhone('')
     setOrganization('')
     setMessage('')
+    setWebsite('')
     setError(null)
     setSuccess(false)
   }
@@ -80,7 +84,7 @@ export function ContactDialog({ open, onOpenChange, kind }: ContactDialogProps) 
         const res = await fetch('/api/contact', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ kind, name, email, phone, organization, message }),
+          body: JSON.stringify({ kind, name, email, phone, organization, message, website }),
         })
         const json = await res.json().catch(() => ({}))
         if (!res.ok) {
@@ -173,6 +177,19 @@ export function ContactDialog({ open, onOpenChange, kind }: ContactDialogProps) 
                 maxLength={4000}
                 rows={4}
                 placeholder={copy.messagePlaceholder}
+              />
+            </div>
+
+            {/* Honeypot anti-bot: invisible humanos pero los bots lo llenan. El endpoint descarta silenciosamente cuando viene con valor. */}
+            <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0">
+              <label htmlFor="contact-website">Sitio web (no completar)</label>
+              <input
+                id="contact-website"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
               />
             </div>
 

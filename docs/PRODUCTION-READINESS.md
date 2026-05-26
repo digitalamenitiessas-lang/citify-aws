@@ -134,7 +134,24 @@ abrir este doc da el estado de cada item.
     dashboard + entrada en desktopExtraNav + link "Comunicados" en
     header mobile menu. Panel con cards expandibles, pinned arriba,
     auto mark-as-read al entrar a la sección.
-- [ ] Onboarding self-service form ("quiero sumar mi consorcio")
+- [x] **Onboarding self-service form** ✅
+  - Migración `20260526_onboarding_requests`: tabla `onboarding_requests`
+    + enums `onboarding_request_kind` (building / business) y
+    `onboarding_request_status` (pending / contacted / qualified /
+    converted / dismissed). Tracking de `contacted_by_profile_id`,
+    `contacted_at`, `converted_at` para funnel real.
+  - `lib/db/onboarding.ts` con insert, list (filtra status + kind),
+    update de status (auto-setea contacted_at/converted_at).
+  - `/api/contact` extendido (sin romper el flow de mail existente):
+    rate limit 5/h por IP, honeypot field (`website`), persistencia
+    best-effort antes de mandar mail.
+  - `components/home/contact-dialog.tsx`: agrega honeypot input
+    posicionado off-screen + `aria-hidden` para que bots lo llenen.
+  - `/superadmin/onboarding`: lista con filtros por status + kind,
+    cards expandibles con mensaje + meta, botones de transición
+    (Contactado / Calificar / Convertir / Descartar / Reabrir),
+    textarea de notas internas opcional.
+  - Link en superadmin dashboard junto a Email health.
 - [ ] Reminders cron + UI (tabla `iadmin_reminders` ya existe)
 - [x] **Mobile responsive en `/iadmin/*`** ✅ (primera pasada)
   - `components/admin-backoffice/shell/iadmin-mobile-topbar.tsx`

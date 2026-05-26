@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { sendEmail } from '@/lib/aws/ses'
+import { insertOnboardingRequestInPostgres } from '@/lib/db/onboarding'
+import { getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 const CONTACT_DESTINATION = process.env.CONTACT_DESTINATION_EMAIL ?? 'digitalamenitiessas@gmail.com'
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -13,6 +15,10 @@ interface ContactPayload {
   phone?: string
   organization?: string
   message: string
+  // Honeypot: campo escondido en el form que un humano nunca llena;
+  // si viene con valor lo tratamos como bot y respondemos 200 sin
+  // persistir ni mandar mail (silencioso, no le damos pista al atacante).
+  website?: string
 }
 
 function sanitize(value: unknown, maxLen: number): string {
@@ -41,15 +47,22 @@ function validate(body: unknown): { ok: true; payload: ContactPayload } | { ok: 
   const phone = sanitize(raw.phone, 60)
   const organization = sanitize(raw.organization, 200)
   const message = sanitize(raw.message, 4000)
+  const website = sanitize(raw.website, 200)
 
   if (name.length < 2) return { ok: false, error: 'Necesitamos tu nombre' }
   if (!EMAIL_REGEX.test(email)) return { ok: false, error: 'Email inválido' }
   if (message.length < 10) return { ok: false, error: 'Contanos un poco más en el mensaje' }
 
-  return { ok: true, payload: { kind, name, email, phone, organization, message } }
+  return { ok: true, payload: { kind, name, email, phone, organization, message, website } }
 }
 
 export async function POST(request: Request) {
+  // Rate limit publico: 5 envios por hora por IP. Suficiente para uso
+  // legitimo (un mismo edificio podria enviar varios), corta abuse temprano.
+  const ip = getClientIp(request.headers)
+  const limited = rateLimitResponse(`contact:${ip}`, { max: 5, windowSeconds: 3600 })
+  if (limited) return limited
+
   let body: unknown
   try {
     body = await request.json()
@@ -63,6 +76,31 @@ export async function POST(request: Request) {
   }
 
   const { payload } = result
+
+  // Honeypot: si el bot lleno el campo escondido, fingimos exito y nos
+  // retiramos. No persistimos ni mandamos mail.
+  if (payload.website && payload.website.length > 0) {
+    console.log('[api/contact] honeypot triggered', { ip, email: payload.email })
+    return NextResponse.json({ ok: true })
+  }
+
+  // Persistir el lead en onboarding_requests (best-effort: si la DB falla,
+  // igual intentamos el mail para no perder el contacto).
+  try {
+    await insertOnboardingRequestInPostgres({
+      kind: payload.kind,
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone || null,
+      organization: payload.organization || null,
+      message: payload.message,
+      sourceIp: ip === 'unknown' ? null : ip,
+      userAgent: request.headers.get('user-agent') ?? null,
+      honeypotValue: null,
+    })
+  } catch (err) {
+    console.error('[api/contact] insertOnboardingRequest failed (non-blocking)', err)
+  }
   const kindLabel = payload.kind === 'building' ? 'Edificio / consorcio' : 'Negocio'
   const subject = `[Citify · ${kindLabel}] Contacto de ${payload.name}`
 
