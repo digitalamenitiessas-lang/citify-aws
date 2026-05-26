@@ -200,7 +200,28 @@ superadmin dashboard (antes solo era accesible via URL directa).
 
 ## Sprint 2 — Features gaps
 
-- [ ] PDF de liquidación / recibo verificado E2E
+- [x] **PDF de liquidación verificado E2E** ✅ (vista pública)
+  - Dependencia nueva: `@react-pdf/renderer` (pure JS, sin chromium,
+    funciona en ECS Fargate sin pasos extra de container).
+  - `lib/iadmin/public-liquidation-pdf.tsx`: componente del documento
+    A4 con header de la propiedad, monto destacado (con estado
+    "Mes al día" si está pago), desglose (ordinarias / extras /
+    saldo anterior / cobrado), tabla de vencimientos con recargos,
+    pagos registrados, datos bancarios (banco / CBU / alias / cuenta)
+    y datos del contador. Branding Citify (naranja + neutros).
+  - `app/l/[token]/pdf/route.tsx`: GET pública gateada por token —
+    si el token está revocado o expiró, 404. `renderToBuffer` →
+    `Content-Type: application/pdf` + filename con propiedad+unidad+
+    período. Filename normalizado sin acentos para compatibilidad
+    cross-OS.
+  - Botón "Descargar PDF" agregado al header de `/l/[token]` (visible
+    desde el celular del propietario).
+  - Verificado E2E con `next build`: la ruta aparece en el listing,
+    bundle ok, sin errores de tipo.
+  - El admin sigue usando `/print/liquidaciones/[id]` (HTML imprimible
+    landscape para print → PDF via browser) porque es multi-página,
+    multi-unidad y le sirve como reporte interno. La vista pública
+    cubre el flow del propietario que es donde estaba el gap real.
 - [x] **Reportes / morosos / export CSV en cobranzas** ✅
   - Nuevo read `listMorososByAdminFromPostgres` en
     `lib/db/iadmin-reads.ts`: agrega los items abiertos por unidad,
