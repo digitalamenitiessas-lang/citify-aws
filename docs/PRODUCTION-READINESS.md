@@ -3,7 +3,7 @@
 Tracking de los gaps para salir a producción. Si la sesión se interrumpe,
 abrir este doc da el estado de cada item.
 
-Última actualización: 2026-05-25
+Última actualización: 2026-05-26
 
 ---
 
@@ -80,8 +80,33 @@ abrir este doc da el estado de cada item.
   - DEPLOY.md sigue siendo la referencia para el fallback manual
     (Docker Desktop local) si Actions cae.
 - [ ] Restore test de RDS snapshot (nunca se hizo)
-- [ ] Service worker cache busting (DEPLOY.md menciona el problema)
-- [ ] Dashboard / alarma de bounce rate SES (>5% suspende sending)
+- [x] **Service worker cache busting** ✅
+  - `next.config.mjs` sirve `/sw.js` con `Cache-Control: no-cache, no-store,
+    must-revalidate` + `Service-Worker-Allowed: /`.
+  - `components/pwa/pwa-init.tsx` registra el SW con
+    `updateViaCache: 'none'`, dispara `reg.update()` al volver el foco a la
+    tab (`visibilitychange`) y recarga la página en `controllerchange` para
+    que las tabs abiertas adopten la nueva versión inmediatamente.
+  - `public/sw.js` agrega constante `SW_VERSION` (bumpear para forzar
+    update aunque no haya byte-diff de lógica), cleanup defensivo de
+    caches viejas en `activate`, y postMessage `sw-activated` a las tabs.
+  - Resultado: ya no hace falta cerrar todas las tabs después de un
+    deploy del PWA. DEPLOY.md actualizado.
+- [x] **Dashboard / alarma de bounce rate SES** ✅
+  - `scripts/setup-ses-alarms.mjs`: corre con `ALERT_EMAIL=... node …`,
+    crea SNS topic `citify-ses-reputation-alerts`, suscribe el mail y
+    arma 2 alarmas CloudWatch sobre `AWS/SES`: `Reputation.BounceRate`
+    ≥ 3% (SES suspende >5%) y `Reputation.ComplaintRate` ≥ 0.05%
+    (SES suspende >0.1%). Idempotente. **Pendiente: correrlo en AWS
+    una vez y confirmar la subscripción SNS desde el mail.**
+  - `lib/db/email-metrics.ts`: queries sobre `email_events` para
+    summary (24h/7d/30d), top addresses con bounces y health por
+    template.
+  - `app/superadmin/email-health/page.tsx`: dashboard accesible en
+    `/superadmin/email-health` con tabs de ventana, KPIs con tone
+    (verde/amarillo/rojo), tabla por template y top bouncing
+    addresses. Marca breach interno (3% bounce, 0.05% complaint)
+    antes de que SES nos suspenda.
 - [x] **Comunicados** ✅
   - Migración `20260525_building_announcements`:
     - `building_announcements` (id, building_id, author_profile_id,

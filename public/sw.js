@@ -1,5 +1,30 @@
+// Bump SW_VERSION cuando cambies este archivo para forzar update en clientes.
+// El registro usa updateViaCache: 'none' (ver components/pwa/pwa-init.tsx) y
+// los headers de /sw.js son no-cache (ver next.config.mjs), así que el byte-diff
+// es lo único que dispara la activación de un nuevo SW.
+const SW_VERSION = '2026-05-26-1'
+
 self.addEventListener('install', () => self.skipWaiting())
-self.addEventListener('activate', (e) => e.waitUntil(clients.claim()))
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      // Cleanup defensivo de caches viejas (versiones previas del SW podían
+      // haber dejado caches con otros nombres). Hoy no usamos Cache API.
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => caches.delete(k)))
+      await self.clients.claim()
+      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const client of clientList) {
+        client.postMessage({ type: 'sw-activated', version: SW_VERSION })
+      }
+    })()
+  )
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'skip-waiting') self.skipWaiting()
+})
 
 self.addEventListener('push', (event) => {
   let data = {}

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Banknote, Bell, BellRing, Building2, MessageSquareText, Receipt, ScrollText, Wallet } from 'lucide-react'
+import { Banknote, Bell, BellRing, Building2, Megaphone, MessageSquareText, Receipt, ScrollText, Wallet } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -18,6 +18,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
   { href: '/iadmin/recordatorios', label: 'Recordatorios', icon: BellRing, need: 'reminders.generate', matchPrefix: '/iadmin/recordatorios' },
   { href: '/iadmin/expedientes', label: 'Expedientes', icon: MessageSquareText, need: 'consorcio.view', matchPrefix: '/iadmin/expedientes' },
+  { href: '/iadmin/comunicaciones', label: 'Comunicados', icon: Megaphone, need: 'communications.send', matchPrefix: '/iadmin/comunicaciones' },
 ]
 
 export function IAdminNav({ allowedCapabilities }: { allowedCapabilities: IAdminCapability[] }) {

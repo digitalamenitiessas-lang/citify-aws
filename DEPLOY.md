@@ -309,7 +309,7 @@ Las migraciones de DB **no se revierten automáticamente** — escribilas siempr
 - **Multi-arch images**: el `docker push` muestra un digest (manifest list), pero `aws ecs describe-tasks` reporta el digest del manifest específico de plataforma (linux/amd64). Son distintos pero la imagen es la misma.
 - **RDS no es publicly accessible.** Para conectar con `psql` o un cliente local necesitás abrirla o usar un bastión. Por defecto preferí `ecs run-task` para todo lo que sea DB.
 - **`auth.uid()` en SQL** está redefinido para leer la GUC `app.current_profile_id`. Si una query necesita respetar RLS por usuario, usar `pgQueryAsProfile(profileId, ...)` (de `lib/db/postgres.ts`) en vez de `pgQuery`. El owner de las tablas (`citify_admin`) bypasea RLS, así que la mayoría de queries de servidor andan sin GUC, pero algunas (típicamente los UPDATEs que toca el dueño de una entidad) necesitan el contexto.
-- **Service worker (`public/sw.js`)** se cachea agresivamente en browser. Después de cambios al PWA, los users ven la versión vieja hasta que cierran todas las tabs. Para forzar refresco: cambiar el `cacheName`/version del SW.
+- **Service worker (`public/sw.js`)**: el registro usa `updateViaCache: 'none'` y los headers de `/sw.js` son `no-cache` (ver `next.config.mjs`), así que cualquier byte-diff en el archivo dispara el flujo `skipWaiting → activate → controllerchange → window.reload()` en las tabs abiertas. Para forzar update aunque la lógica no cambie, bumpear el `SW_VERSION` en `public/sw.js`.
 
 ---
 
