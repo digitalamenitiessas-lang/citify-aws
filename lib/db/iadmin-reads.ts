@@ -1673,3 +1673,180 @@ export async function computeCollectionsKpisFromPostgres(input: {
   )
   return result.rows[0]
 }
+
+// ----------------------------------------------------------------------------
+// Morosos: agregacion por unidad (todos los items abiertos sumados)
+// ----------------------------------------------------------------------------
+
+export type MorosoUnitRow = {
+  unit_id: string
+  unit_code: string
+  unit_kind: string | null
+  holder_name: string | null
+  holder_email: string | null
+  holder_phone: string | null
+  managed_property_id: string
+  property_display_name: string | null
+  building_name: string | null
+  open_items_count: number
+  total_balance: string
+  // Buckets de aging (basados en primer vencimiento del item):
+  bucket_current: string // todavia no vencio
+  bucket_0_30: string // venc <= 30 dias atras
+  bucket_31_60: string // venc 31-60 dias atras
+  bucket_61_90: string // venc 61-90 dias atras
+  bucket_over_90: string // venc mas de 90 dias atras
+  oldest_due_date: string | null
+  last_payment_at: string | null
+}
+
+export async function listMorososByAdminFromPostgres(input: {
+  administrationId: string
+}): Promise<MorosoUnitRow[]> {
+  const result = await pgQuery<MorosoUnitRow>(
+    `
+      with chosen_holder as (
+        select distinct on (h.unit_id)
+          h.unit_id, h.full_name, h.email, h.phone
+        from public.iadmin_unit_holders h
+        order by h.unit_id, h.is_active desc, h.created_at asc
+      ),
+      paid_by_item as (
+        select liquidation_item_id, coalesce(sum(amount), 0) as paid
+          from public.iadmin_payments
+         where liquidation_item_id is not null
+           and is_void = false
+         group by liquidation_item_id
+      ),
+      open_items as (
+        select
+          li.id as item_id,
+          li.unit_id,
+          r.managed_property_id,
+          (coalesce(li.ordinary_amount, 0)
+            + coalesce(li.extraordinary_amount, 0)
+            + coalesce(li.previous_balance, 0)
+            - coalesce(pbi.paid, 0)) as balance,
+          ((r.due_dates->0)->>'date')::date as first_due_date
+        from public.iadmin_liquidation_items li
+        inner join public.iadmin_liquidation_runs r on r.id = li.liquidation_run_id
+        left join paid_by_item pbi on pbi.liquidation_item_id = li.id
+        where r.administration_id = $1
+          and r.status in ('issued', 'closed')
+          and (coalesce(li.ordinary_amount, 0)
+                + coalesce(li.extraordinary_amount, 0)
+                + coalesce(li.previous_balance, 0)
+                - coalesce(pbi.paid, 0)) > 0.01
+      ),
+      bucketed as (
+        select
+          oi.unit_id,
+          oi.managed_property_id,
+          oi.balance,
+          oi.first_due_date,
+          case
+            when oi.first_due_date is null then null
+            else (current_date - oi.first_due_date)
+          end as days_overdue
+        from open_items oi
+      ),
+      last_pay as (
+        select unit_id, max(paid_at) as last_paid_at
+          from public.iadmin_payments
+         where administration_id = $1 and is_void = false
+         group by unit_id
+      ),
+      agg as (
+        select
+          b.unit_id,
+          b.managed_property_id,
+          count(*)::int as open_items_count,
+          sum(b.balance) as total_balance,
+          sum(case when b.days_overdue is null or b.days_overdue < 0 then b.balance else 0 end) as bucket_current,
+          sum(case when b.days_overdue between 0 and 30 then b.balance else 0 end) as bucket_0_30,
+          sum(case when b.days_overdue between 31 and 60 then b.balance else 0 end) as bucket_31_60,
+          sum(case when b.days_overdue between 61 and 90 then b.balance else 0 end) as bucket_61_90,
+          sum(case when b.days_overdue > 90 then b.balance else 0 end) as bucket_over_90,
+          min(b.first_due_date) as oldest_due_date
+        from bucketed b
+        group by b.unit_id, b.managed_property_id
+      )
+      select
+        a.unit_id,
+        u.code as unit_code,
+        u.kind::text as unit_kind,
+        ch.full_name as holder_name,
+        ch.email as holder_email,
+        ch.phone as holder_phone,
+        a.managed_property_id,
+        mp.display_name as property_display_name,
+        b.name as building_name,
+        a.open_items_count,
+        a.total_balance::text as total_balance,
+        a.bucket_current::text as bucket_current,
+        a.bucket_0_30::text as bucket_0_30,
+        a.bucket_31_60::text as bucket_31_60,
+        a.bucket_61_90::text as bucket_61_90,
+        a.bucket_over_90::text as bucket_over_90,
+        a.oldest_due_date::text as oldest_due_date,
+        lp.last_paid_at::text as last_payment_at
+      from agg a
+      inner join public.iadmin_units u on u.id = a.unit_id
+      left join chosen_holder ch on ch.unit_id = a.unit_id
+      inner join public.iadmin_managed_properties mp on mp.id = a.managed_property_id
+      inner join public.buildings b on b.id = mp.building_id
+      left join last_pay lp on lp.unit_id = a.unit_id
+      order by a.total_balance desc
+    `,
+    [input.administrationId],
+  )
+  return result.rows
+}
+
+// ----------------------------------------------------------------------------
+// Profiles del building disponibles para vincular a una unidad
+// ----------------------------------------------------------------------------
+
+export async function listLinkableProfilesByBuildingFromPostgres(
+  buildingId: string,
+): Promise<
+  Array<{
+    id: string
+    email: string
+    full_name: string
+    role: 'vecino' | 'propietario'
+    phone: string | null
+    active_memberships_count: number
+  }>
+> {
+  const result = await pgQuery<{
+    id: string
+    email: string
+    full_name: string
+    role: 'vecino' | 'propietario'
+    phone: string | null
+    active_memberships_count: number
+  }>(
+    `
+      select
+        p.id,
+        p.email,
+        p.full_name,
+        p.role,
+        p.phone,
+        coalesce(m.active_count, 0)::int as active_memberships_count
+      from public.profiles p
+      left join (
+        select profile_id, count(*) as active_count
+        from public.unit_profile_memberships
+        where building_id = $1 and active = true
+        group by profile_id
+      ) m on m.profile_id = p.id
+      where p.building_id = $1
+        and p.role in ('vecino', 'propietario')
+      order by coalesce(m.active_count, 0) asc, p.full_name asc
+    `,
+    [buildingId],
+  )
+  return result.rows
+}

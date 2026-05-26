@@ -74,6 +74,7 @@ import type {
   IAdminProvider,
   IAdminUnit,
   IAdminUnitHolder,
+  IAdminLinkableProfile,
   IAdminUnitWithHolders,
   MarketplaceItem,
   OwnerDashboardData,
@@ -146,6 +147,7 @@ import {
   listExpensesForDashboardFromPostgres,
   listHoldersByUnitsFromPostgres,
   listImputedExpenseLinesByPeriodFromPostgres,
+  listLinkableProfilesByBuildingFromPostgres,
   listLiquidationItemsByRunBasicFromPostgres,
   listLiquidationItemsDetailedFromPostgres,
   listLiquidationRunSummariesByAdminFromPostgres,
@@ -2070,6 +2072,18 @@ export async function getIAdminUnitsWithHolders(propertyId: string): Promise<IAd
       })
     return { ...baseUnit, holders: sortedHolders, memberships: sortedMemberships }
   })
+}
+
+export async function getIAdminLinkableProfiles(buildingId: string): Promise<IAdminLinkableProfile[]> {
+  const rows = await listLinkableProfilesByBuildingFromPostgres(buildingId)
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    fullName: r.full_name,
+    role: r.role,
+    phone: r.phone,
+    activeMembershipsCount: r.active_memberships_count,
+  }))
 }
 
 function round2(n: number): number {

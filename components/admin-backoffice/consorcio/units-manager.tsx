@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { IAdminHolderKind, IAdminUnitKind, IAdminUnitWithHolders } from '@/lib/types'
+import type { IAdminHolderKind, IAdminLinkableProfile, IAdminUnitKind, IAdminUnitWithHolders } from '@/lib/types'
 import {
   createUnitUser,
   createUnit,
@@ -24,12 +24,14 @@ import {
   deactivateUnitMembership,
   deactivateUnit,
   endUnitHolder,
+  linkExistingProfileToUnit,
   updateUnit,
 } from '@/app/iadmin/consorcios/[id]/actions'
 
 type Props = {
   propertyId: string
   units: IAdminUnitWithHolders[]
+  linkableProfiles: IAdminLinkableProfile[]
   canManageUnits: boolean
   canManageHolders: boolean
 }
@@ -105,7 +107,7 @@ function parseDraft(draft: UnitDraft) {
   }
 }
 
-export function UnitsManager({ propertyId, units, canManageUnits, canManageHolders }: Props) {
+export function UnitsManager({ propertyId, units, linkableProfiles, canManageUnits, canManageHolders }: Props) {
   const [pending, startTransition] = useTransition()
   const [confirmAction, setConfirmAction] = useState<UnitsConfirmAction | null>(null)
   const [creating, setCreating] = useState(false)
@@ -131,6 +133,12 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
     phone: '',
     password: 'Citify2026!',
     isPrimaryOwner: true,
+  })
+  const [linkDraft, setLinkDraft] = useState({
+    search: '',
+    profileId: '',
+    relationshipType: 'vecino_principal' as (typeof UNIT_USER_OPTIONS)[number]['value'],
+    isPrimaryOwner: false,
   })
 
   function submitNewUnit(event: React.FormEvent<HTMLFormElement>) {
@@ -248,7 +256,30 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
       password: 'Citify2026!',
       isPrimaryOwner: true,
     })
+    setLinkDraft({ search: '', profileId: '', relationshipType: 'vecino_principal', isPrimaryOwner: false })
     setAddingUserFor(null)
+  }
+
+  function submitLinkExisting(event: React.FormEvent<HTMLFormElement>, unitId: string) {
+    event.preventDefault()
+    if (!linkDraft.profileId) {
+      toast.error('Seleccioná un vecino')
+      return
+    }
+    startTransition(async () => {
+      try {
+        await linkExistingProfileToUnit({
+          unitId,
+          profileId: linkDraft.profileId,
+          relationshipType: linkDraft.relationshipType,
+          isPrimaryOwner: linkDraft.isPrimaryOwner,
+        })
+        toast.success('Vecino vinculado a la unidad')
+        resetUserDraft()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
   }
 
   function submitUnitUser(event: React.FormEvent<HTMLFormElement>, unitId: string) {
@@ -594,7 +625,102 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
                         )}
 
                         {isAddingUser ? (
-                          <form onSubmit={(e) => submitUnitUser(e, unit.id)} className="mt-3 space-y-3 rounded-lg border border-border/40 p-3">
+                          <div className="mt-3 space-y-4 rounded-lg border border-border/40 p-3">
+                            <form onSubmit={(e) => submitLinkExisting(e, unit.id)} className="space-y-3">
+                              <div className="text-sm font-medium">Vincular vecino existente</div>
+                              <div className="space-y-1.5">
+                                <Label>Buscar por nombre o email</Label>
+                                <Input
+                                  value={linkDraft.search}
+                                  onChange={(e) => setLinkDraft({ ...linkDraft, search: e.target.value, profileId: '' })}
+                                  placeholder="Tipear para filtrar..."
+                                />
+                                {(() => {
+                                  const term = linkDraft.search.trim().toLowerCase()
+                                  const filtered = linkableProfiles
+                                    .filter((p) => {
+                                      if (!term) return true
+                                      return (
+                                        p.fullName.toLowerCase().includes(term) ||
+                                        p.email.toLowerCase().includes(term)
+                                      )
+                                    })
+                                    .slice(0, 8)
+                                  if (linkableProfiles.length === 0) {
+                                    return (
+                                      <p className="text-xs text-muted-foreground">
+                                        No hay vecinos del consorcio disponibles. Crealos desde el panel superadmin o usá el form de abajo.
+                                      </p>
+                                    )
+                                  }
+                                  if (filtered.length === 0) {
+                                    return <p className="text-xs text-muted-foreground">Sin resultados.</p>
+                                  }
+                                  return (
+                                    <ul className="max-h-44 overflow-auto rounded-md border border-border/40 divide-y divide-border/40">
+                                      {filtered.map((p) => {
+                                        const selected = linkDraft.profileId === p.id
+                                        const badge =
+                                          p.activeMembershipsCount === 0
+                                            ? 'sin unidad'
+                                            : `${p.activeMembershipsCount} unidad${p.activeMembershipsCount === 1 ? '' : 'es'}`
+                                        return (
+                                          <li key={p.id}>
+                                            <button
+                                              type="button"
+                                              onClick={() => setLinkDraft({ ...linkDraft, profileId: p.id })}
+                                              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/40 ${selected ? 'bg-muted/60' : ''}`}
+                                            >
+                                              <div className="font-medium">{p.fullName}</div>
+                                              <div className="text-xs text-muted-foreground">
+                                                {p.email} · {badge} · {p.role}
+                                              </div>
+                                            </button>
+                                          </li>
+                                        )
+                                      })}
+                                    </ul>
+                                  )
+                                })()}
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <Label>Tipo de vinculo</Label>
+                                  <select
+                                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                    value={linkDraft.relationshipType}
+                                    onChange={(e) =>
+                                      setLinkDraft({
+                                        ...linkDraft,
+                                        relationshipType: e.target.value as typeof linkDraft.relationshipType,
+                                      })
+                                    }
+                                  >
+                                    {UNIT_USER_OPTIONS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                {linkDraft.relationshipType === 'propietario' ? (
+                                  <label className="flex items-center gap-2 text-xs text-muted-foreground self-end pb-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={linkDraft.isPrimaryOwner}
+                                      onChange={(e) => setLinkDraft({ ...linkDraft, isPrimaryOwner: e.target.checked })}
+                                    />
+                                    Propietario principal de la unidad
+                                  </label>
+                                ) : null}
+                              </div>
+                              <div className="flex justify-end">
+                                <Button type="submit" size="sm" disabled={pending || !linkDraft.profileId}>Vincular</Button>
+                              </div>
+                            </form>
+                            <div className="relative">
+                              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/40" /></div>
+                              <div className="relative flex justify-center text-[10px] uppercase tracking-wider"><span className="bg-background px-2 text-muted-foreground">o crear nuevo</span></div>
+                            </div>
+                          <form onSubmit={(e) => submitUnitUser(e, unit.id)} className="space-y-3">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <div className="space-y-1.5">
                                 <Label>Tipo de vinculo</Label>
@@ -640,6 +766,7 @@ export function UnitsManager({ propertyId, units, canManageUnits, canManageHolde
                               <Button type="submit" size="sm" disabled={pending}>Crear y vincular</Button>
                             </div>
                           </form>
+                          </div>
                         ) : null}
                       </div>
                     </div>

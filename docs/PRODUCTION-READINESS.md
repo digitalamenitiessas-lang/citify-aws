@@ -200,11 +200,85 @@ superadmin dashboard (antes solo era accesible via URL directa).
 
 ## Sprint 2 — Features gaps
 
-- [ ] PDF de liquidación / recibo verificado E2E
-- [ ] Reportes / morosos / export CSV en cobranzas
+- [x] **PDF de liquidación verificado E2E** ✅ (vista pública)
+  - Dependencia nueva: `@react-pdf/renderer` (pure JS, sin chromium,
+    funciona en ECS Fargate sin pasos extra de container).
+  - `lib/iadmin/public-liquidation-pdf.tsx`: componente del documento
+    A4 con header de la propiedad, monto destacado (con estado
+    "Mes al día" si está pago), desglose (ordinarias / extras /
+    saldo anterior / cobrado), tabla de vencimientos con recargos,
+    pagos registrados, datos bancarios (banco / CBU / alias / cuenta)
+    y datos del contador. Branding Citify (naranja + neutros).
+  - `app/l/[token]/pdf/route.tsx`: GET pública gateada por token —
+    si el token está revocado o expiró, 404. `renderToBuffer` →
+    `Content-Type: application/pdf` + filename con propiedad+unidad+
+    período. Filename normalizado sin acentos para compatibilidad
+    cross-OS.
+  - Botón "Descargar PDF" agregado al header de `/l/[token]` (visible
+    desde el celular del propietario).
+  - Verificado E2E con `next build`: la ruta aparece en el listing,
+    bundle ok, sin errores de tipo.
+  - El admin sigue usando `/print/liquidaciones/[id]` (HTML imprimible
+    landscape para print → PDF via browser) porque es multi-página,
+    multi-unidad y le sirve como reporte interno. La vista pública
+    cubre el flow del propietario que es donde estaba el gap real.
+- [x] **Reportes / morosos / export CSV en cobranzas** ✅
+  - Nuevo read `listMorososByAdminFromPostgres` en
+    `lib/db/iadmin-reads.ts`: agrega los items abiertos por unidad,
+    calcula buckets de aging (al día / 0-30 / 31-60 / 61-90 / +90) en
+    una sola query con CTEs, incluye titular elegido, último pago y
+    vencimiento más viejo.
+  - Nueva página `app/iadmin/cobranzas/reportes/page.tsx` gateada por
+    capability `reports.view`: KPIs de cabecera (unidades con deuda,
+    total a cobrar, mora > 30 días) + tabla `MorososTable` con búsqueda
+    por unidad/titular y filtro por consorcio. Colores por severidad
+    (rosa para +90 días, naranja para 61-90, ámbar para 31-60).
+  - Helper `lib/iadmin/csv.ts`: `buildCsv` con escape RFC 4180 + BOM
+    UTF-8 (Excel ES-AR abre sin garabatos), `csvResponseHeaders` con
+    `Content-Disposition: attachment` y filename con fecha,
+    `formatMoneyAr` para columnas numéricas.
+  - Dos rutas de export:
+    - `GET /iadmin/cobranzas/reportes/export-morosos`: dump completo de
+      morosos por unidad, 14 columnas (consorcio, unidad, titular, mail,
+      teléfono, items abiertos, total, buckets, vencimiento más viejo,
+      último pago).
+    - `GET /iadmin/cobranzas/reportes/export-pagos?...`: dump de pagos
+      respetando los mismos filtros del payments-table (period,
+      unitId, status, method). Cap a 5000 rows. 16 columnas (recibo,
+      fecha, consorcio, unidad, titular, período, monto, recargo,
+      método, ref, cuenta, estado, motivo anulación, anulado por/el,
+      cargado por).
+  - Link "Ver reportes" agregado al header de `/iadmin/cobranzas`
+    (visible si `reports.view`).
 - [ ] Multi-tenant Countrify limpiar (`lib/aws/cognito.ts` con pool por hostname)
-- [ ] Conciliación bancaria CSV import
-- [ ] Restaurar / asignar `iadmin_unit_holders` desde UI
+- [x] **Conciliación bancaria CSV import** ✅ (ya estaba, agregada
+  discoverabilidad)
+  - El feature ya estaba implementado: parser XLSX/CSV en
+    `components/admin-backoffice/consorcio/reconciliation-wizard.tsx`
+    (XLSX.read + auto-detección de columnas fecha/desc/monto/ref),
+    server actions `analyzeBankStatement` + `applyReconciliation` en
+    `app/iadmin/consorcios/[id]/conciliacion/actions.ts` (matching
+    fuzzy por nombre + monto contra items abiertos y gastos pendientes,
+    aplica como bank movements + payments atómicos).
+  - Lo que faltaba era discoverabilidad: el wizard solo se llegaba via
+    `/iadmin/consorcios/[id]/configuracion` → tab "Conciliación
+    bancaria". Agregado link directo en el header de `/iadmin/cobranzas`
+    "Conciliación bancaria" que va al listing de consorcios para que el
+    admin elija el que quiere conciliar.
+  - Capability gate: `collections.register` (tanto en page load como en
+    las actions de analyze/apply).
+- [x] **Restaurar / asignar `iadmin_unit_holders` desde UI** ✅ (ya estaba)
+  - Auditoría confirmó que el feature está completo:
+    `components/admin-backoffice/consorcio/units-manager.tsx` tiene
+    listado de titulares activos por unidad, form "Agregar titular"
+    (con kind propietario/inquilino/apoderado/otro + checkbox "reemplazar
+    activo del mismo tipo"), y botón "Finalizar" para soft-delete con
+    `end_date`.
+  - Server actions `createUnitHolder` + `endUnitHolder` en
+    `app/iadmin/consorcios/[id]/actions.ts`, gateadas por
+    `holders.manage`, con audit log.
+  - UI accesible desde `/iadmin/consorcios/[id]/gestion` → expandir
+    unidad → sección "Titulares".
 
 ## Roadmap v1.5+
 
