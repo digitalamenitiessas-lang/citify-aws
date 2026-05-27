@@ -2587,7 +2587,9 @@ export async function insertBankMovementInPostgres(input: {
         administration_id, managed_property_id, cash_account_id, movement_date,
         description, amount, external_ref, movement_kind, expense_id, created_by
       )
-      values ($1, $2, $3, $4::date, $5, $6, $7, $8::iadmin_bank_movement_kind, $9, $10)
+      -- movement_kind es columna text con CHECK constraint (no enum nominal);
+      -- el cast ::iadmin_bank_movement_kind generaba "type does not exist".
+      values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10)
       returning id
     `,
     [
