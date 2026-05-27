@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import {
+  FileSpreadsheet,
   Megaphone,
   MessageSquareText,
   Plus,
@@ -72,8 +74,15 @@ type Props = {
 
 export function QuickActionsFab({ allowedCapabilities }: Props) {
   const [open, setOpen] = useState(false)
+  const pathname = usePathname() ?? ''
   const allowed = new Set(allowedCapabilities)
   const visible = ACTIONS.filter((a) => allowed.has(a.need))
+
+  // Si estamos dentro de un consorcio, agregamos atajo a "Importar Excel"
+  // del edificio actual (extrae el id de la URL).
+  const consorcioMatch = pathname.match(/^\/iadmin\/consorcios\/([^/]+)/)
+  const importHref = consorcioMatch ? `/iadmin/consorcios/${consorcioMatch[1]}/importar` : null
+  const showImport = importHref && allowed.has('units.manage')
 
   // Esc cierra el modal.
   useEffect(() => {
@@ -90,7 +99,7 @@ export function QuickActionsFab({ allowedCapabilities }: Props) {
     }
   }, [open])
 
-  if (visible.length === 0) return null
+  if (visible.length === 0 && !showImport) return null
 
   return (
     <>
@@ -158,6 +167,27 @@ export function QuickActionsFab({ allowedCapabilities }: Props) {
                   </li>
                 )
               })}
+              {showImport && importHref ? (
+                <li>
+                  <Link
+                    href={importHref}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-muted/40 transition-colors group"
+                  >
+                    <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-indigo-100 text-indigo-700">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
+                        Importar desde Excel
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Carga masiva de unidades y titulares
+                      </div>
+                    </div>
+                  </Link>
+                </li>
+              ) : null}
             </ul>
 
             <p className="mt-4 text-[11px] text-muted-foreground italic text-center">
