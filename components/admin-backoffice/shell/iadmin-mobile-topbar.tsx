@@ -2,30 +2,35 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { Building2, Menu, X } from 'lucide-react'
-import { IAdminNav } from './iadmin-nav'
+import { Menu, X } from 'lucide-react'
+import { IAdminSidebar } from './iadmin-sidebar'
 import type { IAdminCapability } from '@/lib/types'
+import type { SwitcherProperty } from './consorcio-switcher'
 
 interface Props {
   administrationName: string
   operationalRole: string | null
   allowedCapabilities: IAdminCapability[]
+  properties: SwitcherProperty[]
+  cookiePropertyId: string | null
 }
 
 export function IAdminMobileTopBar({
   administrationName,
   operationalRole,
   allowedCapabilities,
+  properties,
+  cookiePropertyId,
 }: Props) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
 
-  // Cerrar el drawer cuando cambia la ruta (clickeás una opcion del nav).
+  // Cerrar al cambiar de ruta.
   useEffect(() => {
     setOpen(false)
   }, [pathname])
 
-  // Esc para cerrar + lock del body scroll cuando esta abierto.
+  // Esc + lock body scroll.
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
@@ -70,34 +75,28 @@ export function IAdminMobileTopBar({
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative z-10 w-72 max-w-[85vw] bg-background border-r border-border shadow-2xl overflow-y-auto"
+            className="relative z-10 w-80 max-w-[90vw] bg-background shadow-2xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-border/40 px-4 py-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-primary">
-                  <Building2 className="w-3.5 h-3.5" />
-                  Backoffice
-                </div>
-                <div className="mt-1 text-base font-semibold text-foreground truncate">
-                  {administrationName}
-                </div>
-                {operationalRole ? (
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    Rol: {operationalRole}
-                  </div>
-                ) : null}
-              </div>
+            <div className="flex items-center justify-end px-4 py-3 border-b border-border/40">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted/60 shrink-0"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted/60"
                 aria-label="Cerrar menú"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <IAdminNav allowedCapabilities={allowedCapabilities} />
+            <div className="p-3">
+              <IAdminSidebar
+                administrationName={administrationName}
+                operationalRole={operationalRole}
+                allowedCapabilities={allowedCapabilities}
+                properties={properties}
+                cookiePropertyId={cookiePropertyId}
+              />
+            </div>
           </div>
         </div>
       ) : null}
