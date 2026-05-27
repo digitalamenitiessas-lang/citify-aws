@@ -14,7 +14,11 @@ export default async function LiquidacionesPage() {
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Liquidaciones</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Corridas mensuales</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Cada corrida se genera por consorcio + periodo contable y consume los gastos imputados.
+          Cada corrida se genera por consorcio y período. Flujo:{' '}
+          <span className="font-medium text-foreground">Borrador</span> →{' '}
+          <span className="font-medium text-foreground">Calculada</span> →{' '}
+          <span className="font-medium text-foreground">Emitida</span> →{' '}
+          <span className="font-medium text-foreground">Cerrada</span>. Una vez cerrada queda bloqueada.
         </p>
       </header>
       <LiquidationsTable runs={runs} />

@@ -2,7 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Settings, Table } from 'lucide-react'
+import {
+  Banknote,
+  BarChart3,
+  Building2,
+  FileSpreadsheet,
+  Scale,
+  Table,
+} from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 
 type SubNavItem = {
@@ -25,11 +32,43 @@ const ITEMS: SubNavItem[] = [
     exact: true,
   },
   {
-    key: 'configuracion',
-    href: (id) => `/iadmin/consorcios/${id}/configuracion`,
-    matchPrefix: (id) => `/iadmin/consorcios/${id}/`,
-    label: 'Configuración',
-    icon: Settings,
+    key: 'gestion',
+    href: (id) => `/iadmin/consorcios/${id}/gestion`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/gestion`,
+    label: 'Datos y unidades',
+    icon: Building2,
+    need: 'consorcio.view',
+  },
+  {
+    key: 'cuentas',
+    href: (id) => `/iadmin/consorcios/${id}/cuentas`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/cuentas`,
+    label: 'Cuentas / CBU',
+    icon: Banknote,
+    need: 'consorcio.view',
+  },
+  {
+    key: 'conciliacion',
+    href: (id) => `/iadmin/consorcios/${id}/conciliacion`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/conciliacion`,
+    label: 'Conciliación',
+    icon: Scale,
+    need: 'consorcio.view',
+  },
+  {
+    key: 'importar',
+    href: (id) => `/iadmin/consorcios/${id}/importar`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/importar`,
+    label: 'Importar',
+    icon: FileSpreadsheet,
+    need: 'consorcio.view',
+  },
+  {
+    key: 'dashboard',
+    href: (id) => `/iadmin/consorcios/${id}/dashboard`,
+    matchPrefix: (id) => `/iadmin/consorcios/${id}/dashboard`,
+    label: 'Reportes',
+    icon: BarChart3,
     need: 'consorcio.view',
   },
 ]

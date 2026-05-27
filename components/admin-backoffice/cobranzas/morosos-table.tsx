@@ -1,9 +1,32 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { MessageCircle, Search } from 'lucide-react'
 import type { MorosoUnitRow } from '@/lib/db/iadmin-reads'
 import { Money } from '@/components/admin-backoffice/shared/money'
+
+/** Sanitiza un número de teléfono para wa.me (solo dígitos, sin + ni espacios). */
+function buildWhatsAppLink(rawPhone: string | null | undefined, message: string): string | null {
+  if (!rawPhone) return null
+  const digits = rawPhone.replace(/\D/g, '')
+  if (digits.length < 8) return null
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`
+}
+
+function reminderMessage(opts: {
+  holderName: string | null
+  unitCode: string
+  building: string
+  totalBalance: number
+}): string {
+  const formattedTotal = new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(opts.totalBalance)
+  const greeting = opts.holderName ? `Hola ${opts.holderName.split(' ')[0]}` : 'Hola'
+  return `${greeting}, te recordamos que la unidad ${opts.unitCode} de ${opts.building} tiene un saldo pendiente de ${formattedTotal}. Cualquier consulta estamos a disposición. Saludos, la administración.`
+}
 
 function fmtDateAr(s: string | null): string {
   if (!s) return '—'
@@ -87,7 +110,7 @@ export function MorososTable({ rows }: { rows: MorosoUnitRow[] }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] text-sm">
+        <table className="w-full min-w-[1100px] text-sm">
           <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2 font-medium">Unidad</th>
@@ -100,6 +123,7 @@ export function MorososTable({ rows }: { rows: MorosoUnitRow[] }) {
               <th className="text-right px-3 py-2 font-medium">+90</th>
               <th className="text-left px-3 py-2 font-medium">Venc. más viejo</th>
               <th className="text-left px-3 py-2 font-medium">Último pago</th>
+              <th className="text-right px-3 py-2 font-medium">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -171,6 +195,42 @@ export function MorososTable({ rows }: { rows: MorosoUnitRow[] }) {
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {fmtDateAr(r.last_payment_at?.slice(0, 10) ?? null)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {(() => {
+                      const waLink = buildWhatsAppLink(
+                        r.holder_phone,
+                        reminderMessage({
+                          holderName: r.holder_name ?? null,
+                          unitCode: r.unit_code,
+                          building: r.property_display_name?.trim() || r.building_name || 'el edificio',
+                          totalBalance: Number(r.total_balance),
+                        }),
+                      )
+                      if (!waLink) {
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground/60 cursor-not-allowed"
+                            title="No hay teléfono cargado para el titular"
+                          >
+                            <MessageCircle className="w-3 h-3" />
+                            Recordar
+                          </span>
+                        )
+                      }
+                      return (
+                        <a
+                          href={waLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors"
+                          title="Abrir WhatsApp con mensaje pre-armado"
+                        >
+                          <MessageCircle className="w-3 h-3" />
+                          Recordar
+                        </a>
+                      )
+                    })()}
                   </td>
                 </tr>
               )

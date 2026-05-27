@@ -1,11 +1,16 @@
+import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { Building2, ChevronRight } from 'lucide-react'
 import type { IAdminContext } from '@/lib/types'
+import { getIAdminPortfolio } from '@/lib/data'
 import { IAdminBalanceHint, IAdminNav, IAdminNotificationsBadge } from './iadmin-nav'
 import { IAdminMobileTopBar } from './iadmin-mobile-topbar'
+import { ConsorcioSwitcher, type SwitcherProperty } from './consorcio-switcher'
 import { ChatWidget } from '@/components/ai/chat-widget'
 
-export function IAdminShell({
+const CURRENT_PROPERTY_COOKIE = 'currentPropertyId'
+
+export async function IAdminShell({
   context,
   children,
   breadcrumbs,
@@ -17,6 +22,23 @@ export function IAdminShell({
   const primary = context.primary
   const allowedCapabilities = primary?.capabilities ?? []
   const administrationName = primary?.administration.name ?? 'Sin administracion'
+
+  // Lista de consorcios para el switcher (puede ser vacía si la cuenta no tiene admin).
+  const portfolio = primary
+    ? await getIAdminPortfolio(primary.administration.id)
+    : null
+  const switcherProperties: SwitcherProperty[] = (portfolio?.properties ?? []).map((p) => ({
+    id: p.id,
+    displayName: p.displayName,
+    buildingName: p.buildingName,
+    buildingAddress: p.buildingAddress ?? null,
+    totalUnits: p.totalUnits ?? null,
+  }))
+
+  // Cookie persistente. La prioridad URL > cookie > primera la resuelve el client component
+  // usando usePathname(), que es fiable en App Router.
+  const cookieStore = await cookies()
+  const cookiePropertyId = cookieStore.get(CURRENT_PROPERTY_COOKIE)?.value ?? null
 
   return (
     <>
@@ -68,6 +90,10 @@ export function IAdminShell({
               ))}
             </nav>
             <div className="flex items-center gap-2 shrink-0">
+              <ConsorcioSwitcher
+                properties={switcherProperties}
+                cookiePropertyId={cookiePropertyId}
+              />
               <IAdminBalanceHint />
               <IAdminNotificationsBadge />
             </div>
