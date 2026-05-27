@@ -1,6 +1,8 @@
 import { RemindersInbox } from '@/components/admin-backoffice/recordatorios/reminders-inbox'
+import { PropertyFilterBanner } from '@/components/admin-backoffice/shell/property-filter-banner'
 import { requireIAdmin } from '@/lib/auth'
 import { getIAdminPortfolio, getIAdminReminders } from '@/lib/data'
+import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
 
 export default async function RecordatoriosPage() {
   const { context } = await requireIAdmin({ capability: 'reminders.generate' })
@@ -14,10 +16,19 @@ export default async function RecordatoriosPage() {
     )
   }
 
-  const [reminders, portfolio] = await Promise.all([
+  const [remindersAll, portfolio] = await Promise.all([
     getIAdminReminders(administrationId, { status: 'all', limit: 200 }),
     getIAdminPortfolio(administrationId),
   ])
+
+  const allowedIds = (portfolio?.properties ?? []).map((p) => p.id)
+  const currentPropertyId = await getCurrentPropertyId(allowedIds)
+  const reminders = currentPropertyId
+    ? remindersAll.filter((r) => r.managedPropertyId === currentPropertyId)
+    : remindersAll
+  const activeProperty = currentPropertyId
+    ? portfolio?.properties.find((p) => p.id === currentPropertyId) ?? null
+    : null
 
   return (
     <div className="space-y-6">
@@ -29,6 +40,14 @@ export default async function RecordatoriosPage() {
           Mandás por WhatsApp con un click y se marca automáticamente como enviado.
         </p>
       </header>
+
+      {activeProperty ? (
+        <PropertyFilterBanner
+          propertyName={activeProperty.displayName ?? activeProperty.buildingName}
+          count={reminders.length}
+          itemLabel="recordatorios"
+        />
+      ) : null}
 
       <RemindersInbox
         administrationId={administrationId}

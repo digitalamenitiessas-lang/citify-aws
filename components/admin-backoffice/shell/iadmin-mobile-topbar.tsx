@@ -17,7 +17,8 @@ interface Props {
 
 export function IAdminMobileTopBar({
   administrationName,
-  operationalRole,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  operationalRole: _operationalRole,
   allowedCapabilities,
   properties,
   cookiePropertyId,
@@ -91,7 +92,6 @@ export function IAdminMobileTopBar({
             <div className="p-3">
               <IAdminSidebar
                 administrationName={administrationName}
-                operationalRole={operationalRole}
                 allowedCapabilities={allowedCapabilities}
                 properties={properties}
                 cookiePropertyId={cookiePropertyId}

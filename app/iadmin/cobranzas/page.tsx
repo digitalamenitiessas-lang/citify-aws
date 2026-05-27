@@ -2,8 +2,10 @@ import Link from 'next/link'
 import { BarChart3, FileSpreadsheet } from 'lucide-react'
 import { CobranzasOverview } from '@/components/admin-backoffice/cobranzas/cobranzas-overview'
 import { PaymentsTable } from '@/components/admin-backoffice/cobranzas/payments-table'
+import { PropertyFilterBanner } from '@/components/admin-backoffice/shell/property-filter-banner'
 import { can, requireIAdmin } from '@/lib/auth'
-import { getIAdminCollectionsData } from '@/lib/data'
+import { getIAdminCollectionsData, getIAdminPortfolio } from '@/lib/data'
+import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
 import type { IAdminCollectionsFilters } from '@/lib/types'
 
 type SearchParams = {
@@ -54,10 +56,32 @@ export default async function CobranzasPage({
     )
   }
 
-  const data = await getIAdminCollectionsData(administrationId, filters)
+  const [data, portfolio] = await Promise.all([
+    getIAdminCollectionsData(administrationId, filters),
+    getIAdminPortfolio(administrationId),
+  ])
+
+  const allowedIds = (portfolio?.properties ?? []).map((p) => p.id)
+  const currentPropertyId = await getCurrentPropertyId(allowedIds)
+  const activeProperty = currentPropertyId
+    ? portfolio?.properties.find((p) => p.id === currentPropertyId) ?? null
+    : null
+
+  // Aplicar filtro de property al payload (post-fetch). La query no soporta filtro
+  // por managedPropertyId todavía, así que filtramos en memoria.
+  const filteredPayments = currentPropertyId
+    ? data.payments.filter((p) => p.managedPropertyId === currentPropertyId)
+    : data.payments
+  const filteredEligible = currentPropertyId
+    ? data.eligibleItems.filter((it) => it.managedPropertyId === currentPropertyId)
+    : data.eligibleItems
+  const filteredCashAccounts = currentPropertyId
+    ? data.cashAccounts.filter((a) => a.managedPropertyId === currentPropertyId)
+    : data.cashAccounts
+
   const canVoid = can(context, 'collections.void')
   const canViewReports = can(context, 'reports.view')
-  const hasIssuedRuns = data.eligibleItems.length > 0 || data.payments.length > 0
+  const hasIssuedRuns = filteredEligible.length > 0 || filteredPayments.length > 0
 
   return (
     <div className="space-y-4">
@@ -93,13 +117,21 @@ export default async function CobranzasPage({
         </div>
       </header>
 
+      {activeProperty ? (
+        <PropertyFilterBanner
+          propertyName={activeProperty.displayName ?? activeProperty.buildingName}
+          count={filteredPayments.length}
+          itemLabel="pagos"
+        />
+      ) : null}
+
       <CobranzasOverview kpis={data.kpis} />
 
       <PaymentsTable
-        payments={data.payments}
+        payments={filteredPayments}
         filters={data.filters}
-        eligibleItems={data.eligibleItems}
-        cashAccounts={data.cashAccounts}
+        eligibleItems={filteredEligible}
+        cashAccounts={filteredCashAccounts}
         canVoid={canVoid}
         hasIssuedRuns={hasIssuedRuns}
       />
