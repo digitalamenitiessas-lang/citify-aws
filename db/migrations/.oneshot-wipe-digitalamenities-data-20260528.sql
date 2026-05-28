@@ -3,7 +3,7 @@
 -- ============================================================================
 -- Resetea los DATOS INTERNOS que cargó el admin digitalamenitiessas@gmail.com
 -- pero conserva:
---   • profile + memberships (iadmin_administration_members)
+--   • profile + role grants (iadmin_role_grants)
 --   • iadmin_managed_properties (vínculo administración ↔ edificio)
 --   • buildings y consorcio_assignments
 --
@@ -39,12 +39,12 @@ BEGIN
   RAISE NOTICE '[wipe] Profile target: %', v_profile_id;
 
   -- ─── 2. Administraciones del user ────────────────────────────────────────
-  SELECT array_agg(administration_id) INTO v_admin_ids
-    FROM public.iadmin_administration_members
+  SELECT array_agg(DISTINCT administration_id) INTO v_admin_ids
+    FROM public.iadmin_role_grants
    WHERE profile_id = v_profile_id;
 
   IF v_admin_ids IS NULL THEN
-    RAISE NOTICE '[wipe] El profile no es miembro de ninguna administración. Nada que limpiar.';
+    RAISE NOTICE '[wipe] El profile no tiene role_grants en ninguna administración. Nada que limpiar.';
     RETURN;
   END IF;
   RAISE NOTICE '[wipe] Administraciones: %', array_length(v_admin_ids, 1);
@@ -218,8 +218,8 @@ BEGIN
   SELECT count(*) INTO v_count FROM public.buildings WHERE id = ANY(v_building_ids);
   RAISE NOTICE '[wipe] VERIFY: buildings conservados = % (esperado > 0)', v_count;
 
-  SELECT count(*) INTO v_count FROM public.iadmin_administration_members WHERE profile_id = v_profile_id;
-  RAISE NOTICE '[wipe] VERIFY: memberships del admin = % (esperado > 0)', v_count;
+  SELECT count(*) INTO v_count FROM public.iadmin_role_grants WHERE profile_id = v_profile_id;
+  RAISE NOTICE '[wipe] VERIFY: role_grants del admin = % (esperado > 0)', v_count;
 
   SELECT count(*) INTO v_count FROM public.iadmin_units WHERE managed_property_id = ANY(v_property_ids);
   RAISE NOTICE '[wipe] VERIFY: iadmin_units restantes = % (esperado 0)', v_count;
