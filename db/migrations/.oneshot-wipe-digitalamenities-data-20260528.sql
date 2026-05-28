@@ -71,8 +71,11 @@ BEGIN
   RAISE NOTICE '[wipe] iadmin_notifications: %', v_deleted;
 
   DELETE FROM public.iadmin_item_share_tokens
-   WHERE liquidation_run_id IN (
-     SELECT id FROM public.iadmin_liquidation_runs WHERE administration_id = ANY(v_admin_ids)
+   WHERE liquidation_item_id IN (
+     SELECT li.id
+       FROM public.iadmin_liquidation_items li
+       JOIN public.iadmin_liquidation_runs lr ON lr.id = li.liquidation_run_id
+      WHERE lr.administration_id = ANY(v_admin_ids)
    );
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   RAISE NOTICE '[wipe] iadmin_item_share_tokens: %', v_deleted;
@@ -101,8 +104,11 @@ BEGIN
   RAISE NOTICE '[wipe] iadmin_liquidation_runs: %', v_deleted;
 
   DELETE FROM public.iadmin_ai_document_extractions
-   WHERE expense_id IN (
-     SELECT id FROM public.iadmin_expenses WHERE administration_id = ANY(v_admin_ids)
+   WHERE document_id IN (
+     SELECT d.id
+       FROM public.iadmin_expense_documents d
+       JOIN public.iadmin_expenses e ON e.id = d.expense_id
+      WHERE e.administration_id = ANY(v_admin_ids)
    );
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   RAISE NOTICE '[wipe] iadmin_ai_document_extractions: %', v_deleted;
