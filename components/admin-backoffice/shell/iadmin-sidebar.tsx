@@ -9,7 +9,6 @@ import {
   Building2,
   FileSpreadsheet,
   Home,
-  LayoutDashboard,
   Megaphone,
   MessageSquareText,
   Receipt,
@@ -36,12 +35,11 @@ type Props = {
   cookiePropertyId: string | null
 }
 
-// Nav global simplificado: solo lo que tiene sentido a nivel cross-cartera.
+// Nav global simplificado: solo lo que tiene sentido cross-cartera.
+// Cartera se sacó porque Inicio ya muestra el resumen consolidado.
 // Liquidaciones y Recordatorios viven dentro de Mesa del mes de cada edificio.
-// Cobranzas se mantiene como atajo rápido al control de pagos del edificio activo.
 const GLOBAL_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/iadmin', label: 'Inicio', icon: Home, need: 'portfolio.view', exact: true },
-  { href: '/iadmin/cartera', label: 'Cartera', icon: LayoutDashboard, need: 'portfolio.view', matchPrefix: '/iadmin/cartera' },
   { href: '/iadmin/gastos', label: 'Gastos', icon: Receipt, need: 'expenses.view', matchPrefix: '/iadmin/gastos' },
   { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
   { href: '/iadmin/comunicaciones', label: 'Comunicados', icon: Megaphone, need: 'communications.send', matchPrefix: '/iadmin/comunicaciones' },
