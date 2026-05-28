@@ -119,7 +119,8 @@ export function IAdminSidebar({
   const pathname = usePathname() ?? ''
   const allowed = useMemo(() => new Set(allowedCapabilities), [allowedCapabilities])
 
-  // Active property: URL > cookie. "all" → ningún edificio activo.
+  // Active property: URL > cookie > (si hay un solo edificio, ese) > null.
+  // "all" en cookie → ningún edificio activo (vista consolidada).
   const urlMatch = pathname.match(/^\/iadmin\/consorcios\/([^/]+)/)
   const urlPropertyId = urlMatch ? urlMatch[1] : null
   const isAllCookie = cookiePropertyId === 'all'
@@ -130,7 +131,9 @@ export function IAdminSidebar({
     !isAllCookie && cookiePropertyId
       ? properties.find((p) => p.id === cookiePropertyId)
       : null
-  const activeProperty = activeFromUrl ?? activeFromCookie ?? null
+  // Si el admin solo tiene un edificio, ese es el active por default.
+  const singleProperty = properties.length === 1 ? properties[0] : null
+  const activeProperty = activeFromUrl ?? activeFromCookie ?? singleProperty ?? null
 
   const visibleGlobalItems = GLOBAL_ITEMS.filter((item) => allowed.has(item.need))
   const showConsorcioBlock = activeProperty && allowed.has('consorcio.view')

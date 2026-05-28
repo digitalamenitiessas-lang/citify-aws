@@ -28,7 +28,7 @@ export function HeaderPropertyPicker({ properties, cookiePropertyId }: Props) {
   // 0 propiedades → no mostramos nada. 1 propiedad → solo el chip estático.
   if (properties.length === 0) return null
 
-  // Active: URL > cookie > "all" implícito.
+  // Active: URL > cookie > (si hay un solo edificio, ese) > null
   const urlMatch = pathname.match(/^\/iadmin\/consorcios\/([^/]+)/)
   const urlPropertyId = urlMatch ? urlMatch[1] : null
   const activeFromUrl = urlPropertyId
@@ -39,9 +39,12 @@ export function HeaderPropertyPicker({ properties, cookiePropertyId }: Props) {
     !isAllCookie && cookiePropertyId
       ? properties.find((p) => p.id === cookiePropertyId)
       : null
-  const active = activeFromUrl ?? activeFromCookie ?? null
+  // Si el admin solo gestiona un único edificio, ese es el active por default
+  // (no tiene sentido mostrar "Todos los edificios" cuando hay uno solo).
+  const singleProperty = properties.length === 1 ? properties[0] : null
+  const active = activeFromUrl ?? activeFromCookie ?? singleProperty ?? null
 
-  // Si solo hay un consorcio y nada activo, no hace falta dropdown.
+  // Dropdown solo si hay más de un edificio.
   const interactive = properties.length > 1
 
   useEffect(() => {
