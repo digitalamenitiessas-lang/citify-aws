@@ -1697,6 +1697,16 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
 
   function submitConsorcio(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
+    // Guardia anti-Enter: si el user presiona Enter en cualquier input antes
+    // de llegar al paso "summary", el form se submitearía saltando la
+    // validación final. En vez de crear el consorcio, avanzamos al siguiente
+    // paso si la validación del paso actual pasa.
+    if (currentConsorcioStep.id !== 'summary') {
+      nextConsorcioStep()
+      return
+    }
+
     startTransition(async () => {
       try {
         const totalUnits = Number(consorcioDraft.totalUnits)
