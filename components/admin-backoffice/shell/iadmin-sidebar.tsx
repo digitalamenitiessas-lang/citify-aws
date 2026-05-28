@@ -6,7 +6,6 @@ import { useMemo } from 'react'
 import {
   Banknote,
   BarChart3,
-  BellRing,
   Building2,
   FileSpreadsheet,
   Home,
@@ -15,7 +14,6 @@ import {
   MessageSquareText,
   Receipt,
   Scale,
-  ScrollText,
   Table,
   Wallet,
 } from 'lucide-react'
@@ -38,14 +36,15 @@ type Props = {
   cookiePropertyId: string | null
 }
 
+// Nav global simplificado: solo lo que tiene sentido a nivel cross-cartera.
+// Liquidaciones y Recordatorios viven dentro de Mesa del mes de cada edificio.
+// Cobranzas se mantiene como atajo rápido al control de pagos del edificio activo.
 const GLOBAL_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/iadmin', label: 'Inicio', icon: Home, need: 'portfolio.view', exact: true },
   { href: '/iadmin/cartera', label: 'Cartera', icon: LayoutDashboard, need: 'portfolio.view', matchPrefix: '/iadmin/cartera' },
   { href: '/iadmin/gastos', label: 'Gastos', icon: Receipt, need: 'expenses.view', matchPrefix: '/iadmin/gastos' },
-  { href: '/iadmin/liquidaciones', label: 'Liquidaciones', icon: ScrollText, need: 'liquidations.view', matchPrefix: '/iadmin/liquidaciones' },
   { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
   { href: '/iadmin/comunicaciones', label: 'Comunicados', icon: Megaphone, need: 'communications.send', matchPrefix: '/iadmin/comunicaciones' },
-  { href: '/iadmin/recordatorios', label: 'Recordatorios', icon: BellRing, need: 'reminders.generate', matchPrefix: '/iadmin/recordatorios' },
   { href: '/iadmin/expedientes', label: 'Reclamos', icon: MessageSquareText, need: 'consorcio.view', matchPrefix: '/iadmin/expedientes' },
 ]
 

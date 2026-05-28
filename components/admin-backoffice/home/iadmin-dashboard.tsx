@@ -79,7 +79,7 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
     alerts.push({
       label: `${propertiesWithoutPeriod.length} consorcio${propertiesWithoutPeriod.length === 1 ? '' : 's'} sin período abierto`,
       detail: `Para ${periodLabel} todavía no se generó la mesa`,
-      href: '/iadmin/liquidaciones',
+      href: '/iadmin/cartera',
       tone: 'warning',
       icon: ScrollText,
     })
@@ -261,16 +261,16 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
                 href="/iadmin/gastos"
               />
               <QuickAction
-                icon={ScrollText}
-                label="Liquidar período"
-                hint="Cerrar y emitir expensas"
-                href="/iadmin/liquidaciones"
+                icon={Wallet}
+                label="Cobranzas del mes"
+                hint="Ver pagos por unidad"
+                href="/iadmin/cobranzas"
               />
               <QuickAction
-                icon={Wallet}
-                label="Registrar cobranza"
-                hint="Pago recibido de un vecino"
-                href="/iadmin/cobranzas"
+                icon={ScrollText}
+                label="Mesa del mes"
+                hint="Elegí un edificio para liquidar"
+                href="/iadmin/cartera"
               />
               <QuickAction
                 icon={Megaphone}

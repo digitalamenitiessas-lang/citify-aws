@@ -9,7 +9,6 @@ import {
   MessageSquareText,
   Plus,
   Receipt,
-  ScrollText,
   Wallet,
   X,
   Zap,
@@ -41,14 +40,6 @@ const ACTIONS: ReadonlyArray<Action> = [
     icon: Wallet,
     need: 'collections.register',
     tone: 'bg-emerald-100 text-emerald-700',
-  },
-  {
-    label: 'Liquidar período',
-    hint: 'Emitir expensas del mes',
-    href: '/iadmin/liquidaciones',
-    icon: ScrollText,
-    need: 'liquidations.create',
-    tone: 'bg-sky-100 text-sky-700',
   },
   {
     label: 'Enviar comunicado',
