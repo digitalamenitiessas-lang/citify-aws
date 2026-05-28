@@ -235,6 +235,21 @@ function OccupancyBar({ rate }: { rate: number }) {
   )
 }
 
+function AdminLoadBadge({ label, loaded, count }: { label: string; loaded: boolean; count: number }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${
+        loaded ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'
+      }`}
+      title={loaded ? `${count} cargado${count !== 1 ? 's' : ''}` : 'Sin cargar por el admin'}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${loaded ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+      {label}
+      {loaded ? ` ${count}` : ''}
+    </span>
+  )
+}
+
 function getRoleCreationCopy(role: string) {
   switch (role) {
     case 'consorcio_admin':
@@ -325,7 +340,7 @@ function BuildingsList({
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div>
-                <div className="text-lg font-bold text-foreground">{building.totalUnits}</div>
+                <div className="text-lg font-bold text-foreground">{building.adminLoadedUnitsCount || building.totalUnits}</div>
                 <div className="text-xs text-muted-foreground">Unidades</div>
               </div>
               <div>
@@ -336,6 +351,13 @@ function BuildingsList({
                 <div className="text-lg font-bold text-foreground">{building.admins.length}</div>
                 <div className="text-xs text-muted-foreground">Admin{building.admins.length !== 1 ? 's' : ''}</div>
               </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">
+              <AdminLoadBadge label="Info edificio" loaded={building.adminLoadedBuildingInfoCount > 0} count={building.adminLoadedBuildingInfoCount} />
+              <AdminLoadBadge label="Unidades" loaded={building.adminLoadedUnitsCount > 0} count={building.adminLoadedUnitsCount} />
+              <AdminLoadBadge label="Vecinos" loaded={building.registeredNeighbors > 0} count={building.registeredNeighbors} />
+              <AdminLoadBadge label="Gastos" loaded={building.adminLoadedExpensesCount > 0} count={building.adminLoadedExpensesCount} />
             </div>
 
             <div className="mt-3">
@@ -510,10 +532,6 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                 <Label>Nombre</Label>
                 <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
-              <div className="space-y-1">
-                <Label>Unidades</Label>
-                <Input type="number" min={0} value={editForm.totalUnits} onChange={(e) => setEditForm({ ...editForm, totalUnits: e.target.value })} />
-              </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-primary" />
@@ -643,9 +661,9 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
       )}
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         {[
-          { label: 'Unidades totales', value: building.totalUnits },
+          { label: 'Unidades cargadas', value: building.adminLoadedUnitsCount || building.totalUnits },
           { label: 'Vecinos registrados', value: building.registeredNeighbors },
           { label: 'Administradores', value: building.admins.length },
           { label: 'Ocupación', value: `${building.occupancyRate}%` },
@@ -655,6 +673,26 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
             <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Carga del admin consorcio */}
+      <div className="glass-card rounded-xl p-4 mb-6">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <div className="text-sm font-semibold text-foreground">Carga del admin consorcio</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {building.adminLastActivityAt
+                ? `Última actividad: ${new Date(building.adminLastActivityAt).toLocaleString('es-AR')}`
+                : 'Aún no registró actividad en su panel.'}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 text-[11px]">
+            <AdminLoadBadge label="Info edificio" loaded={building.adminLoadedBuildingInfoCount > 0} count={building.adminLoadedBuildingInfoCount} />
+            <AdminLoadBadge label="Unidades" loaded={building.adminLoadedUnitsCount > 0} count={building.adminLoadedUnitsCount} />
+            <AdminLoadBadge label="Vecinos" loaded={building.registeredNeighbors > 0} count={building.registeredNeighbors} />
+            <AdminLoadBadge label="Gastos" loaded={building.adminLoadedExpensesCount > 0} count={building.adminLoadedExpensesCount} />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1461,10 +1499,6 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     if (step.id === 'building') {
       if (!consorcioDraft.buildingName.trim()) return 'Completa el nombre del edificio.'
       if (!consorcioDraft.buildingAddress.trim()) return 'Completa la direccion del edificio.'
-      if (!consorcioDraft.totalUnits.trim()) return 'Indica la cantidad total de unidades.'
-
-      const totalUnits = Number(consorcioDraft.totalUnits)
-      if (!Number.isFinite(totalUnits) || totalUnits < 0) return 'La cantidad total de unidades es invalida.'
 
       if (consorcioDraft.latitude && !Number.isFinite(Number(consorcioDraft.latitude.replace(',', '.')))) {
         return 'La latitud es invalida.'
@@ -1709,16 +1743,11 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
 
     startTransition(async () => {
       try {
-        const totalUnits = Number(consorcioDraft.totalUnits)
         const latitude = consorcioDraft.latitude ? Number(consorcioDraft.latitude.replace(',', '.')) : null
         const longitude = consorcioDraft.longitude ? Number(consorcioDraft.longitude.replace(',', '.')) : null
         const managementFeePct = consorcioDraft.managementFeePct
           ? Number(consorcioDraft.managementFeePct.replace(',', '.'))
           : null
-
-        if (!Number.isFinite(totalUnits) || totalUnits < 0) {
-          throw new Error('La cantidad total de unidades es invalida.')
-        }
 
         if (latitude !== null && !Number.isFinite(latitude)) {
           throw new Error('La latitud es invalida.')
@@ -1736,7 +1765,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           building: {
             name: consorcioDraft.buildingName,
             address: consorcioDraft.buildingAddress,
-            totalUnits,
+            totalUnits: 0,
             latitude,
             longitude,
           },
@@ -1948,20 +1977,16 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3">
                     <Input
                       placeholder="Nombre del edificio"
                       value={consorcioDraft.buildingName}
                       onChange={(e) => updateBuildingName(e.target.value)}
                       required
                     />
-                    <Input
-                      placeholder="Unidades totales"
-                      inputMode="numeric"
-                      value={consorcioDraft.totalUnits}
-                      onChange={(e) => setConsorcioDraft({ ...consorcioDraft, totalUnits: e.target.value })}
-                      required
-                    />
+                    <p className="text-xs text-muted-foreground">
+                      Las unidades las cargará el administrador del consorcio desde su panel cuando empiece a operar.
+                    </p>
                   </div>
 
                   <div className="glass-card rounded-2xl p-4 overflow-hidden relative">
@@ -2187,7 +2212,6 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                       <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Edificio</div>
                       <div className="mt-2 text-sm font-semibold text-foreground">{consorcioDraft.buildingName || 'Sin nombre'}</div>
                       <p className="mt-1 text-xs text-muted-foreground">{consorcioDraft.buildingAddress || 'Sin direccion'}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">Unidades: {consorcioDraft.totalUnits || '0'}</p>
                       <p className="mt-2 text-xs text-muted-foreground">
                         Ubicacion:{' '}
                         {consorcioMapLocation

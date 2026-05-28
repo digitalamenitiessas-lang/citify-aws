@@ -179,6 +179,7 @@ import {
 } from '@/lib/db/iadmin-writes'
 import {
   countVecinoProfilesFromPostgres,
+  listAdminLoadStatsByBuildingFromPostgres,
   listAllBuildingsFromPostgres,
   listAllBusinessesFromPostgres,
   listAllProfilesFromPostgres,
@@ -1013,7 +1014,7 @@ async function loadConsorcioDashboardForBuildings({
 }
 
 export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardData> {
-  const [buildingsRows, usersRows, businessesRows, assignmentsRows, propertiesRows, promotionsRows, redemptionsRows] = await Promise.all([
+  const [buildingsRows, usersRows, businessesRows, assignmentsRows, propertiesRows, promotionsRows, redemptionsRows, adminLoadStatsRows] = await Promise.all([
     listAllBuildingsFromPostgres(),
     listAllProfilesFromPostgres(),
     listAllBusinessesFromPostgres(),
@@ -1021,7 +1022,12 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
     listSuperadminManagedPropertiesFromPostgres(),
     listAllPromotionsForSuperadminFromPostgres(),
     listAllRedemptionsByBuildingFromPostgres(),
+    listAdminLoadStatsByBuildingFromPostgres(),
   ])
+
+  const adminLoadStatsByBuilding = new Map(
+    adminLoadStatsRows.map((row) => [row.building_id, row]),
+  )
 
   const buildingsRes = { data: buildingsRows }
   const usersRes = { data: usersRows }
@@ -1121,8 +1127,11 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
   const buildings: SuperAdminBuildingDetail[] = allBuildings.map((building) => {
     const neighbors = neighborsByBuilding.get(building.id) ?? []
     const admins = adminsByBuilding.get(building.id) ?? []
-    const occupancyRate = Math.round((neighbors.length / Math.max(building.totalUnits, 1)) * 100)
     const managedContext = propertyByBuilding.get(building.id)
+    const loadStats = adminLoadStatsByBuilding.get(building.id)
+    const adminLoadedUnitsCount = loadStats?.units_count ?? 0
+    const effectiveUnits = adminLoadedUnitsCount > 0 ? adminLoadedUnitsCount : building.totalUnits
+    const occupancyRate = Math.round((neighbors.length / Math.max(effectiveUnits, 1)) * 100)
     return {
       ...building,
       admins,
@@ -1131,6 +1140,10 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
       occupancyRate,
       administration: managedContext?.administration ?? null,
       managedProperty: managedContext?.managedProperty ?? null,
+      adminLoadedUnitsCount,
+      adminLoadedBuildingInfoCount: loadStats?.building_info_count ?? 0,
+      adminLoadedExpensesCount: loadStats?.expenses_count ?? 0,
+      adminLastActivityAt: loadStats?.last_activity_at ?? null,
     }
   })
 

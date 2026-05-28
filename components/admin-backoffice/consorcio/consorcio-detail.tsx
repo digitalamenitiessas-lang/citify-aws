@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { Building2, FileText, Home, Users } from 'lucide-react'
 import type {
-  BuildingInformationItem,
   IAdminAccountingPeriod,
   IAdminCapability,
   IAdminExpenseStatus,
@@ -12,10 +11,8 @@ import type {
 } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { AccountingPeriodCard } from '@/components/admin-backoffice/consorcio/accounting-period-card'
-import { ConsorcioLegalForm } from '@/components/admin-backoffice/consorcio/consorcio-legal-form'
 import { OperationalSettingsForm } from '@/components/admin-backoffice/consorcio/operational-settings-form'
 import { ConsorcioSettingsForm } from '@/components/admin-backoffice/consorcio/consorcio-settings-form'
-import { BuildingInformationManager } from '@/components/admin-backoffice/consorcio/building-information-manager'
 import { UnitsManager } from '@/components/admin-backoffice/consorcio/units-manager'
 
 const EXPENSE_STATUS_LABELS: Record<IAdminExpenseStatus, string> = {
@@ -42,15 +39,13 @@ type Props = {
   linkableProfiles: IAdminLinkableProfile[]
   recentExpenses: IAdminExpenseSummary[]
   currentPeriod: IAdminAccountingPeriod | null
-  buildingInformation: BuildingInformationItem[]
   totals: { units: number; activeHolders: number; monthExpenses: number; monthAmount: number }
   userCapabilities: IAdminCapability[]
 }
 
-export function ConsorcioDetail({ property, units, linkableProfiles, recentExpenses, currentPeriod, buildingInformation, totals, userCapabilities }: Props) {
+export function ConsorcioDetail({ property, units, linkableProfiles, recentExpenses, currentPeriod, totals, userCapabilities }: Props) {
   const caps = new Set(userCapabilities)
   const canEditConsorcio = caps.has('consorcio.edit')
-  const canEditLegal = caps.has('consorcio.legal.edit')
   const canManageAdminSettings = caps.has('admin.settings.manage')
   const canManageUnits = caps.has('units.manage')
   const canManageHolders = caps.has('holders.manage')
@@ -99,26 +94,11 @@ export function ConsorcioDetail({ property, units, linkableProfiles, recentExpen
       </section>
 
       <ConsorcioSettingsForm property={property} canEdit={canEditConsorcio} />
-      <ConsorcioLegalForm propertyId={property.id} initial={property.legalInfo} canEdit={canEditLegal} />
       <OperationalSettingsForm
         propertyId={property.id}
         initial={property.operationalSettings}
         canEdit={canManageAdminSettings}
       />
-
-      <section className="glass-card rounded-2xl p-5">
-        <header className="mb-4">
-          <h2 className="font-serif text-lg font-semibold text-foreground">Informacion general del edificio</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Horarios, reglas de convivencia, amenities y contactos visibles para vecinos y propietarios.
-          </p>
-        </header>
-        <BuildingInformationManager
-          propertyId={property.id}
-          items={buildingInformation}
-          canEdit={canEditConsorcio}
-        />
-      </section>
 
       <AccountingPeriodCard
         propertyId={property.id}

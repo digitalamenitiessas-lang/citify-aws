@@ -447,7 +447,7 @@ const updateBuildingSchema = z.object({
   buildingId: z.string().uuid(),
   name: z.string().trim().min(2).max(120),
   address: z.string().trim().min(3).max(200),
-  totalUnits: z.number().int().min(0).max(100000),
+  totalUnits: z.number().int().min(0).max(100000).optional().default(0),
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
 })
@@ -562,7 +562,7 @@ const createManagedPropertySchema = z.object({
   building: z.object({
     name: z.string().trim().min(2).max(120),
     address: z.string().trim().min(5).max(200),
-    totalUnits: z.number().int().min(0).max(100000),
+    totalUnits: z.number().int().min(0).max(100000).optional().default(0),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
   }),

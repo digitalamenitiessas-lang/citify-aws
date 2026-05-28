@@ -374,6 +374,10 @@ export interface SuperAdminBuildingDetail extends Building {
   occupancyRate: number
   administration: IAdminAdministration | null
   managedProperty: IAdminManagedProperty | null
+  adminLoadedUnitsCount: number
+  adminLoadedBuildingInfoCount: number
+  adminLoadedExpensesCount: number
+  adminLastActivityAt: string | null
 }
 
 export interface PromotionRedemptionByBuilding {

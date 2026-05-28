@@ -204,6 +204,84 @@ export async function listSuperadminManagedPropertiesFromPostgres(): Promise<any
   return result.rows
 }
 
+export async function listAdminLoadStatsByBuildingFromPostgres(): Promise<
+  Array<{
+    building_id: string
+    units_count: number
+    building_info_count: number
+    expenses_count: number
+    last_activity_at: string | null
+  }>
+> {
+  const result = await pgQuery<{
+    building_id: string
+    units_count: string | number
+    building_info_count: string | number
+    expenses_count: string | number
+    last_activity_at: string | null
+  }>(
+    `
+      with mp as (
+        select id, building_id, administration_id, updated_at
+          from public.iadmin_managed_properties
+      ),
+      unit_stats as (
+        select mp.building_id,
+               count(u.id)::int as units_count,
+               max(u.updated_at) as last_unit_at
+          from mp
+          left join public.iadmin_units u on u.managed_property_id = mp.id
+         group by mp.building_id
+      ),
+      info_stats as (
+        select bi.building_id,
+               count(*)::int as building_info_count,
+               max(bi.updated_at) as last_info_at
+          from public.building_information bi
+         group by bi.building_id
+      ),
+      expense_stats as (
+        select mp.building_id,
+               count(e.id)::int as expenses_count,
+               max(e.updated_at) as last_expense_at
+          from mp
+          left join public.iadmin_expenses e on e.administration_id = mp.administration_id
+         group by mp.building_id
+      )
+      select mp.building_id,
+             coalesce(us.units_count, 0) as units_count,
+             coalesce(ist.building_info_count, 0) as building_info_count,
+             coalesce(es.expenses_count, 0) as expenses_count,
+             greatest(
+               coalesce(us.last_unit_at, 'epoch'::timestamptz),
+               coalesce(ist.last_info_at, 'epoch'::timestamptz),
+               coalesce(es.last_expense_at, 'epoch'::timestamptz),
+               coalesce(mp.updated_at, 'epoch'::timestamptz)
+             ) as last_activity_at
+        from mp
+        left join unit_stats us on us.building_id = mp.building_id
+        left join info_stats ist on ist.building_id = mp.building_id
+        left join expense_stats es on es.building_id = mp.building_id
+    `,
+  )
+  return result.rows.map((row: {
+    building_id: string
+    units_count: string | number
+    building_info_count: string | number
+    expenses_count: string | number
+    last_activity_at: string | null
+  }) => ({
+    building_id: row.building_id,
+    units_count: Number(row.units_count ?? 0),
+    building_info_count: Number(row.building_info_count ?? 0),
+    expenses_count: Number(row.expenses_count ?? 0),
+    last_activity_at:
+      row.last_activity_at && new Date(row.last_activity_at).getFullYear() > 1970
+        ? row.last_activity_at
+        : null,
+  }))
+}
+
 export async function getAdministrationIdByBuildingFromPostgres(
   buildingId: string,
 ): Promise<string | null> {
