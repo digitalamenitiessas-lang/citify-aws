@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireIAdmin } from '@/lib/auth'
 import { listMorososByAdminFromPostgres } from '@/lib/db/iadmin-reads'
+import { materializeLateFeesForAdministrationInPostgres } from '@/lib/db/iadmin-writes'
 import { buildCsv, csvResponseHeaders, formatMoneyAr } from '@/lib/iadmin/csv'
 
 export const dynamic = 'force-dynamic'
@@ -12,6 +13,12 @@ export async function GET() {
   if (!administrationId) {
     return NextResponse.json({ error: 'no administration assigned' }, { status: 400 })
   }
+
+  await materializeLateFeesForAdministrationInPostgres({
+    administrationId,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    actorProfileId: null,
+  })
 
   const rows = await listMorososByAdminFromPostgres({ administrationId })
 

@@ -13,6 +13,7 @@ import type {
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { AccountingPeriodCard } from '@/components/admin-backoffice/consorcio/accounting-period-card'
 import { ConsorcioLegalForm } from '@/components/admin-backoffice/consorcio/consorcio-legal-form'
+import { OperationalSettingsForm } from '@/components/admin-backoffice/consorcio/operational-settings-form'
 import { ConsorcioSettingsForm } from '@/components/admin-backoffice/consorcio/consorcio-settings-form'
 import { BuildingInformationManager } from '@/components/admin-backoffice/consorcio/building-information-manager'
 import { UnitsManager } from '@/components/admin-backoffice/consorcio/units-manager'
@@ -50,6 +51,7 @@ export function ConsorcioDetail({ property, units, linkableProfiles, recentExpen
   const caps = new Set(userCapabilities)
   const canEditConsorcio = caps.has('consorcio.edit')
   const canEditLegal = caps.has('consorcio.legal.edit')
+  const canManageAdminSettings = caps.has('admin.settings.manage')
   const canManageUnits = caps.has('units.manage')
   const canManageHolders = caps.has('holders.manage')
 
@@ -98,6 +100,11 @@ export function ConsorcioDetail({ property, units, linkableProfiles, recentExpen
 
       <ConsorcioSettingsForm property={property} canEdit={canEditConsorcio} />
       <ConsorcioLegalForm propertyId={property.id} initial={property.legalInfo} canEdit={canEditLegal} />
+      <OperationalSettingsForm
+        propertyId={property.id}
+        initial={property.operationalSettings}
+        canEdit={canManageAdminSettings}
+      />
 
       <section className="glass-card rounded-2xl p-5">
         <header className="mb-4">

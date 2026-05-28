@@ -11,17 +11,20 @@ import {
 } from '@/lib/email/notifications/liquidations'
 import {
   bulkInsertLiquidationItemsInPostgres,
+  createLedgerEntriesForIssuedRunInPostgres,
   deleteLiquidationItemsForRunInPostgres,
   getAccountingPeriodFromPostgres,
   getExistingLiquidationRunForPeriodFromPostgres,
   getLiquidationRunWithAdminFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
+  getManagedPropertyOperationalSettingsFromPostgres,
   getMostRecentPriorRunWithItemsFromPostgres,
   listActiveUnitsWithProrataFromPostgres,
   listImputedExpensesByPeriodFromPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
   updateLiquidationRunStatusInPostgres,
   upsertLiquidationRunInPostgres,
+  voidLedgerEntriesForRunInPostgres,
 } from '@/lib/db/iadmin-writes'
 import type { IAdminCapability } from '@/lib/types'
 
@@ -29,14 +32,26 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-function defaultDueDates(periodYear: number, periodMonth: number) {
+function defaultDueDates(
+  periodYear: number,
+  periodMonth: number,
+  rules?: Array<{ label?: string; day?: number; surchargePct?: number }> | null,
+) {
   const nextMonth = periodMonth === 12 ? 1 : periodMonth + 1
   const nextYear = periodMonth === 12 ? periodYear + 1 : periodYear
   const mm = String(nextMonth).padStart(2, '0')
-  return [
-    { label: '1er vencimiento', date: `${nextYear}-${mm}-10`, surcharge_pct: 0 },
-    { label: '2do vencimiento', date: `${nextYear}-${mm}-25`, surcharge_pct: 3 },
-  ]
+  const source =
+    rules && rules.length > 0
+      ? rules
+      : [
+          { label: '1er vencimiento', day: 10, surchargePct: 0 },
+          { label: '2do vencimiento', day: 25, surchargePct: 3 },
+        ]
+  return source.map((rule) => ({
+    label: rule.label ?? 'Vencimiento',
+    date: `${nextYear}-${mm}-${String(Math.max(1, Math.min(28, Number(rule.day ?? 10)))).padStart(2, '0')}`,
+    surcharge_pct: Number(rule.surchargePct ?? 0),
+  }))
 }
 
 const dueDateInput = z.object({
@@ -126,10 +141,15 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
     }
   }
 
+  const propertySettings = await getManagedPropertyOperationalSettingsFromPostgres(parsed.propertyId)
+  const configuredRules = Array.isArray(propertySettings?.operational_settings?.dueDateRules)
+    ? (propertySettings?.operational_settings?.dueDateRules as Array<{ label?: string; day?: number; surchargePct?: number }>)
+    : null
+
   const dueDates =
     parsed.dueDates && parsed.dueDates.length > 0
       ? parsed.dueDates
-      : defaultDueDates(period.period_year, period.period_month)
+      : defaultDueDates(period.period_year, period.period_month, configuredRules)
 
   const totalPreviousBalance = round2(
     Array.from(previousBalanceByUnit.values()).reduce((s, v) => s + v, 0),
@@ -214,6 +234,22 @@ export async function changeLiquidationStatus(input: z.input<typeof transitionSc
     if (!canLiquidationTransition(run.status as any, parsed.nextStatus, capabilities)) {
       throw new Error('Transicion no permitida para tu rol')
     }
+  }
+
+  if (parsed.nextStatus === 'issued') {
+    await createLedgerEntriesForIssuedRunInPostgres({
+      runId: parsed.runId,
+      actorProfileId: profile.id,
+    })
+  } else if (
+    (parsed.nextStatus === 'calculated' || parsed.nextStatus === 'draft') &&
+    (run.status === 'issued' || run.status === 'closed')
+  ) {
+    await voidLedgerEntriesForRunInPostgres({
+      runId: parsed.runId,
+      actorProfileId: profile.id,
+      reason: `reopened_to_${parsed.nextStatus}`,
+    })
   }
 
   await updateLiquidationRunStatusInPostgres({

@@ -1401,6 +1401,7 @@ export async function getManagedPropertyForEmitFromPostgres(propertyId: string):
   building_name: string
   admin_name: string | null
   admin_legal_info: any
+  operational_settings: Record<string, unknown> | null
 } | null> {
   const result = await pgQuery<{
     id: string
@@ -1409,12 +1410,14 @@ export async function getManagedPropertyForEmitFromPostgres(propertyId: string):
     building_name: string
     admin_name: string | null
     admin_legal_info: any
+    operational_settings: Record<string, unknown> | null
   }>(
     `
       select
         mp.id,
         mp.administration_id,
         mp.display_name,
+        mp.operational_settings,
         b.name as building_name,
         a.name as admin_name,
         a.legal_info as admin_legal_info
@@ -2712,5 +2715,645 @@ export async function voidPaymentInPostgres(input: {
       where id = $3
     `,
     [input.voidedBy, input.reason, input.paymentId],
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Configuracion operativa + ledger
+// ----------------------------------------------------------------------------
+
+export async function getManagedPropertyOperationalSettingsFromPostgres(propertyId: string): Promise<{
+  administration_id: string
+  operational_settings: Record<string, unknown>
+} | null> {
+  const result = await pgQuery<{
+    administration_id: string
+    operational_settings: Record<string, unknown> | null
+  }>(
+    `
+      select administration_id, operational_settings
+      from public.iadmin_managed_properties
+      where id = $1
+      limit 1
+    `,
+    [propertyId],
+  )
+  const row = result.rows[0]
+  if (!row) return null
+  return {
+    administration_id: row.administration_id,
+    operational_settings: (row.operational_settings ?? {}) as Record<string, unknown>,
+  }
+}
+
+export async function updateManagedPropertyOperationalSettingsInPostgres(input: {
+  propertyId: string
+  operationalSettings: Record<string, unknown>
+}): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_managed_properties
+      set operational_settings = $2::jsonb
+      where id = $1
+    `,
+    [input.propertyId, JSON.stringify(input.operationalSettings ?? {})],
+  )
+}
+
+type LedgerOpenEntryRow = {
+  id: string
+  unit_id: string
+  liquidation_run_id: string | null
+  liquidation_item_id: string | null
+  accounting_period_id: string | null
+  entry_type: string
+  due_date: string | null
+  amount: string
+  balance_open: string
+  created_at: string
+}
+
+export async function listOpenLedgerEntriesByUnitFromPostgres(input: {
+  administrationId: string
+  unitId: string
+  excludeRunId?: string | null
+}): Promise<LedgerOpenEntryRow[]> {
+  const result = await pgQuery<LedgerOpenEntryRow>(
+    `
+      select
+        id,
+        unit_id,
+        liquidation_run_id,
+        liquidation_item_id,
+        accounting_period_id,
+        entry_type::text as entry_type,
+        due_date::text as due_date,
+        amount::text as amount,
+        balance_open::text as balance_open,
+        created_at::text as created_at
+      from public.iadmin_unit_ledger_entries
+      where administration_id = $1
+        and unit_id = $2
+        and status in ('open', 'partially_paid')
+        and entry_type <> 'pago'
+        and ($3::uuid is null or liquidation_run_id is distinct from $3::uuid)
+      order by due_date asc nulls last, created_at asc
+    `,
+    [input.administrationId, input.unitId, input.excludeRunId ?? null],
+  )
+  return result.rows
+}
+
+export async function getLiveLedgerEntriesByRunCountFromPostgres(runId: string): Promise<number> {
+  const result = await pgQuery<{ count: string }>(
+    `
+      select count(*)::text as count
+      from public.iadmin_unit_ledger_entries
+      where liquidation_run_id = $1
+        and status <> 'void'
+    `,
+    [runId],
+  )
+  return Number(result.rows[0]?.count ?? 0)
+}
+
+export async function getLivePaymentsCountByRunFromPostgres(runId: string): Promise<number> {
+  const result = await pgQuery<{ count: string }>(
+    `
+      select count(*)::text as count
+      from public.iadmin_payments
+      where liquidation_run_id = $1
+        and is_void = false
+    `,
+    [runId],
+  )
+  return Number(result.rows[0]?.count ?? 0)
+}
+
+async function insertLedgerEntryInPostgres(input: {
+  administrationId: string
+  managedPropertyId: string
+  unitId: string
+  accountingPeriodId?: string | null
+  liquidationRunId?: string | null
+  liquidationItemId?: string | null
+  paymentId?: string | null
+  entryType: string
+  originType?: string | null
+  originId?: string | null
+  description?: string | null
+  dueDate?: string | null
+  amount: number
+  balanceOpen: number
+  status: 'open' | 'partially_paid' | 'paid' | 'void'
+  metadata?: Record<string, unknown>
+  createdBy?: string | null
+}): Promise<{ id: string }> {
+  const result = await pgQuery<{ id: string }>(
+    `
+      insert into public.iadmin_unit_ledger_entries (
+        administration_id, managed_property_id, unit_id, accounting_period_id,
+        liquidation_run_id, liquidation_item_id, payment_id, entry_type,
+        origin_type, origin_id, description, due_date, amount, balance_open,
+        status, metadata, created_by
+      )
+      values (
+        $1, $2, $3, $4, $5, $6, $7, $8::iadmin_ledger_entry_type,
+        $9, $10, $11, $12::date, $13, $14, $15::iadmin_ledger_entry_status,
+        $16::jsonb, $17
+      )
+      returning id
+    `,
+    [
+      input.administrationId,
+      input.managedPropertyId,
+      input.unitId,
+      input.accountingPeriodId ?? null,
+      input.liquidationRunId ?? null,
+      input.liquidationItemId ?? null,
+      input.paymentId ?? null,
+      input.entryType,
+      input.originType ?? null,
+      input.originId ?? null,
+      input.description ?? null,
+      input.dueDate ?? null,
+      input.amount,
+      input.balanceOpen,
+      input.status,
+      JSON.stringify(input.metadata ?? {}),
+      input.createdBy ?? null,
+    ],
+  )
+  return result.rows[0]
+}
+
+async function voidLedgerEntriesInPostgres(input: {
+  entryIds: string[]
+  actorProfileId: string
+  reason: string
+}): Promise<void> {
+  if (input.entryIds.length === 0) return
+  await pgQuery(
+    `
+      update public.iadmin_unit_ledger_entries
+      set status = 'void'::iadmin_ledger_entry_status,
+          balance_open = 0,
+          voided_at = now(),
+          voided_by = $1,
+          void_reason = $2
+      where id = any($3::uuid[])
+        and status <> 'void'
+    `,
+    [input.actorProfileId, input.reason, input.entryIds],
+  )
+}
+
+export async function materializeLateFeesForUnitInPostgres(input: {
+  administrationId: string
+  unitId: string
+  asOfDate: string
+  actorProfileId: string | null
+}): Promise<void> {
+  const result = await pgQuery<{
+    unit_id: string
+    managed_property_id: string
+    accounting_period_id: string | null
+    liquidation_run_id: string | null
+    liquidation_item_id: string | null
+    due_date: string | null
+    base_amount: string
+    due_dates: unknown
+    existing_surcharge_amount: string
+    existing_surcharge_open: string
+  }>(
+    `
+      with live_charge as (
+        select
+          li.unit_id,
+          le.managed_property_id,
+          le.accounting_period_id,
+          le.liquidation_run_id,
+          le.liquidation_item_id,
+          min(le.due_date)::text as due_date,
+          sum(le.amount) as base_amount
+        from public.iadmin_unit_ledger_entries le
+        left join public.iadmin_liquidation_items li on li.id = le.liquidation_item_id
+        where le.administration_id = $1
+          and le.unit_id = $2
+          and le.status in ('open', 'partially_paid', 'paid')
+          and le.entry_type in ('expensa_ordinaria', 'expensa_extraordinaria', 'saldo_anterior_migrado')
+        group by li.unit_id, le.managed_property_id, le.accounting_period_id, le.liquidation_run_id, le.liquidation_item_id
+      ),
+      existing_surcharge as (
+        select
+          liquidation_item_id,
+          coalesce(sum(amount), 0) as total_amount,
+          coalesce(sum(balance_open), 0) as total_open
+        from public.iadmin_unit_ledger_entries
+        where administration_id = $1
+          and unit_id = $2
+          and status <> 'void'
+          and entry_type = 'recargo_mora'
+        group by liquidation_item_id
+      )
+      select
+        lc.unit_id,
+        lc.managed_property_id,
+        lc.accounting_period_id,
+        lc.liquidation_run_id,
+        lc.liquidation_item_id,
+        lc.due_date,
+        lc.base_amount::text as base_amount,
+        r.due_dates,
+        coalesce(es.total_amount, 0)::text as existing_surcharge_amount,
+        coalesce(es.total_open, 0)::text as existing_surcharge_open
+      from live_charge lc
+      inner join public.iadmin_liquidation_runs r on r.id = lc.liquidation_run_id
+      left join existing_surcharge es on es.liquidation_item_id = lc.liquidation_item_id
+      where lc.liquidation_run_id is not null
+        and r.administration_id = $1
+        and r.status in ('issued', 'closed')
+    `,
+    [input.administrationId, input.unitId],
+  )
+
+  for (const row of result.rows) {
+    const dueDates = Array.isArray(row.due_dates) ? (row.due_dates as Array<Record<string, unknown>>) : []
+    let targetPct = 0
+    for (const due of dueDates) {
+      const date = typeof due.date === 'string' ? due.date : null
+      const pct = Number(due.surcharge_pct ?? due.surchargePct ?? 0)
+      if (date && date <= input.asOfDate && pct > targetPct) {
+        targetPct = pct
+      }
+    }
+    if (targetPct <= 0) continue
+    const baseAmount = Number(row.base_amount ?? 0)
+    const existingAssessed = Number(row.existing_surcharge_amount ?? 0)
+    const targetAmount = Math.round(baseAmount * (targetPct / 100) * 100) / 100
+    const delta = Math.round((targetAmount - existingAssessed) * 100) / 100
+    if (delta <= 0.009) continue
+
+    await insertLedgerEntryInPostgres({
+      administrationId: input.administrationId,
+      managedPropertyId: row.managed_property_id,
+      unitId: row.unit_id,
+      accountingPeriodId: row.accounting_period_id,
+      liquidationRunId: row.liquidation_run_id,
+      liquidationItemId: row.liquidation_item_id,
+      entryType: 'recargo_mora',
+      originType: 'late_fee_rule',
+      originId: row.liquidation_item_id,
+      description: `Recargo por mora ${targetPct}%`,
+      dueDate: row.due_date,
+      amount: delta,
+      balanceOpen: delta,
+      status: 'open',
+      metadata: {
+        target_surcharge_pct: targetPct,
+        materialized_as_of: input.asOfDate,
+      },
+      createdBy: input.actorProfileId,
+    })
+  }
+}
+
+export async function materializeLateFeesForAdministrationInPostgres(input: {
+  administrationId: string
+  asOfDate: string
+  actorProfileId: string | null
+}): Promise<void> {
+  const units = await pgQuery<{ unit_id: string }>(
+    `
+      select distinct unit_id
+      from public.iadmin_unit_ledger_entries
+      where administration_id = $1
+        and status in ('open', 'partially_paid', 'paid')
+        and entry_type in ('expensa_ordinaria', 'expensa_extraordinaria', 'saldo_anterior_migrado')
+    `,
+    [input.administrationId],
+  )
+  for (const row of units.rows) {
+    await materializeLateFeesForUnitInPostgres({
+      administrationId: input.administrationId,
+      unitId: row.unit_id,
+      asOfDate: input.asOfDate,
+      actorProfileId: input.actorProfileId,
+    })
+  }
+}
+
+export async function createLedgerEntriesForIssuedRunInPostgres(input: {
+  runId: string
+  actorProfileId: string
+}): Promise<void> {
+  const runResult = await pgQuery<{
+    run_id: string
+    administration_id: string
+    managed_property_id: string
+    accounting_period_id: string
+    due_dates: unknown
+    item_id: string
+    unit_id: string
+    ordinary_amount: string | null
+    extraordinary_amount: string | null
+  }>(
+    `
+      select
+        r.id as run_id,
+        r.administration_id,
+        r.managed_property_id,
+        r.accounting_period_id,
+        r.due_dates,
+        li.id as item_id,
+        li.unit_id,
+        li.ordinary_amount::text as ordinary_amount,
+        li.extraordinary_amount::text as extraordinary_amount
+      from public.iadmin_liquidation_runs r
+      inner join public.iadmin_liquidation_items li on li.liquidation_run_id = r.id
+      where r.id = $1
+    `,
+    [input.runId],
+  )
+  if (runResult.rows.length === 0) return
+
+  const liveCount = await getLiveLedgerEntriesByRunCountFromPostgres(input.runId)
+  if (liveCount > 0) return
+
+  for (const row of runResult.rows) {
+    const dueDates = Array.isArray(row.due_dates) ? (row.due_dates as Array<Record<string, unknown>>) : []
+    const firstDueDate = (typeof dueDates[0]?.date === 'string' ? dueDates[0]?.date : null) as string | null
+    const priorOpen = await listOpenLedgerEntriesByUnitFromPostgres({
+      administrationId: row.administration_id,
+      unitId: row.unit_id,
+      excludeRunId: input.runId,
+    })
+    const previousBalance = Math.round(
+      priorOpen.reduce((acc, entry) => acc + Number(entry.balance_open ?? 0), 0) * 100,
+    ) / 100
+    await voidLedgerEntriesInPostgres({
+      entryIds: priorOpen.map((entry) => entry.id),
+      actorProfileId: input.actorProfileId,
+      reason: `migrated_to_run:${input.runId}`,
+    })
+
+    const ordinaryAmount = Number(row.ordinary_amount ?? 0)
+    const extraordinaryAmount = Number(row.extraordinary_amount ?? 0)
+    if (ordinaryAmount > 0.009) {
+      await insertLedgerEntryInPostgres({
+        administrationId: row.administration_id,
+        managedPropertyId: row.managed_property_id,
+        unitId: row.unit_id,
+        accountingPeriodId: row.accounting_period_id,
+        liquidationRunId: row.run_id,
+        liquidationItemId: row.item_id,
+        entryType: 'expensa_ordinaria',
+        originType: 'liquidation_item',
+        originId: row.item_id,
+        description: 'Expensa ordinaria',
+        dueDate: firstDueDate,
+        amount: ordinaryAmount,
+        balanceOpen: ordinaryAmount,
+        status: 'open',
+        createdBy: input.actorProfileId,
+      })
+    }
+    if (extraordinaryAmount > 0.009) {
+      await insertLedgerEntryInPostgres({
+        administrationId: row.administration_id,
+        managedPropertyId: row.managed_property_id,
+        unitId: row.unit_id,
+        accountingPeriodId: row.accounting_period_id,
+        liquidationRunId: row.run_id,
+        liquidationItemId: row.item_id,
+        entryType: 'expensa_extraordinaria',
+        originType: 'liquidation_item',
+        originId: row.item_id,
+        description: 'Expensa extraordinaria',
+        dueDate: firstDueDate,
+        amount: extraordinaryAmount,
+        balanceOpen: extraordinaryAmount,
+        status: 'open',
+        createdBy: input.actorProfileId,
+      })
+    }
+    if (previousBalance > 0.009) {
+      await insertLedgerEntryInPostgres({
+        administrationId: row.administration_id,
+        managedPropertyId: row.managed_property_id,
+        unitId: row.unit_id,
+        accountingPeriodId: row.accounting_period_id,
+        liquidationRunId: row.run_id,
+        liquidationItemId: row.item_id,
+        entryType: 'saldo_anterior_migrado',
+        originType: 'ledger_rollover',
+        originId: row.item_id,
+        description: 'Saldo anterior migrado',
+        dueDate: firstDueDate,
+        amount: previousBalance,
+        balanceOpen: previousBalance,
+        status: 'open',
+        createdBy: input.actorProfileId,
+      })
+    }
+  }
+}
+
+export async function voidLedgerEntriesForRunInPostgres(input: {
+  runId: string
+  actorProfileId: string
+  reason: string
+}): Promise<void> {
+  const livePayments = await getLivePaymentsCountByRunFromPostgres(input.runId)
+  if (livePayments > 0) {
+    throw new Error('No se puede reabrir una liquidacion emitida con pagos registrados.')
+  }
+  const result = await pgQuery<{ id: string }>(
+    `
+      select id
+      from public.iadmin_unit_ledger_entries
+      where liquidation_run_id = $1
+        and status <> 'void'
+    `,
+    [input.runId],
+  )
+  await voidLedgerEntriesInPostgres({
+    entryIds: result.rows.map((row: { id: string }) => row.id),
+    actorProfileId: input.actorProfileId,
+    reason: input.reason,
+  })
+}
+
+export async function applyPaymentToLedgerInPostgres(input: {
+  paymentId: string
+  administrationId: string
+  managedPropertyId: string
+  unitId: string
+  amount: number
+  paidAt: string
+  createdBy: string
+}): Promise<void> {
+  await materializeLateFeesForUnitInPostgres({
+    administrationId: input.administrationId,
+    unitId: input.unitId,
+    asOfDate: input.paidAt,
+    actorProfileId: input.createdBy,
+  })
+
+  const openEntries = await pgQuery<LedgerOpenEntryRow>(
+    `
+      select
+        id,
+        unit_id,
+        liquidation_run_id,
+        liquidation_item_id,
+        accounting_period_id,
+        entry_type::text as entry_type,
+        due_date::text as due_date,
+        amount::text as amount,
+        balance_open::text as balance_open,
+        created_at::text as created_at
+      from public.iadmin_unit_ledger_entries
+      where administration_id = $1
+        and unit_id = $2
+        and status in ('open', 'partially_paid')
+        and entry_type <> 'pago'
+      order by
+        due_date asc nulls last,
+        case
+          when entry_type in ('expensa_ordinaria', 'expensa_extraordinaria', 'saldo_anterior_migrado', 'ajuste_manual') then 0
+          when entry_type = 'recargo_mora' then 1
+          else 2
+        end asc,
+        created_at asc
+    `,
+    [input.administrationId, input.unitId],
+  )
+  const totalOpen = Math.round(
+    openEntries.rows.reduce((acc: number, row: LedgerOpenEntryRow) => acc + Number(row.balance_open ?? 0), 0) * 100,
+  ) / 100
+  if (input.amount - totalOpen > 0.01) {
+    throw new Error('El pago supera la deuda abierta de la unidad.')
+  }
+
+  const paymentEntry = await insertLedgerEntryInPostgres({
+    administrationId: input.administrationId,
+    managedPropertyId: input.managedPropertyId,
+    unitId: input.unitId,
+    paymentId: input.paymentId,
+    entryType: 'pago',
+    originType: 'payment',
+    originId: input.paymentId,
+    description: 'Pago aplicado',
+    dueDate: input.paidAt,
+    amount: input.amount,
+    balanceOpen: 0,
+    status: 'paid',
+    createdBy: input.createdBy,
+  })
+
+  let remaining = Math.round(input.amount * 100) / 100
+  for (const row of openEntries.rows) {
+    if (remaining <= 0.009) break
+    const balance = Math.round(Number(row.balance_open ?? 0) * 100) / 100
+    if (balance <= 0.009) continue
+    const applied = Math.min(balance, remaining)
+    const nextBalance = Math.round((balance - applied) * 100) / 100
+    const nextStatus =
+      nextBalance <= 0.009 ? 'paid' : nextBalance < Number(row.amount ?? 0) ? 'partially_paid' : 'open'
+
+    await pgQuery(
+      `
+        update public.iadmin_unit_ledger_entries
+        set balance_open = $1,
+            status = $2::iadmin_ledger_entry_status
+        where id = $3
+      `,
+      [Math.max(0, nextBalance), nextStatus, row.id],
+    )
+
+    await pgQuery(
+      `
+        insert into public.iadmin_payment_applications (
+          administration_id, payment_id, payment_entry_id, applied_to_entry_id,
+          unit_id, amount, created_by
+        )
+        values ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        input.administrationId,
+        input.paymentId,
+        paymentEntry.id,
+        row.id,
+        input.unitId,
+        applied,
+        input.createdBy,
+      ],
+    )
+
+    remaining = Math.round((remaining - applied) * 100) / 100
+  }
+}
+
+export async function reversePaymentApplicationsInLedgerInPostgres(input: {
+  paymentId: string
+  actorProfileId: string
+  reason: string
+}): Promise<void> {
+  const apps = await pgQuery<{
+    id: string
+    applied_to_entry_id: string
+    amount: string
+    payment_entry_id: string
+  }>(
+    `
+      select id, applied_to_entry_id, amount::text as amount, payment_entry_id
+      from public.iadmin_payment_applications
+      where payment_id = $1
+        and voided_at is null
+      order by created_at desc
+    `,
+    [input.paymentId],
+  )
+
+  for (const app of apps.rows) {
+    await pgQuery(
+      `
+        update public.iadmin_unit_ledger_entries
+        set balance_open = balance_open + $1,
+            status = case
+              when balance_open + $1 >= amount then 'open'::iadmin_ledger_entry_status
+              else 'partially_paid'::iadmin_ledger_entry_status
+            end
+        where id = $2
+      `,
+      [Number(app.amount ?? 0), app.applied_to_entry_id],
+    )
+  }
+
+  await pgQuery(
+    `
+      update public.iadmin_payment_applications
+      set voided_at = now(),
+          voided_by = $1,
+          void_reason = $2
+      where payment_id = $3
+        and voided_at is null
+    `,
+    [input.actorProfileId, input.reason, input.paymentId],
+  )
+
+  await pgQuery(
+    `
+      update public.iadmin_unit_ledger_entries
+      set status = 'void'::iadmin_ledger_entry_status,
+          voided_at = now(),
+          voided_by = $1,
+          void_reason = $2
+      where payment_id = $3
+        and entry_type = 'pago'
+        and status <> 'void'
+    `,
+    [input.actorProfileId, input.reason, input.paymentId],
   )
 }

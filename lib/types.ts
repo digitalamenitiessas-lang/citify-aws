@@ -635,6 +635,20 @@ export interface IAdminLegalInfo {
   footerNotes?: string
 }
 
+export interface IAdminOperationalDueDateRule {
+  label: string
+  day: number
+  surchargePct: number
+}
+
+export interface IAdminOperationalSettings {
+  dueDateRules?: IAdminOperationalDueDateRule[]
+  paymentAllocationMode?: 'fifo_oldest_first'
+  closePeriodPolicy?: 'issued_required'
+  allowManualAdjustments?: boolean
+  legalDebtNotice?: string
+}
+
 export interface IAdminAdministration {
   id: string
   name: string
@@ -675,6 +689,7 @@ export interface IAdminManagedProperty {
   isActive: boolean
   totalUnits: number
   legalInfo: IAdminLegalInfo
+  operationalSettings: IAdminOperationalSettings
   createdAt: string
 }
 
@@ -752,6 +767,7 @@ export interface IAdminAccountingPeriod {
   periodMonth: number
   status: IAdminPeriodStatus
   closedAt: string | null
+  closePolicy: 'issued_required'
 }
 
 export interface IAdminExpenseSummary {
@@ -1148,6 +1164,61 @@ export interface IAdminLiquidationRunSummary {
   totalUnits: number
   generatedAt: string
   closedAt: string | null
+}
+
+export type IAdminLedgerEntryType =
+  | 'expensa_ordinaria'
+  | 'expensa_extraordinaria'
+  | 'saldo_anterior_migrado'
+  | 'recargo_mora'
+  | 'pago'
+  | 'ajuste_manual'
+  | 'anulacion'
+
+export type IAdminLedgerEntryStatus = 'open' | 'partially_paid' | 'paid' | 'void'
+
+export interface IAdminLedgerEntry {
+  id: string
+  administrationId: string
+  managedPropertyId: string
+  unitId: string
+  accountingPeriodId: string | null
+  liquidationRunId: string | null
+  liquidationItemId: string | null
+  paymentId: string | null
+  entryType: IAdminLedgerEntryType
+  originType: string | null
+  originId: string | null
+  description: string | null
+  dueDate: string | null
+  amount: number
+  balanceOpen: number
+  status: IAdminLedgerEntryStatus
+  metadata: Record<string, unknown>
+  createdBy: string | null
+  createdAt: string
+  voidedBy: string | null
+  voidedAt: string | null
+  voidReason: string | null
+}
+
+export interface IAdminOpenBalance {
+  unitId: string
+  entryId: string
+  entryType: IAdminLedgerEntryType
+  dueDate: string | null
+  amount: number
+  balanceOpen: number
+  liquidationRunId: string | null
+  liquidationItemId: string | null
+}
+
+export interface IAdminUnitAccountStatement {
+  ledger: IAdminLedgerEntry[]
+}
+
+export interface IAdminLiquidationRunSummary {
+  operationalSnapshot: IAdminOperationalSettings | null
 }
 
 export interface IAdminDueDate {

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
+  applyPaymentToLedgerInPostgres,
   callIAdminNextReceiptNumberInPostgres,
   deleteBankMovementInPostgres,
   getCashAccountFromPostgres,
@@ -12,6 +13,7 @@ import {
   getPaymentForVoidFromPostgres,
   insertBankMovementInPostgres,
   insertCollectionPaymentInPostgres,
+  reversePaymentApplicationsInLedgerInPostgres,
   voidPaymentInPostgres,
 } from '@/lib/db/iadmin-writes'
 
@@ -96,6 +98,16 @@ export async function registerCollection(input: z.input<typeof registerSchema>) 
     },
   })
 
+  await applyPaymentToLedgerInPostgres({
+    paymentId: payment.id,
+    administrationId: item.administration_id,
+    managedPropertyId: item.managed_property_id,
+    unitId: item.unit_id,
+    amount: parsed.amount,
+    paidAt: parsed.paidAt,
+    createdBy: profile.id,
+  })
+
   revalidatePath(`/iadmin/liquidaciones/${item.liquidation_run_id}`)
   revalidatePath(`/iadmin/consorcios/${item.managed_property_id}`)
   revalidatePath(`/iadmin/consorcios/${item.managed_property_id}/cuentas`)
@@ -124,6 +136,12 @@ export async function voidCollection(input: z.input<typeof voidSchema>) {
   await voidPaymentInPostgres({
     paymentId: parsed.paymentId,
     voidedBy: profile.id,
+    reason: parsed.reason,
+  })
+
+  await reversePaymentApplicationsInLedgerInPostgres({
+    paymentId: parsed.paymentId,
+    actorProfileId: profile.id,
     reason: parsed.reason,
   })
 

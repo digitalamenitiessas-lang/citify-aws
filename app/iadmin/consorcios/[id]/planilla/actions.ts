@@ -6,10 +6,12 @@ import { requireIAdmin } from '@/lib/auth'
 import { getIAdminUnitAccountStatement } from '@/lib/data'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
+  applyPaymentToLedgerInPostgres,
   bulkInsertLiquidationItemsInPostgres,
   bulkInsertShareTokensInPostgres,
   bulkRevokeShareTokensInPostgres,
   callIAdminNextReceiptNumberInPostgres,
+  createLedgerEntriesForIssuedRunInPostgres,
   deleteBankMovementInPostgres,
   deleteExpenseFromPostgres,
   deleteLiquidationItemsForRunInPostgres,
@@ -36,6 +38,7 @@ import {
   sumLivePaymentsByItemIdsFromPostgres,
   updateExpenseAmountInPostgres,
   upsertIssuedLiquidationRunInPostgres,
+  voidLedgerEntriesForRunInPostgres,
 } from '@/lib/db/iadmin-writes'
 import { notifyLiquidationIssued } from '@/lib/email/notifications/liquidations'
 import type { IAdminExpenseStatus, IAdminUnitAccountStatement } from '@/lib/types'
@@ -317,7 +320,7 @@ export async function quickPayFromMesa(
   const receiptNumber = await callIAdminNextReceiptNumberInPostgres(property.administration_id)
 
   try {
-    await insertCollectionPaymentInPostgres({
+    const payment = await insertCollectionPaymentInPostgres({
       administrationId: property.administration_id,
       managedPropertyId: parsed.propertyId,
       liquidationRunId: run.id,
@@ -333,6 +336,15 @@ export async function quickPayFromMesa(
       receiptNumber,
       dueLabel: null,
       notes: null,
+      createdBy: profile.id,
+    })
+    await applyPaymentToLedgerInPostgres({
+      paymentId: payment.id,
+      administrationId: property.administration_id,
+      managedPropertyId: parsed.propertyId,
+      unitId: parsed.unitId,
+      amount: parsed.amount,
+      paidAt: today,
       createdBy: profile.id,
     })
   } catch (error) {
@@ -409,10 +421,17 @@ export async function emitAndNotify(
   const nextMonth = parsed.month === 12 ? 1 : parsed.month + 1
   const nextYear = parsed.month === 12 ? parsed.year + 1 : parsed.year
   const mm = String(nextMonth).padStart(2, '0')
-  const dueDates = [
-    { label: '1er vencimiento', date: `${nextYear}-${mm}-10`, surcharge_pct: 0 },
-    { label: '2do vencimiento', date: `${nextYear}-${mm}-25`, surcharge_pct: 3 },
-  ]
+  const operationalRules = Array.isArray((property.operational_settings as any)?.dueDateRules)
+    ? ((property.operational_settings as any).dueDateRules as Array<{ label?: string; day?: number; surchargePct?: number }>)
+    : []
+  const dueDates = (operationalRules.length > 0 ? operationalRules : [
+    { label: '1er vencimiento', day: 10, surchargePct: 0 },
+    { label: '2do vencimiento', day: 25, surchargePct: 3 },
+  ]).map((rule) => ({
+    label: rule.label ?? 'Vencimiento',
+    date: `${nextYear}-${mm}-${String(Math.max(1, Math.min(28, Number(rule.day ?? 10)))).padStart(2, '0')}`,
+    surcharge_pct: Number(rule.surchargePct ?? 0),
+  }))
 
   const run = await upsertIssuedLiquidationRunInPostgres({
     administrationId: property.administration_id,
@@ -428,6 +447,11 @@ export async function emitAndNotify(
     issuedBy: profile.id,
   })
 
+  await voidLedgerEntriesForRunInPostgres({
+    runId: run.id,
+    actorProfileId: profile.id,
+    reason: 'reissued_from_planilla',
+  })
   await deleteLiquidationItemsForRunInPostgres(run.id)
   const itemsToInsert = eligibleUnits.map((u) => {
     const prorata = Number(u.prorata_coefficient)
@@ -445,6 +469,10 @@ export async function emitAndNotify(
     }
   })
   await bulkInsertLiquidationItemsInPostgres(itemsToInsert)
+  await createLedgerEntriesForIssuedRunInPostgres({
+    runId: run.id,
+    actorProfileId: profile.id,
+  })
 
   const newItems = await listLiquidationItemsByRunFromPostgres(run.id)
   const itemIds = newItems.map((it) => it.id)

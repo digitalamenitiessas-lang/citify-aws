@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Download } from 'lucide-react'
 import { requireIAdmin } from '@/lib/auth'
 import { computeCollectionsKpisFromPostgres, listMorososByAdminFromPostgres } from '@/lib/db/iadmin-reads'
+import { materializeLateFeesForAdministrationInPostgres } from '@/lib/db/iadmin-writes'
 import { MorososTable } from '@/components/admin-backoffice/cobranzas/morosos-table'
 import { Money } from '@/components/admin-backoffice/shared/money'
 
@@ -22,6 +23,12 @@ export default async function CobranzasReportesPage() {
       </div>
     )
   }
+
+  await materializeLateFeesForAdministrationInPostgres({
+    administrationId,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    actorProfileId: null,
+  })
 
   const [morosos, kpis] = await Promise.all([
     listMorososByAdminFromPostgres({ administrationId }),

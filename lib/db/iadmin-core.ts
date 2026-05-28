@@ -47,6 +47,7 @@ export interface IAdminManagedPropertyRow {
   notes: string | null
   is_active: boolean
   legal_info: Record<string, unknown> | null
+  operational_settings: Record<string, unknown> | null
   created_at: string
   building_name: string
   building_address: string | null
@@ -806,6 +807,7 @@ export async function getIAdminManagedPropertyByIdFromPostgres(
         mp.notes,
         mp.is_active,
         mp.legal_info,
+        mp.operational_settings,
         mp.created_at::text as created_at,
         b.name as building_name,
         b.address as building_address,
@@ -1038,6 +1040,7 @@ export async function getIAdminManagedPropertiesByAdministrationFromPostgres(
         mp.notes,
         mp.is_active,
         mp.legal_info,
+        mp.operational_settings,
         mp.created_at::text as created_at,
         b.name as building_name,
         b.address as building_address,

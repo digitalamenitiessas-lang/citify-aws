@@ -1551,12 +1551,22 @@ export async function listOpenLiquidationItemsByAdminFromPostgres(input: {
           from public.iadmin_unit_holders
          order by unit_id, is_active desc, created_at asc
       ),
-      paid_by_item as (
-        select liquidation_item_id, coalesce(sum(amount), 0) as paid
-          from public.iadmin_payments
-         where liquidation_item_id is not null
-           and is_void = false
-         group by liquidation_item_id
+      ledger_by_item as (
+        select
+          liquidation_item_id,
+          unit_id,
+          liquidation_run_id,
+          sum(case when entry_type = 'expensa_ordinaria' then amount else 0 end) as ordinary_amount,
+          sum(case when entry_type = 'expensa_extraordinaria' then amount else 0 end) as extraordinary_amount,
+          sum(case when entry_type in ('saldo_anterior_migrado', 'recargo_mora', 'ajuste_manual') then amount else 0 end) as previous_balance,
+          sum(amount) as subtotal,
+          sum(balance_open) as balance_remaining
+        from public.iadmin_unit_ledger_entries
+        where administration_id = $1
+          and liquidation_item_id is not null
+          and entry_type <> 'pago'
+          and status <> 'void'
+        group by liquidation_item_id, unit_id, liquidation_run_id
       )
       select
         li.id as item_id,
@@ -1571,16 +1581,12 @@ export async function listOpenLiquidationItemsByAdminFromPostgres(input: {
         r.status::text as run_status,
         ap.period_year,
         ap.period_month,
-        coalesce(li.ordinary_amount, 0)::text as ordinary_amount,
-        coalesce(li.extraordinary_amount, 0)::text as extraordinary_amount,
-        coalesce(li.previous_balance, 0)::text as previous_balance,
-        (coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0) + coalesce(li.previous_balance, 0))::text as subtotal,
-        coalesce(pbi.paid, 0)::text as paid,
-        greatest(
-          0,
-          (coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0) + coalesce(li.previous_balance, 0))
-          - coalesce(pbi.paid, 0)
-        )::text as balance_remaining,
+        coalesce(lbi.ordinary_amount, 0)::text as ordinary_amount,
+        coalesce(lbi.extraordinary_amount, 0)::text as extraordinary_amount,
+        coalesce(lbi.previous_balance, 0)::text as previous_balance,
+        coalesce(lbi.subtotal, 0)::text as subtotal,
+        greatest(0, coalesce(lbi.subtotal, 0) - coalesce(lbi.balance_remaining, 0))::text as paid,
+        coalesce(lbi.balance_remaining, 0)::text as balance_remaining,
         r.due_dates as due_dates
       from public.iadmin_liquidation_items li
       inner join public.iadmin_liquidation_runs r on r.id = li.liquidation_run_id
@@ -1589,11 +1595,10 @@ export async function listOpenLiquidationItemsByAdminFromPostgres(input: {
       inner join public.buildings b on b.id = mp.building_id
       inner join public.iadmin_units u on u.id = li.unit_id
       left join chosen_holder ch on ch.unit_id = u.id
-      left join paid_by_item pbi on pbi.liquidation_item_id = li.id
+      left join ledger_by_item lbi on lbi.liquidation_item_id = li.id
       where r.administration_id = $1
         and r.status in ('issued', 'closed')
-        and (coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0) + coalesce(li.previous_balance, 0))
-            - coalesce(pbi.paid, 0) > 0.01
+        and coalesce(lbi.balance_remaining, 0) > 0.01
       order by ap.period_year desc, ap.period_month desc, u.code asc
     `,
     [input.administrationId],
@@ -1629,43 +1634,24 @@ export async function computeCollectionsKpisFromPostgres(input: {
         from live_payments, month_bounds
         where paid_at >= month_bounds.start_of_month
       ),
-      open_items as (
+      open_entries as (
         select
-          li.id as item_id,
-          r.due_dates,
-          coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0) + coalesce(li.previous_balance, 0) as subtotal,
-          (select coalesce(sum(amount), 0)
-             from live_payments lp
-            where lp.liquidation_item_id = li.id) as paid
-        from public.iadmin_liquidation_items li
-        inner join public.iadmin_liquidation_runs r on r.id = li.liquidation_run_id
-        where r.administration_id = $1
-          and r.status in ('issued', 'closed')
-      ),
-      open_balances as (
-        select
-          item_id,
-          greatest(0, subtotal - paid) as balance,
-          due_dates
-        from open_items
-        where (subtotal - paid) > 0.01
-      ),
-      first_due as (
-        select
-          ob.item_id,
-          ob.balance,
-          ((ob.due_dates->0)->>'date')::date as first_due_date
-        from open_balances ob
+          due_date,
+          balance_open
+        from public.iadmin_unit_ledger_entries
+        where administration_id = $1
+          and status in ('open', 'partially_paid')
+          and entry_type <> 'pago'
       )
       select
         (select collected_this_month from this_month) as collected_this_month,
         (select payments_this_month from this_month) as payments_this_month,
-        coalesce((select sum(balance) from open_balances), 0)::text as open_balance_total,
+        coalesce((select sum(balance_open) from open_entries), 0)::text as open_balance_total,
         coalesce(
-          (select sum(balance)
-             from first_due
-            where first_due_date is not null
-              and first_due_date < (now() - interval '30 days')::date),
+          (select sum(balance_open)
+             from open_entries
+            where due_date is not null
+              and due_date < (now() - interval '30 days')::date),
           0
         )::text as overdue_over_30d
     `,
@@ -1711,44 +1697,29 @@ export async function listMorososByAdminFromPostgres(input: {
         from public.iadmin_unit_holders h
         order by h.unit_id, h.is_active desc, h.created_at asc
       ),
-      paid_by_item as (
-        select liquidation_item_id, coalesce(sum(amount), 0) as paid
-          from public.iadmin_payments
-         where liquidation_item_id is not null
-           and is_void = false
-         group by liquidation_item_id
-      ),
-      open_items as (
+      open_entries as (
         select
-          li.id as item_id,
-          li.unit_id,
-          r.managed_property_id,
-          (coalesce(li.ordinary_amount, 0)
-            + coalesce(li.extraordinary_amount, 0)
-            + coalesce(li.previous_balance, 0)
-            - coalesce(pbi.paid, 0)) as balance,
-          ((r.due_dates->0)->>'date')::date as first_due_date
-        from public.iadmin_liquidation_items li
-        inner join public.iadmin_liquidation_runs r on r.id = li.liquidation_run_id
-        left join paid_by_item pbi on pbi.liquidation_item_id = li.id
-        where r.administration_id = $1
-          and r.status in ('issued', 'closed')
-          and (coalesce(li.ordinary_amount, 0)
-                + coalesce(li.extraordinary_amount, 0)
-                + coalesce(li.previous_balance, 0)
-                - coalesce(pbi.paid, 0)) > 0.01
+          le.id as item_id,
+          le.unit_id,
+          le.managed_property_id,
+          le.balance_open as balance,
+          le.due_date as first_due_date
+        from public.iadmin_unit_ledger_entries le
+        where le.administration_id = $1
+          and le.status in ('open', 'partially_paid')
+          and le.entry_type <> 'pago'
       ),
       bucketed as (
         select
-          oi.unit_id,
-          oi.managed_property_id,
-          oi.balance,
-          oi.first_due_date,
+          oe.unit_id,
+          oe.managed_property_id,
+          oe.balance,
+          oe.first_due_date,
           case
-            when oi.first_due_date is null then null
-            else (current_date - oi.first_due_date)
+            when oe.first_due_date is null then null
+            else (current_date - oe.first_due_date)
           end as days_overdue
-        from open_items oi
+        from open_entries oe
       ),
       last_pay as (
         select unit_id, max(paid_at) as last_paid_at
@@ -1799,6 +1770,108 @@ export async function listMorososByAdminFromPostgres(input: {
       order by a.total_balance desc
     `,
     [input.administrationId],
+  )
+  return result.rows
+}
+
+export type UnitLedgerEntryDetailedRow = {
+  id: string
+  administration_id: string
+  managed_property_id: string
+  unit_id: string
+  accounting_period_id: string | null
+  period_year: number | null
+  period_month: number | null
+  liquidation_run_id: string | null
+  liquidation_item_id: string | null
+  payment_id: string | null
+  entry_type: string
+  origin_type: string | null
+  origin_id: string | null
+  description: string | null
+  due_date: string | null
+  amount: string
+  balance_open: string
+  status: string
+  metadata: Record<string, unknown> | null
+  created_by: string | null
+  created_at: string
+  voided_by: string | null
+  voided_at: string | null
+  void_reason: string | null
+}
+
+export async function listUnitLedgerEntriesFromPostgres(input: {
+  unitId: string
+  managedPropertyId: string
+}): Promise<UnitLedgerEntryDetailedRow[]> {
+  const result = await pgQuery<UnitLedgerEntryDetailedRow>(
+    `
+      select
+        le.id,
+        le.administration_id,
+        le.managed_property_id,
+        le.unit_id,
+        le.accounting_period_id,
+        ap.period_year,
+        ap.period_month,
+        le.liquidation_run_id,
+        le.liquidation_item_id,
+        le.payment_id,
+        le.entry_type::text as entry_type,
+        le.origin_type,
+        le.origin_id::text as origin_id,
+        le.description,
+        le.due_date::text as due_date,
+        le.amount::text as amount,
+        le.balance_open::text as balance_open,
+        le.status::text as status,
+        le.metadata,
+        le.created_by,
+        le.created_at::text as created_at,
+        le.voided_by,
+        le.voided_at::text as voided_at,
+        le.void_reason
+      from public.iadmin_unit_ledger_entries le
+      left join public.iadmin_accounting_periods ap on ap.id = le.accounting_period_id
+      where le.unit_id = $1
+        and le.managed_property_id = $2
+      order by coalesce(ap.period_year, 0) asc, coalesce(ap.period_month, 0) asc, le.created_at asc
+    `,
+    [input.unitId, input.managedPropertyId],
+  )
+  return result.rows
+}
+
+export type UnitAppliedPaymentRow = {
+  applied_to_entry_id: string
+  period_year: number | null
+  period_month: number | null
+  amount: string
+}
+
+export async function listUnitAppliedPaymentsByChargePeriodFromPostgres(input: {
+  unitId: string
+  windowStart: string
+}): Promise<UnitAppliedPaymentRow[]> {
+  const result = await pgQuery<UnitAppliedPaymentRow>(
+    `
+      select
+        app.applied_to_entry_id,
+        ap.period_year,
+        ap.period_month,
+        app.amount::text as amount
+      from public.iadmin_payment_applications app
+      inner join public.iadmin_unit_ledger_entries le on le.id = app.applied_to_entry_id
+      left join public.iadmin_accounting_periods ap on ap.id = le.accounting_period_id
+      inner join public.iadmin_payments p on p.id = app.payment_id
+      where app.unit_id = $1
+        and app.voided_at is null
+        and p.is_void = false
+        and p.paid_at >= $2::date
+      order by p.paid_at asc, app.created_at asc
+    `,
+    [input.unitId, input.windowStart],
   )
   return result.rows
 }

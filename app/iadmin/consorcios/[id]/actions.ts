@@ -7,6 +7,7 @@ import type { UnitProfileRelationship, UserRole } from '@/lib/types'
 import { adminCreateCognitoUser } from '@/lib/aws/cognito'
 import { findProfileById, findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
+import { getRunIdAndStatusForPeriodFromPostgres } from '@/lib/db/iadmin-reads'
 import {
   changeAccountingPeriodStatusInPostgres,
   closeActiveHoldersOfKindInPostgres,
@@ -21,6 +22,7 @@ import {
   getBuildingIdForPropertyFromPostgres,
   getHolderWithAdminFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
+  getManagedPropertyOperationalSettingsFromPostgres,
   getMembershipWithAdminFromPostgres,
   getUnitFullScopeFromPostgres,
   getUnitWithAdminFromPostgres,
@@ -29,6 +31,7 @@ import {
   insertUnitFromCrudInPostgres,
   insertUnitHolderFromCrudInPostgres,
   updateManagedPropertyInPostgres,
+  updateManagedPropertyOperationalSettingsInPostgres,
   updatePropertyLegalInfoInPostgres,
   updateUnitInPostgres,
   upsertAccountingPeriodOpenInPostgres,
@@ -154,6 +157,67 @@ export async function updatePropertyLegalInfo(input: z.input<typeof updateProper
     entityType: 'iadmin_managed_properties',
     entityId: parsed.propertyId,
     action: 'property.legal_updated',
+  })
+
+  revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
+}
+
+const operationalSettingsSchema = z.object({
+  dueDateRules: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(40),
+        day: z.number().int().min(1).max(28),
+        surchargePct: z.number().min(0).max(100),
+      }),
+    )
+    .min(1)
+    .max(3)
+    .optional(),
+  paymentAllocationMode: z.enum(['fifo_oldest_first']).optional(),
+  closePeriodPolicy: z.enum(['issued_required']).optional(),
+  allowManualAdjustments: z.boolean().optional(),
+  legalDebtNotice: z.string().trim().max(2000).optional(),
+})
+
+const updateOperationalSettingsSchema = z.object({
+  propertyId: z.string().uuid(),
+  operationalSettings: operationalSettingsSchema,
+})
+
+export async function updatePropertyOperationalSettings(
+  input: z.input<typeof updateOperationalSettingsSchema>,
+) {
+  const parsed = updateOperationalSettingsSchema.parse(input)
+
+  const property = await getManagedPropertyOperationalSettingsFromPostgres(parsed.propertyId)
+  if (!property) throw new Error('Consorcio no encontrado')
+
+  const { profile } = await requireIAdmin({
+    capability: 'admin.settings.manage',
+    administrationId: property.administration_id,
+  })
+
+  const nextSettings = {
+    paymentAllocationMode: 'fifo_oldest_first',
+    closePeriodPolicy: 'issued_required',
+    allowManualAdjustments: false,
+    ...(property.operational_settings ?? {}),
+    ...(parsed.operationalSettings ?? {}),
+  }
+
+  await updateManagedPropertyOperationalSettingsInPostgres({
+    propertyId: parsed.propertyId,
+    operationalSettings: nextSettings,
+  })
+
+  await insertIAdminAuditLogInPostgres({
+    administrationId: property.administration_id,
+    actorProfileId: profile.id,
+    entityType: 'iadmin_managed_properties',
+    entityId: parsed.propertyId,
+    action: 'property.operational_settings_updated',
+    metadata: nextSettings,
   })
 
   revalidatePath(`/iadmin/consorcios/${parsed.propertyId}`)
@@ -727,6 +791,16 @@ export async function changePeriodStatus(input: z.input<typeof changePeriodStatu
     capability: parsed.nextStatus === 'closed' ? 'liquidations.close' : 'liquidations.create',
     administrationId: period.administration_id,
   })
+
+  if (parsed.nextStatus === 'closed') {
+    const run = await getRunIdAndStatusForPeriodFromPostgres({
+      managedPropertyId: period.managed_property_id,
+      accountingPeriodId: parsed.periodId,
+    })
+    if (!run || (run.status !== 'issued' && run.status !== 'closed')) {
+      throw new Error('Solo se puede cerrar el periodo si la liquidacion ya fue emitida.')
+    }
+  }
 
   await changeAccountingPeriodStatusInPostgres({
     periodId: parsed.periodId,
