@@ -29,6 +29,13 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
   const [category, setCategory] = useState('')
   const [expenseKind, setExpenseKind] = useState<IAdminExpenseKind>('ordinaria')
 
+  // Período al que se imputa el gasto. Por defecto el mes en curso, pero el
+  // admin puede elegir otro (ej: cargar gastos de mayo cuando ya estamos en junio
+  // y el período de mayo sigue abierto).
+  const now = new Date()
+  const [periodYear, setPeriodYear] = useState<number>(now.getFullYear())
+  const [periodMonth, setPeriodMonth] = useState<number>(now.getMonth() + 1)
+
   // Proveedor autocomplete
   const [providerInput, setProviderInput] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<Pick<IAdminProvider, 'id' | 'name'> | null>(null)
@@ -68,6 +75,8 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
     setDescription('')
     setAmount('')
     setIssuedAt(new Date().toISOString().slice(0, 10))
+    setPeriodYear(now.getFullYear())
+    setPeriodMonth(now.getMonth() + 1)
     setCategory('')
     setExpenseKind('ordinaria')
     setProviderInput('')
@@ -205,6 +214,8 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
         const result = await createExpense({
           administrationId,
           managedPropertyId,
+          periodYear,
+          periodMonth,
           description: description.trim(),
           amount: numericAmount,
           currency: 'ARS',
@@ -247,7 +258,8 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
             Cargar gasto
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Queda imputado al periodo abierto del mes en curso.
+            Elegí a qué período se imputa. Si la liquidación de ese mes ya fue emitida, no vas
+            a poder cargar el gasto.
           </p>
         </div>
         <button
@@ -484,6 +496,33 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
         <div className="space-y-1.5">
           <Label htmlFor="issuedAt">Fecha de emision</Label>
           <Input id="issuedAt" type="date" value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Período de imputación</Label>
+          <div className="flex gap-2">
+            <select
+              value={periodMonth}
+              onChange={(e) => setPeriodMonth(Number(e.target.value))}
+              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((label, idx) => (
+                <option key={idx + 1} value={idx + 1}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={periodYear}
+              onChange={(e) => setPeriodYear(Number(e.target.value))}
+              className="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Por defecto: mes actual. Cambialo si cargás gastos retroactivos a un período abierto.
+          </p>
         </div>
 
         <div className="space-y-1.5 md:col-span-2">

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
 import { getIAdminUnitAccountStatement } from '@/lib/data'
+import { pgQuery } from '@/lib/db/postgres'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
   applyPaymentToLedgerInPostgres,
@@ -90,8 +91,28 @@ export async function upsertMonthlyCell(
     periodStatus = 'open'
   }
 
+  const periodLabel = `${String(parsed.month).padStart(2, '0')}/${parsed.year}`
   if (periodStatus === 'closed') {
-    throw new Error('El período del mes está cerrado. Reabrilo desde Liquidaciones para editar.')
+    throw new Error(`El período ${periodLabel} está cerrado. Reabrilo desde Liquidaciones para editar.`)
+  }
+
+  // Bloqueo: si ya hay una liquidación issued/closed para este período,
+  // no se admiten ediciones (afectaría el cálculo de lo que ya se emitió).
+  const liqRes = await pgQuery<{ status: string }>(
+    `select status::text as status
+       from public.iadmin_liquidation_runs
+      where managed_property_id = $1
+        and accounting_period_id = $2
+        and status in ('issued', 'closed')
+      limit 1`,
+    [parsed.propertyId, periodId],
+  )
+  if (liqRes.rows[0]) {
+    const runStatus = liqRes.rows[0].status
+    throw new Error(
+      `La liquidación de ${periodLabel} ya está ${runStatus === 'issued' ? 'emitida' : 'cerrada'}. ` +
+        `Reabrila desde Liquidaciones si necesitás ajustar gastos.`,
+    )
   }
 
   const existing = await findExpenseInPeriodByProviderFromPostgres({

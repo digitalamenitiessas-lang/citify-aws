@@ -11,10 +11,13 @@ import {
 } from '@/lib/aws/s3'
 import { canTransition } from '@/lib/iadmin/expense-status'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
+import { pgQuery } from '@/lib/db/postgres'
 import {
+  assertProrataNotOver100,
   changeExpenseStatusInPostgres,
   ensureAccountingPeriodInPostgres,
   findProviderByNameInPostgres,
+  getAccountingPeriodIdAndStatusFromPostgres,
   getAIExtractionWithAdminFromPostgres,
   getExpenseDocumentWithAdminFromPostgres,
   getExpenseStatusInfoFromPostgres,
@@ -32,6 +35,11 @@ const createExpenseSchema = z.object({
   administrationId: z.string().uuid(),
   managedPropertyId: z.string().uuid(),
   accountingPeriodId: z.string().uuid().nullable().optional(),
+  // El periodo (mes/año) al que se imputa el gasto. Si no se manda, el server
+  // usa el mes actual. La fecha de emision (issuedAt) es independiente — un
+  // gasto se puede imputar a junio aunque la factura sea de mayo, por ejemplo.
+  periodYear: z.number().int().min(2020).max(2100).optional(),
+  periodMonth: z.number().int().min(1).max(12).optional(),
   providerId: z.string().uuid().nullable().optional(),
   providerName: z.string().trim().max(120).optional(),
   category: z.string().trim().max(80).nullable().optional(),
@@ -67,6 +75,8 @@ export async function createExpense(input: CreateExpenseInput) {
     throw new Error('Consorcio fuera de la administracion')
   }
 
+  await assertProrataNotOver100(parsed.managedPropertyId)
+
   let providerId = parsed.providerId ?? null
   if (!providerId && parsed.providerName && parsed.providerName.trim().length > 0) {
     const existing = await findProviderByNameInPostgres({
@@ -87,15 +97,78 @@ export async function createExpense(input: CreateExpenseInput) {
     await setProviderDefaultCategoryIfNullInPostgres({ providerId, category: parsed.category })
   }
 
+  // Resolución del período: prioridad por accountingPeriodId, luego year/month
+  // explícitos, finalmente el mes actual como default.
   let accountingPeriodId = parsed.accountingPeriodId ?? null
+  let periodLabel = ''
   if (!accountingPeriodId) {
     const now = new Date()
-    const period = await ensureAccountingPeriodInPostgres({
+    const year = parsed.periodYear ?? now.getFullYear()
+    const month = parsed.periodMonth ?? now.getMonth() + 1
+    periodLabel = `${String(month).padStart(2, '0')}/${year}`
+
+    const existing = await getAccountingPeriodIdAndStatusFromPostgres({
       managedPropertyId: parsed.managedPropertyId,
-      periodYear: now.getFullYear(),
-      periodMonth: now.getMonth() + 1,
+      periodYear: year,
+      periodMonth: month,
     })
-    accountingPeriodId = period.id
+    if (existing) {
+      if (existing.status === 'closed') {
+        throw new Error(
+          `El periodo ${periodLabel} esta cerrado. Reabrilo desde Liquidaciones si necesitas cargar gastos retroactivos.`,
+        )
+      }
+      accountingPeriodId = existing.id
+    } else {
+      const created = await ensureAccountingPeriodInPostgres({
+        managedPropertyId: parsed.managedPropertyId,
+        periodYear: year,
+        periodMonth: month,
+      })
+      accountingPeriodId = created.id
+    }
+  } else {
+    // Validamos que el período no esté cerrado aunque venga referenciado por id.
+    const periodInfo = await pgQuery<{
+      status: string
+      period_year: number
+      period_month: number
+      managed_property_id: string
+    }>(
+      `select status::text as status, period_year, period_month, managed_property_id
+         from public.iadmin_accounting_periods
+        where id = $1
+        limit 1`,
+      [accountingPeriodId],
+    )
+    const info = periodInfo.rows[0]
+    if (!info) throw new Error('El periodo indicado no existe')
+    if (info.managed_property_id !== parsed.managedPropertyId) {
+      throw new Error('El periodo no pertenece a este consorcio')
+    }
+    periodLabel = `${String(info.period_month).padStart(2, '0')}/${info.period_year}`
+    if (info.status === 'closed') {
+      throw new Error(`El periodo ${periodLabel} esta cerrado y no admite mas gastos.`)
+    }
+  }
+
+  // Si ya hay una liquidación emitida o cerrada para este período, no se
+  // pueden cargar más gastos sin reabrirla — sino se rompe el cálculo.
+  const liqRes = await pgQuery<{ status: string }>(
+    `select status::text as status
+       from public.iadmin_liquidation_runs
+      where managed_property_id = $1
+        and accounting_period_id = $2
+        and status in ('issued', 'closed')
+      limit 1`,
+    [parsed.managedPropertyId, accountingPeriodId],
+  )
+  if (liqRes.rows[0]) {
+    const runStatus = liqRes.rows[0].status
+    throw new Error(
+      `La liquidacion de ${periodLabel} ya esta ${runStatus === 'issued' ? 'emitida' : 'cerrada'}. ` +
+        `No se pueden cargar mas gastos en ese periodo. Reabrila desde Liquidaciones si tenes que ajustar.`,
+    )
   }
 
   const canApprove =

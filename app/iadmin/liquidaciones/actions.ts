@@ -20,6 +20,7 @@ import {
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyOperationalSettingsFromPostgres,
   getMostRecentPriorRunWithItemsFromPostgres,
+  getRunPaymentStatsFromPostgres,
   listActiveUnitsWithProrataFromPostgres,
   listImputedExpensesByPeriodFromPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
@@ -92,8 +93,16 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
   })
 
   if (existingRun && (existingRun.status === 'issued' || existingRun.status === 'closed')) {
+    // Para que el mensaje sea util al admin, contamos los pagos vivos que se
+    // verian afectados si decide reabrir y recalcular.
+    const stats = await getRunPaymentStatsFromPostgres(existingRun.id)
+    const statusLabel = existingRun.status === 'issued' ? 'emitida' : 'cerrada'
+    const paymentsLine = stats.count > 0
+      ? ` Hay ${stats.count} pago${stats.count === 1 ? '' : 's'} cobrado${stats.count === 1 ? '' : 's'} (total $${stats.total.toFixed(2)}) que quedan desvinculados si reabrís.`
+      : ''
     throw new Error(
-      `Ya existe una liquidacion ${existingRun.status}. Reabri primero para poder recalcular.`,
+      `Ya existe una liquidación ${statusLabel} para este período (${existingRun.id.slice(0, 8)}).` +
+        ` Tenés que reabrirla desde Liquidaciones para recalcular.${paymentsLine}`,
     )
   }
 
@@ -221,7 +230,27 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
 const transitionSchema = z.object({
   runId: z.string().uuid(),
   nextStatus: z.enum(['draft', 'calculated', 'issued', 'closed']),
+  // El admin tiene que aceptar explicitamente reabrir cuando hay pagos vivos.
+  // La UI primero llama a getLiquidationReopenImpact, muestra el modal con la
+  // info, y solo despues llama con acknowledgePaymentImpact=true.
+  acknowledgePaymentImpact: z.boolean().optional().default(false),
 })
+
+export async function getLiquidationReopenImpact(runId: string): Promise<{
+  livePaymentsCount: number
+  livePaymentsTotal: number
+  currentStatus: string
+}> {
+  const run = await getLiquidationRunWithAdminFromPostgres(runId)
+  if (!run) throw new Error('Corrida de liquidacion no encontrada')
+  await requireIAdmin({ capability: 'liquidations.view', administrationId: run.administration_id })
+  const stats = await getRunPaymentStatsFromPostgres(runId)
+  return {
+    livePaymentsCount: stats.count,
+    livePaymentsTotal: stats.total,
+    currentStatus: run.status,
+  }
+}
 
 export async function changeLiquidationStatus(input: z.input<typeof transitionSchema>) {
   const parsed = transitionSchema.parse(input)
@@ -239,15 +268,25 @@ export async function changeLiquidationStatus(input: z.input<typeof transitionSc
     }
   }
 
+  const isReopen =
+    (parsed.nextStatus === 'calculated' || parsed.nextStatus === 'draft') &&
+    (run.status === 'issued' || run.status === 'closed')
+
   if (parsed.nextStatus === 'issued') {
     await createLedgerEntriesForIssuedRunInPostgres({
       runId: parsed.runId,
       actorProfileId: profile.id,
     })
-  } else if (
-    (parsed.nextStatus === 'calculated' || parsed.nextStatus === 'draft') &&
-    (run.status === 'issued' || run.status === 'closed')
-  ) {
+  } else if (isReopen) {
+    // Safety gate: si hay pagos vivos, exigir confirmación explícita.
+    const stats = await getRunPaymentStatsFromPostgres(parsed.runId)
+    if (stats.count > 0 && !parsed.acknowledgePaymentImpact) {
+      throw new Error(
+        `Esta liquidación tiene ${stats.count} pago${stats.count === 1 ? '' : 's'} vigente${stats.count === 1 ? '' : 's'} ` +
+          `(total $${stats.total.toFixed(2)}). Reabrirla anula los asientos del ledger y desvincula esos pagos. ` +
+          `Confirmá la acción desde la UI o llamá con acknowledgePaymentImpact=true.`,
+      )
+    }
     await voidLedgerEntriesForRunInPostgres({
       runId: parsed.runId,
       actorProfileId: profile.id,

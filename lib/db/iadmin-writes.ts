@@ -2056,6 +2056,29 @@ export async function getProrataSumForPropertyFromPostgres(propertyId: string): 
   return Number(result.rows[0]?.total ?? 0)
 }
 
+/**
+ * Para mensajes y validaciones del flow de liquidación: cuenta y suma los
+ * pagos vigentes (no anulados) de un run.
+ */
+export async function getRunPaymentStatsFromPostgres(runId: string): Promise<{
+  count: number
+  total: number
+}> {
+  const result = await pgQuery<{ count: string; total: string | null }>(
+    `
+      select count(*)::text as count, coalesce(sum(amount), 0)::text as total
+      from public.iadmin_payments
+      where liquidation_run_id = $1 and is_void = false
+    `,
+    [runId],
+  )
+  const row = result.rows[0]
+  return {
+    count: Number(row?.count ?? 0),
+    total: Number(row?.total ?? 0),
+  }
+}
+
 export const PRORATA_OVER_100_ERROR = 'PRORATA_OVER_100'
 
 export async function assertProrataNotOver100(propertyId: string): Promise<void> {
