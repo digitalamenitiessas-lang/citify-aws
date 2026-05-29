@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react'
 import Link from 'next/link'
-import { Building2, Calendar, CalendarClock, CheckCircle2, FileText, Info, Printer, ReceiptText, Scale } from 'lucide-react'
+import { Building2, Calendar, CalendarClock, CheckCircle2, FileSpreadsheet, FileText, Info, Printer, ReceiptText, Scale } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { IAdminCapability, IAdminLiquidationItem, IAdminLiquidationRunDetail, IAdminLiquidationStatus } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
@@ -122,15 +122,25 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
       <section className="glass-card rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="font-serif text-lg font-semibold text-foreground">Acciones</h2>
-          <Link
-            href={`/print/liquidaciones/${run.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            Vista imprimible / PDF
-          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href={`/iadmin/liquidaciones/${run.id}/export-gastos`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              title="Descargar planilla de gastos del mes en Excel"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Exportar gastos (Excel)
+            </a>
+            <Link
+              href={`/print/liquidaciones/${run.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Vista imprimible / PDF
+            </Link>
+          </div>
         </div>
         <LiquidationStatusActions
           runId={run.id}

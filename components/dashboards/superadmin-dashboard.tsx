@@ -92,7 +92,6 @@ const IMPORT_STEP_LABELS: Array<{ id: ImportWizardStep; label: string }> = [
 ]
 
 const IMPORT_RELATIONSHIP_OPTIONS: Array<{ value: UnitProfileRelationship; label: string }> = [
-  { value: 'propietario', label: 'Propietario' },
   { value: 'vecino_principal', label: 'Vecino principal' },
   { value: 'vecino_adicional', label: 'Vecino adicional' },
 ]
@@ -262,11 +261,6 @@ function getRoleCreationCopy(role: string) {
         title: 'Admin de negocio',
         body: 'Asocialo a un negocio para dejar lista la operacion comercial desde el panel de negocio.',
       }
-    case 'propietario':
-      return {
-        title: 'Propietario',
-        body: 'Puede quedar vinculado a un edificio para luego asociarlo a su unidad desde IAdmin.',
-      }
     case 'vecino':
       return {
         title: 'Vecino',
@@ -435,7 +429,7 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
     phone: string
     password: string
     unitId: string
-    relationshipType: '' | 'propietario' | 'vecino_principal' | 'vecino_adicional'
+    relationshipType: '' | 'vecino_principal' | 'vecino_adicional'
   }>({
     fullName: '',
     email: '',
@@ -643,7 +637,6 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
                       <option value="">— sin rol —</option>
                       <option value="vecino_principal">Vecino principal</option>
                       <option value="vecino_adicional">Vecino adicional</option>
-                      <option value="propietario">Propietario</option>
                     </select>
                   </div>
                 </div>
@@ -1163,7 +1156,7 @@ function computeDashboardStats(data: SuperAdminDashboardData): DashboardStats {
     return acc
   }, {})
 
-  const usersByRole = (['vecino', 'propietario', 'consorcio_admin', 'negocio_admin'] as const).map((role) => ({
+  const usersByRole = (['vecino', 'consorcio_admin', 'negocio_admin'] as const).map((role) => ({
     role,
     label: ROLE_LABELS[role],
     count: roleCounts[role] ?? 0,
@@ -1368,7 +1361,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       ? data.businesses.find((business) => business.id === selectedBusinessId) ?? null
       : null
   const isConsorcioAdminDraft = userDraft.role === 'consorcio_admin'
-  const needsDirectBuilding = userDraft.role === 'vecino' || userDraft.role === 'propietario'
+  const needsDirectBuilding = userDraft.role === 'vecino'
   const needsBusiness = userDraft.role === 'negocio_admin'
   const roleCreationCopy = getRoleCreationCopy(userDraft.role)
   const currentConsorcioStep = CONSORCIO_WIZARD_STEPS[consorcioStepIndex]
@@ -1456,7 +1449,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     setUserDraft((current) => ({
       ...current,
       role: nextRole,
-      buildingId: nextRole === 'vecino' || nextRole === 'propietario' ? current.buildingId : '',
+      buildingId: nextRole === 'vecino' ? current.buildingId : '',
       businessId: nextRole === 'negocio_admin' ? current.businessId : '',
     }))
   }
@@ -1846,7 +1839,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       {activeTab === 'overview' && (
         <div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos · ${data.users.filter((u) => u.role === 'propietario').length} propietarios`} icon={Users} />
+            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} />
             <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} />
             <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} />
             <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} />
@@ -2336,7 +2329,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
             <div className="mb-4">
               <h3 className="font-semibold text-foreground text-sm">Crear usuario manual</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Crea la cuenta base y despues completa sus vinculos operativos segun el rol. Para vecinos y propietarios, la
+                Crea la cuenta base y despues completa sus vinculos operativos segun el rol. Para vecinos, la
                 asociacion fina a la unidad se termina desde IAdmin.
               </p>
             </div>
@@ -2346,7 +2339,6 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
               <input className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" placeholder="Telefono" value={userDraft.phone} onChange={(e) => setUserDraft({ ...userDraft, phone: e.target.value })} />
               <select className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm" value={userDraft.role} onChange={(e) => updateUserRole(e.target.value)}>
                 <option value="vecino">Vecino</option>
-                <option value="propietario">Propietario</option>
                 <option value="consorcio_admin">Admin consorcio</option>
                 <option value="negocio_admin">Admin negocio</option>
                 <option value="super_admin">Super admin</option>

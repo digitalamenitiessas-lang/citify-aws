@@ -174,7 +174,7 @@ export async function listAnnouncementRecipientsFromPostgres(input: {
         from public.profiles p
         left join public.unit_profile_memberships m on m.profile_id = p.id and m.building_id = $1
        where (p.building_id = $1 or m.building_id = $1)
-         and p.role in ('vecino', 'propietario')
+         and p.role = 'vecino'
          and p.email_blocked = false
          and coalesce((p.email_notifications->>'announcements')::boolean, true) = true
          and (m.active is null or m.active = true)

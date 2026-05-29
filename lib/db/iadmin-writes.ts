@@ -329,6 +329,24 @@ export async function updateCashAccountInPostgres(
   )
 }
 
+/**
+ * Desactiva todas las demás cuentas de la misma propiedad — usado para enforcar
+ * la regla "solo una cuenta activa por consorcio".
+ */
+export async function deactivateOtherCashAccountsInPostgres(input: {
+  managedPropertyId: string
+  exceptAccountId: string
+}): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_cash_accounts
+      set is_active = false
+      where managed_property_id = $1 and id <> $2 and is_active = true
+    `,
+    [input.managedPropertyId, input.exceptAccountId],
+  )
+}
+
 export async function getCashAccountWithAdminFromPostgres(accountId: string): Promise<{
   id: string
   managed_property_id: string
@@ -2020,6 +2038,35 @@ export async function listActiveUnitsWithProrataFromPostgres(propertyId: string)
     [propertyId],
   )
   return result.rows
+}
+
+/**
+ * Suma las alícuotas activas de un consorcio y devuelve el total como decimal (1 = 100%).
+ * Si supera 1 + epsilon → el consorcio está mal configurado y no se puede liquidar/registrar gastos/cobrar.
+ */
+export async function getProrataSumForPropertyFromPostgres(propertyId: string): Promise<number> {
+  const result = await pgQuery<{ total: string | null }>(
+    `
+      select coalesce(sum(prorata_coefficient), 0)::text as total
+      from public.iadmin_units
+      where managed_property_id = $1 and is_active = true
+    `,
+    [propertyId],
+  )
+  return Number(result.rows[0]?.total ?? 0)
+}
+
+export const PRORATA_OVER_100_ERROR = 'PRORATA_OVER_100'
+
+export async function assertProrataNotOver100(propertyId: string): Promise<void> {
+  const total = await getProrataSumForPropertyFromPostgres(propertyId)
+  if (total > 1.0001) {
+    const pct = (total * 100).toFixed(2)
+    const err = new Error(
+      `${PRORATA_OVER_100_ERROR}: Las alícuotas del consorcio suman ${pct}% (más de 100%). Corregí las unidades antes de continuar.`,
+    )
+    throw err
+  }
 }
 
 export async function sumLivePaymentsByItemIdsFromPostgres(

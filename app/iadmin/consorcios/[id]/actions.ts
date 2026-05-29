@@ -16,7 +16,6 @@ import {
   deactivateMembershipByIdInPostgres,
   deactivateUnitInPostgres,
   endHolderInPostgres,
-  findOwnerHolderForProfileFromPostgres,
   findUnitProfileMembershipFromPostgres,
   getAccountingPeriodWithAdminFromPostgres,
   getBuildingIdForPropertyFromPostgres,
@@ -27,7 +26,6 @@ import {
   getUnitFullScopeFromPostgres,
   getUnitWithAdminFromPostgres,
   insertBuildingInformationInPostgres,
-  insertOwnerHolderInPostgres,
   insertUnitFromCrudInPostgres,
   insertUnitHolderFromCrudInPostgres,
   updateManagedPropertyInPostgres,
@@ -429,7 +427,7 @@ export async function endUnitHolder(input: z.input<typeof endHolderSchema>) {
 
 const createUnitUserSchema = z.object({
   unitId: z.string().uuid(),
-  relationshipType: z.enum(['propietario', 'vecino_principal', 'vecino_adicional']),
+  relationshipType: z.enum(['vecino_principal', 'vecino_adicional']),
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(160),
   phone: z.string().trim().max(40).nullable().optional(),
@@ -437,8 +435,8 @@ const createUnitUserSchema = z.object({
   isPrimaryOwner: z.boolean().optional().default(false),
 })
 
-function roleForRelationship(relationshipType: UnitProfileRelationship): UserRole {
-  return relationshipType === 'propietario' ? 'propietario' : 'vecino'
+function roleForRelationship(_relationshipType: UnitProfileRelationship): UserRole {
+  return 'vecino'
 }
 
 function avatarFromName(fullName: string) {
@@ -524,25 +522,9 @@ export async function createUnitUser(input: z.input<typeof createUnitUserSchema>
     buildingId: scope.buildingId,
     profileId: targetProfileId,
     relationshipType: parsed.relationshipType,
-    isPrimary: parsed.relationshipType === 'propietario' ? parsed.isPrimaryOwner : false,
+    isPrimary: false,
     createdByProfileId: profile.id,
   })
-
-  if (parsed.relationshipType === 'propietario') {
-    const existingHolder = await findOwnerHolderForProfileFromPostgres({
-      unitId: scope.unitId,
-      profileId: targetProfileId,
-    })
-    if (!existingHolder) {
-      await insertOwnerHolderInPostgres({
-        unitId: scope.unitId,
-        profileId: targetProfileId,
-        fullName: parsed.fullName,
-        email: parsed.email.toLowerCase(),
-        phone: parsed.phone ?? null,
-      })
-    }
-  }
 
   await insertIAdminAuditLogInPostgres({
     administrationId: scope.administrationId,
@@ -564,7 +546,7 @@ export async function createUnitUser(input: z.input<typeof createUnitUserSchema>
 const linkExistingProfileSchema = z.object({
   unitId: z.string().uuid(),
   profileId: z.string().uuid(),
-  relationshipType: z.enum(['propietario', 'vecino_principal', 'vecino_adicional']),
+  relationshipType: z.enum(['vecino_principal', 'vecino_adicional']),
   isPrimaryOwner: z.boolean().optional().default(false),
 })
 
@@ -601,25 +583,9 @@ export async function linkExistingProfileToUnit(input: z.input<typeof linkExisti
     buildingId: scope.buildingId,
     profileId: parsed.profileId,
     relationshipType: parsed.relationshipType,
-    isPrimary: parsed.relationshipType === 'propietario' ? parsed.isPrimaryOwner : false,
+    isPrimary: false,
     createdByProfileId: actor.id,
   })
-
-  if (parsed.relationshipType === 'propietario') {
-    const existingHolder = await findOwnerHolderForProfileFromPostgres({
-      unitId: scope.unitId,
-      profileId: parsed.profileId,
-    })
-    if (!existingHolder) {
-      await insertOwnerHolderInPostgres({
-        unitId: scope.unitId,
-        profileId: parsed.profileId,
-        fullName: target.fullName,
-        email: target.email.toLowerCase(),
-        phone: target.phone ?? null,
-      })
-    }
-  }
 
   await insertIAdminAuditLogInPostgres({
     administrationId: scope.administrationId,

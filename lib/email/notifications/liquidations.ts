@@ -51,7 +51,7 @@ interface OwnerRow {
   profile_id: string
   email: string
   full_name: string
-  relationship_type: 'propietario' | 'vecino_principal'
+  relationship_type: 'vecino_principal'
 }
 
 // notifyLiquidationIssued: cuando la liquidacion pasa a 'issued', mail a
@@ -84,32 +84,54 @@ export async function notifyLiquidationIssued(runId: string): Promise<void> {
 
     const unitIds = items.map((it: ItemRow) => it.unit_id)
 
-    // Responsables del pago: propietarios + vecinos principales. El
-    // vecino_adicional (familiar/conviviente) no es responsable financiero,
-    // asi que no recibe la liquidacion. Si una misma persona es propietario
-    // Y vecino_principal de la unidad (caso edge), dedup por profile_id
-    // mas abajo.
+    // Responsable del pago: vecino_principal. El vecino_adicional
+    // (familiar/conviviente) no es responsable financiero.
     const ownersRes = await pgQuery<OwnerRow>(
       `select m.unit_id, m.profile_id, p.email, p.full_name,
               m.relationship_type::text as relationship_type
          from public.unit_profile_memberships m
          join public.profiles p on p.id = m.profile_id
         where m.unit_id = any($1::uuid[])
-          and m.relationship_type in ('propietario', 'vecino_principal')
+          and m.relationship_type = 'vecino_principal'
           and m.active = true`,
       [unitIds],
     )
     const ownersByUnit = new Map<string, OwnerRow[]>()
     for (const o of ownersRes.rows) {
       const arr = ownersByUnit.get(o.unit_id) ?? []
-      // Dedup: si el mismo profile_id ya esta como propietario, no lo
-      // sumamos otra vez como vecino_principal.
-      if (arr.some((existing) => existing.profile_id === o.profile_id)) continue
       arr.push(o)
       ownersByUnit.set(o.unit_id, arr)
     }
 
     const propertyName = ctx.property_display_name?.trim() || ctx.building_name
+
+    // Cuenta activa del consorcio: se incluye en el cuerpo del mail para que
+    // el vecino sepa dónde transferir. Si no hay cuenta activa, se omite el
+    // bloque (la liquidación igual sale, pero el admin debería configurarla).
+    const accountRes = await pgQuery<{
+      name: string
+      bank_name: string | null
+      account_number: string | null
+      cbu: string | null
+      alias: string | null
+    }>(
+      `select name, bank_name, account_number, cbu, alias
+         from public.iadmin_cash_accounts
+        where managed_property_id = $1 and is_active = true
+        order by created_at desc
+        limit 1`,
+      [ctx.managed_property_id],
+    )
+    const activeAccountRow = accountRes.rows[0] ?? null
+    const paymentAccount = activeAccountRow
+      ? {
+          name: activeAccountRow.name,
+          bankName: activeAccountRow.bank_name,
+          accountNumber: activeAccountRow.account_number,
+          cbu: activeAccountRow.cbu,
+          alias: activeAccountRow.alias,
+        }
+      : null
 
     for (const item of items) {
       if (!item.token) continue // sin link publico, no mandamos
@@ -134,6 +156,7 @@ export async function notifyLiquidationIssued(runId: string): Promise<void> {
           previousBalance: prev,
           subtotal,
           publicLink,
+          paymentAccount,
         })
         await sendNotificationEmail({
           templateKey: 'liquidation_issued',

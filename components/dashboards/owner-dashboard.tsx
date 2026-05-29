@@ -4,6 +4,7 @@ import { Building2, Home, Info, ReceiptText, Users } from 'lucide-react'
 import type { OwnerDashboardData } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { ChatWidget } from '@/components/ai/chat-widget'
+import { ReportPaymentForm } from '@/components/dashboards/report-payment-form'
 
 function relationshipLabel(value: string) {
   return value.replace('_', ' ')
@@ -105,6 +106,13 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
                       </div>
                     </div>
                   ) : null}
+
+                  <ReportPaymentForm
+                    unitId={unit.membership.unitId}
+                    unitCode={unit.membership.unitCode ?? unit.membership.unitId.slice(0, 8)}
+                    liquidationItemId={unit.latestLiquidation?.id ?? null}
+                    suggestedAmount={unit.latestLiquidation?.balanceRemaining ?? null}
+                  />
                 </article>
               ))}
             </div>

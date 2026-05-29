@@ -10,6 +10,7 @@ import {
   notifyLiquidationIssued,
 } from '@/lib/email/notifications/liquidations'
 import {
+  assertProrataNotOver100,
   bulkInsertLiquidationItemsInPostgres,
   createLedgerEntriesForIssuedRunInPostgres,
   deleteLiquidationItemsForRunInPostgres,
@@ -82,6 +83,8 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
     capability: 'liquidations.create',
     administrationId: property.administration_id,
   })
+
+  await assertProrataNotOver100(parsed.propertyId)
 
   const existingRun = await getExistingLiquidationRunForPeriodFromPostgres({
     managedPropertyId: parsed.propertyId,

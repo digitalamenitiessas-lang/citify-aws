@@ -54,8 +54,7 @@ const HOLDER_KIND_OPTIONS: Array<{ value: IAdminHolderKind; label: string }> = [
 ]
 
 const UNIT_USER_OPTIONS = [
-  { value: 'propietario', label: 'Propietario' },
-  { value: 'vecino_principal', label: 'Vecino principal' },
+  { value: 'vecino_principal', label: 'Vecino principal (responsable de pago)' },
   { value: 'vecino_adicional', label: 'Vecino adicional / familia' },
 ] as const
 
@@ -128,7 +127,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
     replaceActive: true,
   })
   const [userDraft, setUserDraft] = useState({
-    relationshipType: 'propietario' as (typeof UNIT_USER_OPTIONS)[number]['value'],
+    relationshipType: 'vecino_principal' as (typeof UNIT_USER_OPTIONS)[number]['value'],
     fullName: '',
     email: '',
     phone: '',
@@ -250,7 +249,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
 
   function resetUserDraft() {
     setUserDraft({
-      relationshipType: 'propietario',
+      relationshipType: 'vecino_principal',
       fullName: '',
       email: '',
       phone: '',
@@ -356,10 +355,28 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
   return (
     <>
     <div className="space-y-4">
+      {totalProrata > 1.0001 ? (
+        <div className="rounded-lg border-2 border-rose-400 bg-rose-50 p-4 text-sm text-rose-900">
+          <div className="font-semibold mb-1">⛔ Alícuotas superan 100% ({(totalProrata * 100).toFixed(2)}%)</div>
+          <p className="text-xs">
+            El sistema bloquea cargar gastos, emitir liquidaciones y registrar cobranzas hasta que las
+            alícuotas de las unidades activas sumen como máximo 100%. Editá las unidades de abajo para corregirlo.
+          </p>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between">
         <div className="text-xs text-muted-foreground">
-          {units.length} unidades · suma de alicuotas activas: <span className="font-medium tabular-nums">{(totalProrata * 100).toFixed(2)}%</span>
-          {totalProrata > 0 && Math.abs(totalProrata - 1) > 0.001 ? (
+          {units.length} unidades · suma de alicuotas activas:{' '}
+          <span
+            className={`font-medium tabular-nums ${
+              totalProrata > 1.0001 ? 'text-rose-700' : ''
+            }`}
+          >
+            {(totalProrata * 100).toFixed(2)}%
+          </span>
+          {totalProrata > 1.0001 ? (
+            <span className="ml-2 text-rose-700 font-semibold">⛔ supera 100%</span>
+          ) : totalProrata > 0 && Math.abs(totalProrata - 1) > 0.001 ? (
             <span className="ml-2 text-amber-700">⚠ deberia sumar 100%</span>
           ) : null}
         </div>
@@ -742,16 +759,6 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
                                     ))}
                                   </select>
                                 </div>
-                                {linkDraft.relationshipType === 'propietario' ? (
-                                  <label className="flex items-center gap-2 text-xs text-muted-foreground self-end pb-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={linkDraft.isPrimaryOwner}
-                                      onChange={(e) => setLinkDraft({ ...linkDraft, isPrimaryOwner: e.target.checked })}
-                                    />
-                                    Propietario principal de la unidad
-                                  </label>
-                                ) : null}
                               </div>
                               <div className="flex justify-end">
                                 <Button type="submit" size="sm" disabled={pending || !linkDraft.profileId}>Vincular</Button>
@@ -791,16 +798,6 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
                                 <Label>Password temporal</Label>
                                 <Input value={userDraft.password} onChange={(e) => setUserDraft({ ...userDraft, password: e.target.value })} required />
                               </div>
-                              {userDraft.relationshipType === 'propietario' ? (
-                                <label className="flex items-center gap-2 text-xs text-muted-foreground self-end pb-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={userDraft.isPrimaryOwner}
-                                    onChange={(e) => setUserDraft({ ...userDraft, isPrimaryOwner: e.target.checked })}
-                                  />
-                                  Propietario principal de la unidad
-                                </label>
-                              ) : null}
                             </div>
                             <div className="flex justify-end gap-2">
                               <Button type="button" size="sm" variant="ghost" onClick={resetUserDraft}>Cancelar</Button>

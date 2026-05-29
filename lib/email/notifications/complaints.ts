@@ -17,7 +17,6 @@ function deepLinkForRole(role: string, caseId: string): string {
 
 const ROLE_LABELS: Record<string, string> = {
   vecino: 'vecino',
-  propietario: 'propietario',
   consorcio_admin: 'admin del consorcio',
   super_admin: 'super admin',
 }

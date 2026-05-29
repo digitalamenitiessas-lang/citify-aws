@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'propietario' | 'vecino'
+export type UserRole = 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'vecino'
 
 export interface Building {
   id: string
@@ -111,7 +111,7 @@ export interface PromotionRedemptionHistoryItem {
   createdAt: string
 }
 
-export type UnitProfileRelationship = 'propietario' | 'vecino_principal' | 'vecino_adicional'
+export type UnitProfileRelationship = 'vecino_principal' | 'vecino_adicional'
 
 export interface UnitProfileMembership {
   id: string
@@ -602,6 +602,7 @@ export type IAdminCapability =
   | 'cash_accounts.manage'
   | 'collections.register'
   | 'collections.void'
+  | 'collections.validate_claims'
   | 'liquidations.share'
   | 'expenses.recurring.manage'
   | 'reminders.generate'
@@ -819,7 +820,7 @@ export interface IAdminLinkableProfile {
   id: string
   email: string
   fullName: string
-  role: 'vecino' | 'propietario'
+  role: 'vecino'
   phone: string | null
   activeMembershipsCount: number
 }

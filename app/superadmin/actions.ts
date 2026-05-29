@@ -35,9 +35,7 @@ import {
 } from '@/lib/db/superadmin'
 import {
   deactivateActivePrincipalMembershipsInPostgres,
-  findOwnerHolderForProfileFromPostgres,
   findUnitProfileMembershipFromPostgres,
-  insertOwnerHolderInPostgres,
   insertUnitFromCrudInPostgres,
   upsertUnitProfileMembershipInPostgres,
 } from '@/lib/db/iadmin-writes'
@@ -56,15 +54,15 @@ const createPlatformUserSchema = z.object({
   email: z.string().trim().email().max(160),
   phone: z.string().trim().max(40).nullable().optional(),
   password: z.string().min(8).max(72),
-  role: z.enum(['super_admin', 'negocio_admin', 'consorcio_admin', 'propietario', 'vecino']),
+  role: z.enum(['super_admin', 'negocio_admin', 'consorcio_admin', 'vecino']),
   buildingId: z.string().uuid().nullable().optional(),
   businessId: z.string().uuid().nullable().optional(),
 })
 
-type ImportRelationship = 'propietario' | 'vecino_principal' | 'vecino_adicional'
+type ImportRelationship = 'vecino_principal' | 'vecino_adicional'
 
-function relationshipRole(relationship: ImportRelationship): UserRole {
-  return relationship === 'propietario' ? 'propietario' : 'vecino'
+function relationshipRole(_relationship: ImportRelationship): UserRole {
+  return 'vecino'
 }
 
 function parseBoolean(value: string | undefined) {
@@ -149,10 +147,12 @@ const importColumnAliases: Record<keyof ImportColumnMapping, string[]> = {
   unitKind: ['unit_kind', 'tipo_unidad', 'tipo', 'clase_unidad'],
 }
 
+// Las planillas legacy pueden traer "propietario"; lo mapeamos a vecino_principal
+// (el responsable de pago en el modelo nuevo).
 const defaultOwnerKeywords = ['propietario', 'titular', 'dueño', 'dueno', 'owner']
 const defaultPrimaryKeywords = ['vecino_principal', 'principal', 'residente', 'habitante', 'inquilino']
 const defaultAdditionalKeywords = ['vecino_adicional', 'adicional', 'conviviente', 'familiar', 'grupo familiar']
-const validRelationships = ['propietario', 'vecino_principal', 'vecino_adicional'] as const
+const validRelationships = ['vecino_principal', 'vecino_adicional'] as const
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? '')
@@ -255,8 +255,9 @@ function parseRelationshipFromValue(value: string, context: ImportAnalysisContex
   const normalized = normalizeText(value).replace(/_/g, ' ')
   if (!normalized) return null
 
+  // "propietario" en planillas viejas → vecino_principal (el responsable de pago).
   if (context.ownerKeywords.some((keyword) => normalized.includes(normalizeText(keyword).replace(/_/g, ' ')))) {
-    return 'propietario'
+    return 'vecino_principal'
   }
   if (context.primaryKeywords.some((keyword) => normalized.includes(normalizeText(keyword).replace(/_/g, ' ')))) {
     return 'vecino_principal'
@@ -477,14 +478,14 @@ const addNeighborToBuildingSchema = z.object({
   phone: z.string().trim().max(40).nullable().optional(),
   password: z.string().min(8).max(72),
   unitId: z.string().uuid().nullable().optional(),
-  relationshipType: z.enum(['propietario', 'vecino_principal', 'vecino_adicional']).nullable().optional(),
+  relationshipType: z.enum(['vecino_principal', 'vecino_adicional']).nullable().optional(),
 })
 
 export async function addNeighborToBuilding(input: z.input<typeof addNeighborToBuildingSchema>) {
   const parsed = addNeighborToBuildingSchema.parse(input)
   await requireProfile(['super_admin'])
 
-  const role: UserRole = parsed.relationshipType === 'propietario' ? 'propietario' : 'vecino'
+  const role: UserRole = 'vecino'
 
   const { profileId, created } = await findOrCreatePlatformProfile({
     fullName: parsed.fullName,
@@ -512,24 +513,9 @@ export async function addNeighborToBuilding(input: z.input<typeof addNeighborToB
       buildingId: parsed.buildingId,
       profileId,
       relationshipType: parsed.relationshipType,
-      isPrimary: parsed.relationshipType === 'propietario',
+      isPrimary: false,
       createdByProfileId: null,
     })
-    if (parsed.relationshipType === 'propietario') {
-      const existingHolder = await findOwnerHolderForProfileFromPostgres({
-        unitId: parsed.unitId,
-        profileId,
-      })
-      if (!existingHolder) {
-        await insertOwnerHolderInPostgres({
-          unitId: parsed.unitId,
-          profileId,
-          fullName: parsed.fullName,
-          email: parsed.email.toLowerCase(),
-          phone: parsed.phone ?? null,
-        })
-      }
-    }
   }
 
   if (created) {
@@ -750,7 +736,7 @@ export async function analyzeInitialOccupancyFile(
 
       let relationshipType =
         parseRelationshipFromValue(relationshipValue, context) ??
-        (parseBoolean(primaryValue) ? 'propietario' : null)
+        (parseBoolean(primaryValue) ? 'vecino_principal' : null)
 
       if (!relationshipType) {
         relationshipType = currentIndex === 0 ? 'vecino_principal' : 'vecino_adicional'
@@ -773,7 +759,7 @@ export async function analyzeInitialOccupancyFile(
         unitCode,
         floor,
         relationshipType,
-        isPrimary: relationshipType === 'propietario' ? parseBoolean(primaryValue) : false,
+        isPrimary: false,
         unitKind,
         existingUnitId: existingUnit?.id ?? null,
         unitDecision: existingUnit ? 'reuse' : unitCode ? 'create' : 'unresolved',
@@ -885,28 +871,12 @@ export async function confirmInitialOccupancyImport(
         buildingId: parsed.buildingId,
         profileId,
         relationshipType: row.relationshipType,
-        isPrimary: row.relationshipType === 'propietario' ? row.isPrimary : false,
+        isPrimary: false,
         createdByProfileId: null,
       })
 
       if (existingMembership) updatedMemberships += 1
       else linkedMemberships += 1
-
-      if (row.relationshipType === 'propietario') {
-        const existingHolder = await findOwnerHolderForProfileFromPostgres({
-          unitId,
-          profileId,
-        })
-        if (!existingHolder) {
-          await insertOwnerHolderInPostgres({
-            unitId,
-            profileId,
-            fullName: row.fullName,
-            email: row.email.toLowerCase(),
-            phone: row.phone || null,
-          })
-        }
-      }
     } catch (error) {
       errors.push(
         `${row.sourceSheet} línea ${row.sourceRowNumber}: ${error instanceof Error ? error.message : 'Error desconocido'}`,
@@ -975,7 +945,7 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
     try {
       const buildingId = row.building_id || row.buildingId
       const unitCode = row.unit_code || row.unitCode || row.unidad
-      const relationship = (row.relationship_type || row.relationshipType || row.relacion) as ImportRelationship
+      let relationship = (row.relationship_type || row.relationshipType || row.relacion) as ImportRelationship | 'propietario'
       const fullName = row.full_name || row.fullName || row.nombre
       const email = row.email
       const phone = row.phone || row.telefono || null
@@ -986,7 +956,11 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
       if (!buildingId || !unitCode || !relationship || !fullName || !email) {
         throw new Error('Faltan columnas obligatorias: building_id, unit_code, relationship_type, full_name, email.')
       }
-      if (!['propietario', 'vecino_principal', 'vecino_adicional'].includes(relationship)) {
+      // Compatibilidad con planillas viejas: propietario → vecino_principal.
+      if (relationship === 'propietario') {
+        relationship = 'vecino_principal'
+      }
+      if (!['vecino_principal', 'vecino_adicional'].includes(relationship)) {
         throw new Error(`relationship_type invalido: ${relationship}.`)
       }
 
@@ -1051,23 +1025,9 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
         buildingId,
         profileId,
         relationshipType: relationship,
-        isPrimary:
-          relationship === 'propietario' ? parseBoolean(row.is_primary || row.principal) : false,
+        isPrimary: false,
         createdByProfileId: null,
       })
-
-      if (relationship === 'propietario') {
-        const existingHolder = await findOwnerHolderForProfileFromPostgres({ unitId, profileId })
-        if (!existingHolder) {
-          await insertOwnerHolderInPostgres({
-            unitId,
-            profileId,
-            fullName,
-            email: email.toLowerCase(),
-            phone,
-          })
-        }
-      }
 
       linkedUsers += 1
     } catch (error) {

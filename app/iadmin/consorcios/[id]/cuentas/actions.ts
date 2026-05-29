@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
+  deactivateOtherCashAccountsInPostgres,
   existingExpensePaymentMovementInPostgres,
   getCashAccountWithAdminFromPostgres,
   getExpenseForPaymentFromPostgres,
@@ -49,24 +50,16 @@ export async function createCashAccount(input: z.input<typeof createAccountSchem
     accountNumber: parsed.accountNumber ?? null,
     cbu: parsed.cbu ?? null,
     alias: parsed.alias ?? null,
-    openingBalance: parsed.openingBalance ?? 0,
-    openingBalanceAt: parsed.openingBalanceAt ?? null,
-    notes: parsed.notes ?? null,
+    openingBalance: 0,
+    openingBalanceAt: null,
+    notes: null,
   })
 
-  if ((parsed.openingBalance ?? 0) !== 0) {
-    await insertBankMovementInPostgres({
-      administrationId: property.administration_id,
-      managedPropertyId: parsed.propertyId,
-      cashAccountId: id,
-      movementDate: parsed.openingBalanceAt ?? new Date().toISOString().slice(0, 10),
-      description: 'Saldo de apertura',
-      amount: parsed.openingBalance ?? 0,
-      externalRef: null,
-      movementKind: 'opening',
-      createdBy: profile.id,
-    })
-  }
+  // Recién creada queda como única activa del consorcio.
+  await deactivateOtherCashAccountsInPostgres({
+    managedPropertyId: parsed.propertyId,
+    exceptAccountId: id,
+  })
 
   await insertIAdminAuditLogInPostgres({
     administrationId: property.administration_id,
@@ -104,7 +97,6 @@ export async function updateCashAccount(input: z.input<typeof updateAccountSchem
     accountNumber: parsed.accountNumber,
     cbu: parsed.cbu,
     alias: parsed.alias,
-    notes: parsed.notes,
   }
   const hasChanges = Object.values(patch).some((value) => value !== undefined)
   if (!hasChanges) return
@@ -141,6 +133,15 @@ export async function setCashAccountActive(input: z.input<typeof toggleAccountSc
   })
 
   await updateCashAccountInPostgres(parsed.accountId, { isActive: parsed.isActive })
+
+  // Regla del negocio: una sola cuenta activa por consorcio. Al activar ésta,
+  // desactivamos las demás para que el mensaje de liquidación sepa siempre cuál usar.
+  if (parsed.isActive) {
+    await deactivateOtherCashAccountsInPostgres({
+      managedPropertyId: account.managed_property_id,
+      exceptAccountId: parsed.accountId,
+    })
+  }
 
   await insertIAdminAuditLogInPostgres({
     administrationId: account.administration_id,

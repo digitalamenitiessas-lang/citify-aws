@@ -72,7 +72,7 @@ export async function notifyReminderByEmail(input: {
       from public.unit_profile_memberships m
       join public.profiles p on p.id = m.profile_id
       where m.unit_id = $1
-        and m.relationship_type in ('propietario', 'vecino_principal')
+        and m.relationship_type = 'vecino_principal'
         and m.active = true
     `,
     [ctx.unit_id],

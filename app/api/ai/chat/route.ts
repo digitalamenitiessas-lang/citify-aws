@@ -5,7 +5,6 @@ import {
   buildConsorcioContext,
   buildNegocioContext,
   buildSuperAdminContext,
-  buildPropietarioContext,
 } from '@/lib/ai/context-builders'
 import { buildSystemPrompt } from '@/lib/ai/system-prompts'
 
@@ -19,7 +18,7 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'No autenticado.' }), { status: 401 })
   }
 
-  const role = profile.role as 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'propietario' | 'vecino'
+  const role = profile.role as 'super_admin' | 'negocio_admin' | 'consorcio_admin' | 'vecino'
 
   let messages: { role: 'user' | 'assistant'; content: string }[]
   try {
@@ -45,9 +44,6 @@ export async function POST(req: NextRequest) {
         break
       case 'super_admin':
         ctx = await buildSuperAdminContext()
-        break
-      case 'propietario':
-        ctx = await buildPropietarioContext(profile.id)
         break
     }
     if (!ctx) throw new Error('No se pudo construir el contexto.')

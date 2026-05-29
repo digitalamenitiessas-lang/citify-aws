@@ -1887,7 +1887,7 @@ export async function listLinkableProfilesByBuildingFromPostgres(
     id: string
     email: string
     full_name: string
-    role: 'vecino' | 'propietario'
+    role: 'vecino'
     phone: string | null
     active_memberships_count: number
   }>
@@ -1896,7 +1896,7 @@ export async function listLinkableProfilesByBuildingFromPostgres(
     id: string
     email: string
     full_name: string
-    role: 'vecino' | 'propietario'
+    role: 'vecino'
     phone: string | null
     active_memberships_count: number
   }>(
@@ -1916,7 +1916,7 @@ export async function listLinkableProfilesByBuildingFromPostgres(
         group by profile_id
       ) m on m.profile_id = p.id
       where p.building_id = $1
-        and p.role in ('vecino', 'propietario')
+        and p.role = 'vecino'
       order by coalesce(m.active_count, 0) asc, p.full_name asc
     `,
     [buildingId],

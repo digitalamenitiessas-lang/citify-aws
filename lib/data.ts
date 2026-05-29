@@ -1424,7 +1424,7 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
   const profileRow = await findProfileById(profileId)
   if (!profileRow) return null
 
-  const membershipRows = await getUnitProfileMembershipsForProfileFromPostgres(profileId, 'propietario')
+  const membershipRows = await getUnitProfileMembershipsForProfileFromPostgres(profileId, 'vecino_principal')
   const memberships = membershipRows.map(mapUnitProfileMembership)
   const unitIds = memberships.map((membership) => membership.unitId)
   const buildingIds = Array.from(new Set(memberships.map((membership) => membership.buildingId)))
@@ -1432,7 +1432,7 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
   const [liquidationRows, paymentsRows, buildingInfoRows] = await Promise.all([
     getOwnerLiquidationItemsByUnitIdsFromPostgres(unitIds),
     getOwnerPaymentsByUnitIdsFromPostgres(unitIds),
-    getBuildingInformationByBuildingIdsFromPostgres(buildingIds, ['residentes', 'propietarios']),
+    getBuildingInformationByBuildingIdsFromPostgres(buildingIds, ['residentes', 'vecinos']),
   ])
 
   const latestByUnit = new Map<string, IAdminLiquidationItem>()

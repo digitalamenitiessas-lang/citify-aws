@@ -7,6 +7,7 @@ import { getIAdminUnitAccountStatement } from '@/lib/data'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
   applyPaymentToLedgerInPostgres,
+  assertProrataNotOver100,
   bulkInsertLiquidationItemsInPostgres,
   bulkInsertShareTokensInPostgres,
   bulkRevokeShareTokensInPostgres,
@@ -65,6 +66,8 @@ export async function upsertMonthlyCell(
     capability: 'expenses.create',
     administrationId: property.administration_id,
   })
+
+  await assertProrataNotOver100(parsed.propertyId)
 
   const existingPeriod = await getAccountingPeriodIdAndStatusFromPostgres({
     managedPropertyId: parsed.propertyId,
@@ -282,6 +285,8 @@ export async function quickPayFromMesa(
     administrationId: property.administration_id,
   })
 
+  await assertProrataNotOver100(parsed.propertyId)
+
   const period = await getAccountingPeriodIdAndStatusFromPostgres({
     managedPropertyId: parsed.propertyId,
     periodYear: parsed.year,
@@ -368,6 +373,8 @@ export async function emitAndNotify(
     capability: 'liquidations.create',
     administrationId: property.administration_id,
   })
+
+  await assertProrataNotOver100(parsed.propertyId)
 
   const period = await getAccountingPeriodIdAndStatusFromPostgres({
     managedPropertyId: parsed.propertyId,

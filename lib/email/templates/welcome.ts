@@ -2,7 +2,6 @@ import { renderEmailLayout, escapeHtml } from '@/lib/email/layout'
 
 const ROLE_LABELS: Record<string, string> = {
   vecino: 'vecino',
-  propietario: 'propietario',
   consorcio_admin: 'administrador del consorcio',
   negocio_admin: 'administrador de negocio',
   super_admin: 'super administrador',
