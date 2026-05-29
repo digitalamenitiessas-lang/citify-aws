@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from 'react'
 import * as XLSX from 'xlsx'
-import { ArrowRight, CheckCircle2, Download, FileSpreadsheet, Loader2, Sparkles, UploadCloud, X } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Download, FileSpreadsheet, Loader2, Sparkles, Trash2, UploadCloud, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -44,6 +44,7 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
   const [replaceHolders, setReplaceHolders] = useState(true)
   const [pending, startTransition] = useTransition()
   const [aiBusy, setAiBusy] = useState(false)
+  const [parsing, setParsing] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -96,6 +97,7 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
   }
 
   async function handleFile(file: File) {
+    setParsing(true)
     try {
       const arrayBuf = await file.arrayBuffer()
       const wb = XLSX.read(arrayBuf, { type: 'array' })
@@ -135,6 +137,8 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
       setStep('map')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo leer el archivo')
+    } finally {
+      setParsing(false)
     }
   }
 
@@ -228,7 +232,23 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
         <StepBadge active={step === 'preview'} done={false}>3. Confirmar</StepBadge>
       </div>
 
-      {step === 'upload' ? (
+      {step === 'upload' && (parsing || aiBusy) ? (
+        <div className="glass-card rounded-2xl p-10 text-center space-y-4 border-2 border-primary/30">
+          <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+          <div>
+            <h3 className="font-medium text-foreground">
+              {parsing && !aiBusy ? 'Leyendo el archivo…' : 'IA analizando columnas…'}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+              {fileName ? `Procesando ${fileName}. ` : ''}Esto puede tardar unos segundos.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 'upload' && !parsing && !aiBusy ? (
         <div className="space-y-3">
           <div className="glass-card rounded-2xl p-8 text-center space-y-4 border-dashed border-2 border-primary/30">
             <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
@@ -391,15 +411,28 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
           <div>
             <h3 className="font-medium text-foreground">Vista previa</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Primeras 10 filas tal como se importarían. Revisá y confirmá.
+              {rows.length} filas a importar. Podés editar cualquier celda o borrar filas antes de confirmar.
             </p>
           </div>
-          <PreviewTable rows={rows.slice(0, 10)} mapping={mapping} />
+          <PreviewTable
+            rows={rows}
+            mapping={mapping}
+            onEditCell={(rowIdx, sourceKey, value) => {
+              setRows((prev) => {
+                const next = [...prev]
+                next[rowIdx] = { ...next[rowIdx], [sourceKey]: value }
+                return next
+              })
+            }}
+            onDeleteRow={(rowIdx) => {
+              setRows((prev) => prev.filter((_, i) => i !== rowIdx))
+            }}
+          />
           <div className="flex justify-between">
             <Button size="sm" variant="ghost" onClick={() => setStep('map')}>
               Volver al mapeo
             </Button>
-            <Button onClick={handleConfirmImport} disabled={pending}>
+            <Button onClick={handleConfirmImport} disabled={pending || rows.length === 0}>
               {pending ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -446,9 +479,13 @@ function Stat({
 function PreviewTable({
   rows,
   mapping,
+  onEditCell,
+  onDeleteRow,
 }: {
   rows: Array<Record<string, unknown>>
   mapping: Record<string, ImportTargetField>
+  onEditCell: (rowIdx: number, sourceKey: string, value: string) => void
+  onDeleteRow: (rowIdx: number) => void
 }) {
   const targetToSource: Record<string, string> = {}
   for (const [source, target] of Object.entries(mapping)) {
@@ -468,24 +505,55 @@ function PreviewTable({
   ]
   const cols = previewCols.filter((c) => targetToSource[c.field])
 
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/40 px-4 py-6 text-center text-sm text-muted-foreground">
+        No quedan filas para importar.
+      </div>
+    )
+  }
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-border/40">
+    <div className="overflow-auto rounded-lg border border-border/40 max-h-[60vh]">
       <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted/30">
+        <thead className="sticky top-0 z-10">
+          <tr className="text-xs text-muted-foreground uppercase tracking-wider border-b border-border/40 bg-muted">
+            <th className="text-left px-2 py-2 font-medium w-10">#</th>
             {cols.map((c) => (
               <th key={c.field} className="text-left px-3 py-2 font-medium">{c.label}</th>
             ))}
+            <th className="px-2 py-2 w-10" />
           </tr>
         </thead>
         <tbody>
           {rows.map((r, idx) => (
-            <tr key={idx} className="border-b border-border/20 last:border-0">
-              {cols.map((c) => (
-                <td key={c.field} className="px-3 py-1.5 text-foreground">
-                  {String(r[targetToSource[c.field]] ?? '')}
-                </td>
-              ))}
+            <tr key={idx} className="border-b border-border/20 last:border-0 hover:bg-muted/20">
+              <td className="px-2 py-1 text-xs text-muted-foreground tabular-nums">{idx + 1}</td>
+              {cols.map((c) => {
+                const sourceKey = targetToSource[c.field]
+                const value = r[sourceKey]
+                return (
+                  <td key={c.field} className="px-1 py-1 text-foreground">
+                    <input
+                      type="text"
+                      value={value == null ? '' : String(value)}
+                      onChange={(e) => onEditCell(idx, sourceKey, e.target.value)}
+                      className="w-full bg-transparent border border-transparent hover:border-border/40 focus:border-primary focus:bg-background rounded px-2 py-1 text-sm outline-none transition-colors"
+                    />
+                  </td>
+                )
+              })}
+              <td className="px-2 py-1 text-right">
+                <button
+                  type="button"
+                  onClick={() => onDeleteRow(idx)}
+                  className="text-muted-foreground hover:text-rose-600 p-1 rounded transition-colors"
+                  aria-label={`Borrar fila ${idx + 1}`}
+                  title="Borrar fila"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
