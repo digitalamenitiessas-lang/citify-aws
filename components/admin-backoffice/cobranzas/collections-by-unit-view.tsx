@@ -26,6 +26,7 @@ type Props = {
   propertyName: string
   year: number
   month: number
+  availablePeriods: Array<{ year: number; month: number }>
 }
 
 export function CollectionsByUnitView({
@@ -36,6 +37,7 @@ export function CollectionsByUnitView({
   propertyName,
   year,
   month,
+  availablePeriods,
 }: Props) {
   const router = useRouter()
   const [filter, setFilter] = useState<Filter>('all')
@@ -91,9 +93,47 @@ export function CollectionsByUnitView({
   }
 
   const periodLabel = `${MONTH_NAMES[month - 1]} ${year}`
+  const currentPeriodValue = `${year}-${String(month).padStart(2, '0')}`
+
+  // Aseguramos que el período actual aparezca en el dropdown aunque no haya
+  // gastos cargados todavía.
+  const periodOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const opts: Array<{ value: string; label: string }> = []
+    for (const p of availablePeriods) {
+      const v = `${p.year}-${String(p.month).padStart(2, '0')}`
+      if (seen.has(v)) continue
+      seen.add(v)
+      opts.push({ value: v, label: `${MONTH_NAMES[p.month - 1]} ${p.year}` })
+    }
+    if (!seen.has(currentPeriodValue)) {
+      opts.unshift({ value: currentPeriodValue, label: periodLabel })
+    }
+    return opts
+  }, [availablePeriods, currentPeriodValue, periodLabel])
+
+  function changePeriod(value: string) {
+    const params = new URLSearchParams(window.location.search)
+    if (value === currentPeriodValue) return
+    params.set('period', value)
+    router.push(`/iadmin/cobranzas?${params.toString()}`)
+  }
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-muted-foreground">Período:</label>
+        <select
+          value={currentPeriodValue}
+          onChange={(e) => changePeriod(e.target.value)}
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium"
+        >
+          {periodOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* KPIs arriba */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard

@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useRef, useState, useTransition } from 'react'
-import { CheckCircle2, Loader2, Plus, Search, Sparkles, UploadCloud, X, Zap } from 'lucide-react'
+import Link from 'next/link'
+import { AlertCircle, CheckCircle2, Loader2, Plus, Search, Sparkles, UploadCloud, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,10 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
   const now = new Date()
   const [periodYear, setPeriodYear] = useState<number>(now.getFullYear())
   const [periodMonth, setPeriodMonth] = useState<number>(now.getMonth() + 1)
+
+  // Banner inline para errores que el admin necesita ver en el form (no se le
+  // van como toast). Ej: período ya liquidado.
+  const [serverError, setServerError] = useState<string | null>(null)
 
   // Proveedor autocomplete
   const [providerInput, setProviderInput] = useState('')
@@ -230,10 +235,13 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
         } else {
           toast.success('Gasto cargado. Quedo pendiente de aprobacion.')
         }
+        setServerError(null)
         reset()
         setOpen(false)
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'No se pudo crear el gasto')
+        const message = error instanceof Error ? error.message : 'No se pudo crear el gasto'
+        setServerError(message)
+        toast.error('No se pudo cargar el gasto', { description: message, duration: 8000 })
       }
     })
   }
@@ -249,8 +257,36 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
     )
   }
 
+  const isPeriodLiquidatedError =
+    serverError != null && /ya liquidado|ya cerrado|ya emitida/i.test(serverError)
+
   return (
     <form onSubmit={handleSubmit} className="glass-card rounded-2xl p-5 space-y-4">
+      {serverError ? (
+        <div className="rounded-lg border-2 border-rose-300 bg-rose-50 p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-700 mt-0.5 shrink-0" />
+          <div className="flex-1 text-sm text-rose-900">
+            <div className="font-medium">No se pudo cargar el gasto</div>
+            <div className="text-xs mt-0.5">{serverError}</div>
+            {isPeriodLiquidatedError ? (
+              <Link
+                href="/iadmin/liquidaciones"
+                className="mt-2 inline-block text-xs font-medium underline"
+              >
+                Ir a Liquidaciones →
+              </Link>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setServerError(null)}
+            className="text-rose-700 hover:text-rose-900"
+            aria-label="Cerrar"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-medium text-foreground flex items-center gap-2">

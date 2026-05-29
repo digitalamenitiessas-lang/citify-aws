@@ -7,12 +7,28 @@ import {
   getIAdminMesaState,
   getIAdminPortfolio,
 } from '@/lib/data'
+import { listAllAccountingPeriodsFromPostgres } from '@/lib/db/iadmin-reads'
 import { pgQuery } from '@/lib/db/postgres'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
 
+function parsePeriodParam(raw: string | undefined | null): { year: number; month: number } | null {
+  if (!raw) return null
+  const m = /^(\d{4})-(\d{2})$/.exec(raw)
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2])
+  if (year < 2020 || year > 2100 || month < 1 || month > 12) return null
+  return { year, month }
+}
+
 export const dynamic = 'force-dynamic'
 
-export default async function CobranzasPage() {
+export default async function CobranzasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string }>
+}) {
+  const params = await searchParams
   const { context } = await requireIAdmin({ capability: 'collections.view' })
 
   const administrationId = context.primary?.administration.id
@@ -99,10 +115,11 @@ export default async function CobranzasPage() {
   }
 
   const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
+  const parsedPeriod = parsePeriodParam(params.period)
+  const year = parsedPeriod?.year ?? now.getFullYear()
+  const month = parsedPeriod?.month ?? now.getMonth() + 1
 
-  const [state, cashAccounts, pendingClaimsCount] = await Promise.all([
+  const [state, cashAccounts, pendingClaimsCount, availablePeriods] = await Promise.all([
     getIAdminMesaState(currentPropertyId, year, month),
     getIAdminCashAccounts(currentPropertyId),
     pgQuery<{ count: string }>(
@@ -111,6 +128,7 @@ export default async function CobranzasPage() {
         where managed_property_id = $1 and status = 'pending'`,
       [currentPropertyId],
     ).then((r) => Number(r.rows[0]?.count ?? 0)),
+    listAllAccountingPeriodsFromPostgres(currentPropertyId),
   ])
 
   if (!state) {
@@ -162,6 +180,10 @@ export default async function CobranzasPage() {
         propertyName={property.displayName ?? property.buildingName}
         year={year}
         month={month}
+        availablePeriods={availablePeriods.map((p) => ({
+          year: p.period_year,
+          month: p.period_month,
+        }))}
       />
     </div>
   )

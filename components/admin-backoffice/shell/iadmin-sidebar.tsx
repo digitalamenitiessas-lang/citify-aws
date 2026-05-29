@@ -12,7 +12,6 @@ import {
   Megaphone,
   MessageSquareText,
   Receipt,
-  Scale,
   Table,
   Wallet,
 } from 'lucide-react'
@@ -77,13 +76,6 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
     icon: Banknote,
     hrefFor: (id) => `/iadmin/consorcios/${id}/cuentas`,
     matchFor: (id) => `/iadmin/consorcios/${id}/cuentas`,
-  },
-  {
-    key: 'conciliacion',
-    label: 'Conciliación',
-    icon: Scale,
-    hrefFor: (id) => `/iadmin/consorcios/${id}/conciliacion`,
-    matchFor: (id) => `/iadmin/consorcios/${id}/conciliacion`,
   },
   {
     key: 'importar',

@@ -791,6 +791,8 @@ export interface IAdminExpenseSummary {
   hasDocuments: boolean
   pendingExtraction: boolean
   createdAt: string
+  periodYear: number | null
+  periodMonth: number | null
 }
 
 export interface IAdminExpenseDocument {
@@ -1025,6 +1027,7 @@ export interface IAdminUnitAccountMonth {
   ordinary: number
   extraordinary: number
   previousBalance: number
+  lateFee: number         // recargo por mora acumulado del mes (separado de previousBalance para que se distinga en la UI)
   subtotal: number
   collected: number
   balance: number         // saldo pendiente

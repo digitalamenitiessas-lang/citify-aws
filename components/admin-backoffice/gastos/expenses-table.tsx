@@ -40,6 +40,8 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
   const [statusFilter, setStatusFilter] = useState<'all' | IAdminExpenseStatus>(
     isValidStatus(initialStatus) ? initialStatus : 'all',
   )
+  // Filtro de período: "all" o "YYYY-MM"
+  const [periodFilter, setPeriodFilter] = useState<string>('all')
 
   // Si cambia el query param desde afuera, sincronizar.
   useEffect(() => {
@@ -47,18 +49,42 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
     if (s && isValidStatus(s)) setStatusFilter(s as 'all' | IAdminExpenseStatus)
   }, [searchParams])
 
-  const counts = useMemo(() => {
-    const map: Record<string, number> = { all: expenses.length }
+  // Lista única de períodos presentes (orden desc).
+  const periodOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const options: { value: string; label: string }[] = []
     for (const e of expenses) {
+      if (e.periodYear == null || e.periodMonth == null) continue
+      const value = `${e.periodYear}-${String(e.periodMonth).padStart(2, '0')}`
+      if (seen.has(value)) continue
+      seen.add(value)
+      options.push({ value, label: value })
+    }
+    options.sort((a, b) => b.value.localeCompare(a.value))
+    return options
+  }, [expenses])
+
+  const periodFiltered = useMemo(() => {
+    if (periodFilter === 'all') return expenses
+    return expenses.filter((e) => {
+      if (e.periodYear == null || e.periodMonth == null) return false
+      const v = `${e.periodYear}-${String(e.periodMonth).padStart(2, '0')}`
+      return v === periodFilter
+    })
+  }, [expenses, periodFilter])
+
+  const counts = useMemo(() => {
+    const map: Record<string, number> = { all: periodFiltered.length }
+    for (const e of periodFiltered) {
       map[e.status] = (map[e.status] ?? 0) + 1
     }
     return map
-  }, [expenses])
+  }, [periodFiltered])
 
   const filtered = useMemo(() => {
-    if (statusFilter === 'all') return expenses
-    return expenses.filter((e) => e.status === statusFilter)
-  }, [expenses, statusFilter])
+    if (statusFilter === 'all') return periodFiltered
+    return periodFiltered.filter((e) => e.status === statusFilter)
+  }, [periodFiltered, statusFilter])
 
   if (expenses.length === 0) {
     return (
@@ -70,6 +96,19 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-xs text-muted-foreground">Período:</label>
+        <select
+          value={periodFilter}
+          onChange={(e) => setPeriodFilter(e.target.value)}
+          className="rounded-md border border-input bg-background px-2.5 py-1 text-xs"
+        >
+          <option value="all">Todos</option>
+          {periodOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
       <div className="flex items-center gap-1.5 flex-wrap">
         {FILTERS.map((f) => {
           const isActive = statusFilter === f.value
@@ -126,6 +165,9 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
                     </Link>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {expense.issuedAt ?? expense.createdAt.slice(0, 10)}
+                      {expense.periodYear && expense.periodMonth
+                        ? ` · Imp. ${String(expense.periodMonth).padStart(2, '0')}/${expense.periodYear}`
+                        : ''}
                       {expense.pendingExtraction ? ' · doc por validar' : ''}
                     </div>
                   </td>

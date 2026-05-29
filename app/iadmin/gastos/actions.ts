@@ -165,10 +165,14 @@ export async function createExpense(input: CreateExpenseInput) {
   )
   if (liqRes.rows[0]) {
     const runStatus = liqRes.rows[0].status
-    throw new Error(
-      `La liquidacion de ${periodLabel} ya esta ${runStatus === 'issued' ? 'emitida' : 'cerrada'}. ` +
-        `No se pueden cargar mas gastos en ese periodo. Reabrila desde Liquidaciones si tenes que ajustar.`,
+    // Sentinela para que la UI pueda detectar este error puntual y mostrar
+    // un banner con link a Liquidaciones en lugar de un toast genérico.
+    const error = new Error(
+      `Periodo ${periodLabel} ya ${runStatus === 'issued' ? 'liquidado' : 'cerrado'}. ` +
+        `Reabrí la liquidación si necesitás cargar más gastos en ese mes.`,
     )
+    ;(error as Error & { code?: string }).code = 'PERIOD_ALREADY_LIQUIDATED'
+    throw error
   }
 
   const canApprove =

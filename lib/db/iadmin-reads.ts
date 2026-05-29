@@ -902,6 +902,25 @@ export type AccountingPeriodWindowRow = {
   status: string
 }
 
+/**
+ * Listado simple de todos los períodos existentes para un consorcio, orden
+ * descendente (mas reciente primero). Lo usamos en filtros de UI.
+ */
+export async function listAllAccountingPeriodsFromPostgres(
+  managedPropertyId: string,
+): Promise<Array<{ period_year: number; period_month: number; status: string }>> {
+  const result = await pgQuery<{ period_year: number; period_month: number; status: string }>(
+    `
+      select period_year, period_month, status::text as status
+      from public.iadmin_accounting_periods
+      where managed_property_id = $1
+      order by period_year desc, period_month desc
+    `,
+    [managedPropertyId],
+  )
+  return result.rows
+}
+
 export async function listAccountingPeriodsByYearsFromPostgres(input: {
   managedPropertyId: string
   years: number[]

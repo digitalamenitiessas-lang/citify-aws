@@ -430,6 +430,15 @@ function MonthRow({ month }: { month: IAdminUnitAccountMonth }) {
               </span>
             </span>
           </div>
+          {month.lateFee > 0 ? (
+            <div className="mt-1 flex items-center gap-1.5 rounded bg-rose-50 border border-rose-200 px-1.5 py-1 text-[10px] text-rose-800">
+              <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+              <span>
+                Recargo por mora: <b className="tabular-nums">$ {formatARS(month.lateFee)}</b>
+              </span>
+              <span className="text-rose-700/60">· se aplica sobre el monto facturado</span>
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>

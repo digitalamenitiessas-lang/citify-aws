@@ -291,6 +291,7 @@ export async function changeLiquidationStatus(input: z.input<typeof transitionSc
       runId: parsed.runId,
       actorProfileId: profile.id,
       reason: `reopened_to_${parsed.nextStatus}`,
+      allowWithLivePayments: parsed.acknowledgePaymentImpact,
     })
   }
 

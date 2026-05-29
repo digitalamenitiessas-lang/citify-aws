@@ -3233,9 +3233,12 @@ export async function voidLedgerEntriesForRunInPostgres(input: {
   runId: string
   actorProfileId: string
   reason: string
+  // Si el admin ya confirmó desde la UI con conciencia del impacto (los pagos
+  // quedan desvinculados pero siguen vigentes en iadmin_payments), permitir.
+  allowWithLivePayments?: boolean
 }): Promise<void> {
   const livePayments = await getLivePaymentsCountByRunFromPostgres(input.runId)
-  if (livePayments > 0) {
+  if (livePayments > 0 && !input.allowWithLivePayments) {
     throw new Error('No se puede reabrir una liquidacion emitida con pagos registrados.')
   }
   const result = await pgQuery<{ id: string }>(

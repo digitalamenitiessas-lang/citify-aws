@@ -1656,6 +1656,8 @@ function mapExpenseSummaryFromPostgresRow(
     hasDocuments: Number(row.document_count ?? 0) > 0,
     pendingExtraction: Number(row.pending_extraction_count ?? 0) > 0,
     createdAt: row.created_at,
+    periodYear: row.period_year ?? null,
+    periodMonth: row.period_month ?? null,
   }
 }
 
@@ -2965,6 +2967,7 @@ export async function getIAdminUnitAccountStatement(
       ordinary: 0,
       extraordinary: 0,
       previousBalance: 0,
+      lateFee: 0,
       subtotal: 0,
       collected: 0,
       balance: 0,
@@ -3046,6 +3049,8 @@ export async function getIAdminUnitAccountStatement(
       monthTarget.ordinary = Math.round((monthTarget.ordinary + amount) * 100) / 100
     } else if (entryType === 'expensa_extraordinaria') {
       monthTarget.extraordinary = Math.round((monthTarget.extraordinary + amount) * 100) / 100
+    } else if (entryType === 'recargo_mora') {
+      monthTarget.lateFee = Math.round((monthTarget.lateFee + amount) * 100) / 100
     } else if (entryType !== 'pago') {
       monthTarget.previousBalance = Math.round((monthTarget.previousBalance + amount) * 100) / 100
     }
@@ -3110,7 +3115,7 @@ export async function getIAdminUnitAccountStatement(
   }
 
   for (const m of months) {
-    m.subtotal = Math.round((m.ordinary + m.extraordinary + m.previousBalance) * 100) / 100
+    m.subtotal = Math.round((m.ordinary + m.extraordinary + m.previousBalance + m.lateFee) * 100) / 100
     m.balance = Math.max(0, Math.round(m.balance * 100) / 100)
   }
 

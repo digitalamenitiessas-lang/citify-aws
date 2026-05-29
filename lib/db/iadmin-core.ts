@@ -94,6 +94,8 @@ export interface IAdminExpenseInboxRow {
   created_at: string
   document_count: number
   pending_extraction_count: number
+  period_year: number | null
+  period_month: number | null
 }
 
 export interface IAdminPortfolioOverviewPropertyRow {
@@ -1138,12 +1140,15 @@ export async function getIAdminExpensesInboxFromPostgres(
         e.status::text as status,
         e.expense_kind::text as expense_kind,
         e.created_at::text as created_at,
+        ap.period_year,
+        ap.period_month,
         count(distinct d.id)::int as document_count,
         count(distinct case when ex.status <> 'validated' then ex.id end)::int as pending_extraction_count
       from public.iadmin_expenses e
       left join public.iadmin_providers p on p.id = e.provider_id
       left join public.iadmin_managed_properties mp on mp.id = e.managed_property_id
       left join public.buildings b on b.id = mp.building_id
+      left join public.iadmin_accounting_periods ap on ap.id = e.accounting_period_id
       left join public.iadmin_expense_documents d on d.expense_id = e.id
       left join public.iadmin_ai_document_extractions ex on ex.document_id = d.id
       where e.administration_id = $1
@@ -1161,9 +1166,11 @@ export async function getIAdminExpensesInboxFromPostgres(
         e.issued_at,
         e.status,
         e.expense_kind,
-        e.created_at
+        e.created_at,
+        ap.period_year,
+        ap.period_month
       order by e.created_at desc
-      limit 50
+      limit 200
     `,
     [administrationId],
   )
