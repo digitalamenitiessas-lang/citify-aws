@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, ChevronRight, Info, Loader2, Plus, Search, Send, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Info, Loader2, Lock, Plus, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,16 @@ import {
   generateMonthPredictions,
   type MonthPrediction,
 } from '@/app/iadmin/consorcios/[id]/planilla/predict-actions'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { PublishDialog } from '@/components/admin-backoffice/consorcio/publish-dialog'
 import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-distribution'
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
@@ -122,6 +132,7 @@ export function MonthlyPlanilla({
 
   const [showRubroForm, setShowRubroForm] = useState(false)
   const [newRubroName, setNewRubroName] = useState('')
+  const [reissueDialogOpen, setReissueDialogOpen] = useState(false)
 
   const [publishResult, setPublishResult] = useState<EmitAndNotifyResult | null>(null)
   const [publishing, setPublishing] = useState(false)
@@ -292,15 +303,17 @@ export function MonthlyPlanilla({
     }
   }
 
-  async function handleEmit() {
+  async function handleEmit(opts?: { acknowledgeReissueImpact?: boolean }) {
     setPublishing(true)
     try {
       const result = await emitAndNotify({
         propertyId: grid.propertyId,
         year: currentMonth.year,
         month: currentMonth.month,
+        acknowledgeReissueImpact: opts?.acknowledgeReissueImpact ?? false,
       })
       setPublishResult(result)
+      setReissueDialogOpen(false)
       toast.success(`Liquidación emitida · ${result.neighbors.length} vecinos`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Error al emitir')
@@ -350,7 +363,7 @@ export function MonthlyPlanilla({
     })
   }
 
-  async function handleAcceptAllAndEmit() {
+  async function handleAcceptAllAndEmit(opts?: { acknowledgeReissueImpact?: boolean }) {
     const toAccept: Array<{ providerId: string; amount: number }> = []
     for (const [providerId, pred] of predictions) {
       const row = grid.rows.find((r) => r.providerId === providerId)
@@ -364,7 +377,7 @@ export function MonthlyPlanilla({
     }
 
     if (toAccept.length === 0) {
-      if (grid.readyToEmit) await handleEmit()
+      if (grid.readyToEmit) await handleEmit(opts)
       return
     }
 
@@ -375,9 +388,11 @@ export function MonthlyPlanilla({
         year: currentMonth.year,
         month: currentMonth.month,
         acceptedPredictions: toAccept,
+        acknowledgeReissueImpact: opts?.acknowledgeReissueImpact ?? false,
       })
       setPublishResult(result.emit)
       setPredictions(new Map())
+      setReissueDialogOpen(false)
       toast.success(`${result.applied} sugerencias aceptadas y liquidación emitida`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Error')
@@ -1350,40 +1365,230 @@ export function MonthlyPlanilla({
         currentMonth={currentMonth.month}
       />
 
-      <section className="mesa-card p-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h3 className="font-serif text-lg font-semibold text-foreground">
-              {hasPredictions ? 'Aceptar sugerencias y emitir' : state.hasRun ? 'Re-emitir con los cambios' : 'Emitir y avisar a los vecinos'}
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {canEmit
-                ? grid.readyToEmit || hasPredictions
-                  ? `Se genera la liquidación de ${currentMonth.label} y los mensajes para los ${grid.activeUnitsCount} vecinos.`
-                  : 'Cargá al menos un gasto del mes para poder emitir.'
-                : 'Tu rol no puede emitir liquidaciones.'}
-            </p>
-          </div>
-          <Button
-            data-emit-button
-            size="lg"
-            disabled={!canEmit || (!grid.readyToEmit && !hasPredictions) || publishing || grid.activeUnitsCount === 0}
-            onClick={hasPredictions ? handleAcceptAllAndEmit : handleEmit}
+      {(() => {
+        // Estado del CTA de emisión / re-emisión. Cuatro variantes:
+        //  1) sin run (o draft/calculated)        → "Emitir y avisar"
+        //  2) run issued + sin cambios            → "Liquidación al día" (deshabilitado)
+        //  3) run issued + con cambios            → "Re-emitir con los cambios"
+        //     (si hay pagos vivos, pide confirmación)
+        //  4) run closed                          → "Período cerrado" (link a reabrir)
+        const currentTotal =
+          Math.round((state.totalToDistribute + state.previousBalanceTotal) * 100) / 100
+        const runTotal = state.runSnapshotTotal
+        const isClosed = state.runStatus === 'closed'
+        const isIssued = state.runStatus === 'issued'
+        const isReissue = state.hasRun && (isIssued || isClosed)
+        const hasChanges =
+          state.hasRun &&
+          (runTotal === null || Math.abs(currentTotal - runTotal) > 0.01)
+        const upToDate = isReissue && !hasChanges && !hasPredictions
+        const needsReissueConfirm =
+          isReissue && (isClosed || state.runLivePaymentsCount > 0)
+
+        const baseDisabled =
+          !canEmit ||
+          (!grid.readyToEmit && !hasPredictions) ||
+          publishing ||
+          grid.activeUnitsCount === 0
+
+        // --- Variante 4: período cerrado, no permitimos re-emitir desde acá ---
+        if (isClosed && !hasPredictions) {
+          return (
+            <section className="mesa-card p-5 border-l-4 border-l-slate-400">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-3 min-w-0">
+                  <Lock className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-serif text-lg font-semibold text-foreground">
+                      Período cerrado
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      La liquidación de {currentMonth.label} está cerrada y no se puede re-emitir desde acá.
+                      {state.runLivePaymentsCount > 0
+                        ? ` Tiene ${state.runLivePaymentsCount} pago${state.runLivePaymentsCount === 1 ? '' : 's'} vivo${state.runLivePaymentsCount === 1 ? '' : 's'} asociado${state.runLivePaymentsCount === 1 ? '' : 's'}.`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+                {state.runId ? (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={`/iadmin/liquidaciones/${state.runId}`}>
+                      Abrir liquidación
+                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          )
+        }
+
+        // --- Variante 2: ya emitida y sin cambios ---
+        if (upToDate) {
+          return (
+            <section className="mesa-card p-5 border-l-4 border-l-emerald-500/60">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-3 min-w-0">
+                  <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-serif text-lg font-semibold text-foreground">
+                      Liquidación al día
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      La liquidación emitida de {currentMonth.label} ya refleja los totales actuales.
+                      Hacé un cambio en la planilla para habilitar la re-emisión.
+                    </p>
+                  </div>
+                </div>
+                {state.runId ? (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={`/iadmin/liquidaciones/${state.runId}`}>
+                      Ver liquidación
+                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          )
+        }
+
+        // --- Variantes 1 y 3: emitir / re-emitir ---
+        const isReissueAction = isReissue
+        const title = hasPredictions
+          ? 'Aceptar sugerencias y emitir'
+          : isReissueAction
+            ? 'Re-emitir con los cambios'
+            : 'Emitir y avisar a los vecinos'
+
+        const subtitle = !canEmit
+          ? 'Tu rol no puede emitir liquidaciones.'
+          : !grid.readyToEmit && !hasPredictions
+            ? 'Cargá al menos un gasto del mes para poder emitir.'
+            : isReissueAction
+              ? `Se reemplaza la liquidación de ${currentMonth.label} y se reenvían los mensajes a los ${grid.activeUnitsCount} vecinos.`
+              : `Se genera la liquidación de ${currentMonth.label} y los mensajes para los ${grid.activeUnitsCount} vecinos.`
+
+        function triggerEmit() {
+          if (needsReissueConfirm) {
+            setReissueDialogOpen(true)
+            return
+          }
+          if (hasPredictions) void handleAcceptAllAndEmit()
+          else void handleEmit()
+        }
+
+        return (
+          <section
+            className={[
+              'mesa-card p-5',
+              isReissueAction ? 'border-l-4 border-l-amber-500/70' : '',
+            ].join(' ')}
           >
-            {publishing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                Procesando…
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4 mr-1.5" />
-                Emitir y avisar
-              </>
-            )}
-          </Button>
-        </div>
-      </section>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-3 min-w-0">
+                {isReissueAction ? (
+                  <RefreshCw className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                ) : null}
+                <div>
+                  <h3 className="font-serif text-lg font-semibold text-foreground">{title}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+                  {isReissueAction && state.runLivePaymentsCount > 0 ? (
+                    <p className="text-[11px] text-amber-700 mt-1 inline-flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Hay {state.runLivePaymentsCount} pago
+                      {state.runLivePaymentsCount === 1 ? '' : 's'} vivo
+                      {state.runLivePaymentsCount === 1 ? '' : 's'} (total $
+                      {state.runLivePaymentsTotal.toFixed(2)}) que quedan desvinculados.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <Button
+                data-emit-button
+                size="lg"
+                disabled={baseDisabled}
+                onClick={triggerEmit}
+                variant={isReissueAction ? 'default' : 'default'}
+              >
+                {publishing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    Procesando…
+                  </>
+                ) : (
+                  <>
+                    {isReissueAction ? (
+                      <RefreshCw className="w-4 h-4 mr-1.5" />
+                    ) : (
+                      <Send className="w-4 h-4 mr-1.5" />
+                    )}
+                    {isReissueAction ? 'Re-emitir' : 'Emitir y avisar'}
+                  </>
+                )}
+              </Button>
+            </div>
+          </section>
+        )
+      })()}
+
+      <AlertDialog open={reissueDialogOpen} onOpenChange={setReissueDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              ¿Re-emitir la liquidación?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  Al re-emitir la liquidación de <strong>{currentMonth.label}</strong> se
+                  reemplazan todos los items, se anulan los asientos contables anteriores y
+                  se vuelven a generar los links para los vecinos.
+                </p>
+                {state.runStatus === 'closed' ? (
+                  <p className="text-amber-700">
+                    <strong>Este período está cerrado.</strong> La re-emisión lo reabre automáticamente.
+                  </p>
+                ) : null}
+                {state.runLivePaymentsCount > 0 ? (
+                  <p className="text-amber-700">
+                    Hay <strong>{state.runLivePaymentsCount}</strong> pago
+                    {state.runLivePaymentsCount === 1 ? '' : 's'} vivo
+                    {state.runLivePaymentsCount === 1 ? '' : 's'} (total{' '}
+                    <strong>${state.runLivePaymentsTotal.toFixed(2)}</strong>) que quedan
+                    desvinculados de los items nuevos. Los recibos siguen siendo válidos
+                    pero hay que re-imputarlos manualmente.
+                  </p>
+                ) : null}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={publishing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={publishing}
+              onClick={(e) => {
+                e.preventDefault()
+                if (hasPredictions) {
+                  void handleAcceptAllAndEmit({ acknowledgeReissueImpact: true })
+                } else {
+                  void handleEmit({ acknowledgeReissueImpact: true })
+                }
+              }}
+            >
+              {publishing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  Re-emitiendo…
+                </>
+              ) : (
+                'Re-emitir igual'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {publishResult ? (
         <PublishDialog result={publishResult} onClose={() => setPublishResult(null)} />

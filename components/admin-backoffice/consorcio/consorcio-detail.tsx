@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { Building2, FileText, Home, Users } from 'lucide-react'
 import type {
-  IAdminAccountingPeriod,
   IAdminCapability,
   IAdminExpenseStatus,
   IAdminExpenseSummary,
@@ -10,7 +9,6 @@ import type {
   IAdminUnitWithHolders,
 } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
-import { AccountingPeriodCard } from '@/components/admin-backoffice/consorcio/accounting-period-card'
 import { OperationalSettingsForm } from '@/components/admin-backoffice/consorcio/operational-settings-form'
 import { ConsorcioSettingsForm } from '@/components/admin-backoffice/consorcio/consorcio-settings-form'
 import { UnitsManager } from '@/components/admin-backoffice/consorcio/units-manager'
@@ -38,12 +36,11 @@ type Props = {
   units: IAdminUnitWithHolders[]
   linkableProfiles: IAdminLinkableProfile[]
   recentExpenses: IAdminExpenseSummary[]
-  currentPeriod: IAdminAccountingPeriod | null
   totals: { units: number; activeHolders: number; monthExpenses: number; monthAmount: number }
   userCapabilities: IAdminCapability[]
 }
 
-export function ConsorcioDetail({ property, units, linkableProfiles, recentExpenses, currentPeriod, totals, userCapabilities }: Props) {
+export function ConsorcioDetail({ property, units, linkableProfiles, recentExpenses, totals, userCapabilities }: Props) {
   const caps = new Set(userCapabilities)
   const canEditConsorcio = caps.has('consorcio.edit')
   const canManageAdminSettings = caps.has('admin.settings.manage')
@@ -98,12 +95,6 @@ export function ConsorcioDetail({ property, units, linkableProfiles, recentExpen
         propertyId={property.id}
         initial={property.operationalSettings}
         canEdit={canManageAdminSettings}
-      />
-
-      <AccountingPeriodCard
-        propertyId={property.id}
-        period={currentPeriod}
-        userCapabilities={userCapabilities}
       />
 
       <section className="grid grid-cols-3 gap-3">

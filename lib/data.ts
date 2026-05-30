@@ -173,6 +173,7 @@ import {
   getAccountingPeriodIdAndStatusFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyOperationalSettingsFromPostgres,
+  getRunPaymentStatsFromPostgres,
   listProfileNamesByIdsFromPostgres,
   materializeLateFeesForAdministrationInPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
@@ -2905,10 +2906,27 @@ export async function getIAdminMesaState(
     ? Math.round((totalCollected / (totalToDistribute + totalPreviousBalance)) * 100)
     : null
 
+  // Snapshot del run actual (para detectar cambios desde la última emisión)
+  // y stats de pagos vivos (para gate de re-emisión / reapertura).
+  const runSnapshotTotal = existingRun
+    ? Math.round(
+        (Number(existingRun.ordinary_total ?? 0) +
+          Number(existingRun.extraordinary_total ?? 0) +
+          Number(existingRun.previous_balance ?? 0)) *
+          100,
+      ) / 100
+    : null
+  const runPaymentStats = existingRun
+    ? await getRunPaymentStatsFromPostgres(existingRun.id)
+    : { count: 0, total: 0 }
+
   return {
     runId: existingRun?.id ?? null,
     runStatus: (existingRun?.status ?? null) as IAdminLiquidationStatus | null,
     hasRun: Boolean(existingRun),
+    runSnapshotTotal,
+    runLivePaymentsCount: runPaymentStats.count,
+    runLivePaymentsTotal: Math.round(runPaymentStats.total * 100) / 100,
     ordinaryTotal,
     extraordinaryTotal,
     previousBalanceTotal: Math.round(totalPreviousBalance * 100) / 100,

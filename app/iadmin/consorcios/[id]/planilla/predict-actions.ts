@@ -224,6 +224,7 @@ const acceptAndEmitSchema = z.object({
       amount: z.number().nonnegative(),
     }),
   ),
+  acknowledgeReissueImpact: z.boolean().optional().default(false),
 })
 
 export type AcceptAndEmitResult = {
@@ -262,6 +263,7 @@ export async function acceptPredictionsAndEmit(
     propertyId: parsed.propertyId,
     year: parsed.year,
     month: parsed.month,
+    acknowledgeReissueImpact: parsed.acknowledgeReissueImpact,
   })
 
   return { applied, skipped, emit }

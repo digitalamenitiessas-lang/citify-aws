@@ -1075,6 +1075,11 @@ export interface IAdminMesaState {
   runId: string | null
   runStatus: IAdminLiquidationStatus | null
   hasRun: boolean
+  /** Suma ord+ext+prev guardada en el run actual. null si no hay run. */
+  runSnapshotTotal: number | null
+  /** Pagos vivos asociados al run actual (para gate de re-emisión). */
+  runLivePaymentsCount: number
+  runLivePaymentsTotal: number
   ordinaryTotal: number
   extraordinaryTotal: number
   previousBalanceTotal: number

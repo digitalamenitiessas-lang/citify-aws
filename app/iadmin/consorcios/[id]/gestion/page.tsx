@@ -30,7 +30,6 @@ export default async function ConsorcioDetailPage({ params }: { params: Promise<
       units={unitsWithHolders}
       linkableProfiles={linkableProfiles}
       recentExpenses={detail.recentExpenses}
-      currentPeriod={detail.currentPeriod}
       totals={detail.totals}
       userCapabilities={capabilities}
     />

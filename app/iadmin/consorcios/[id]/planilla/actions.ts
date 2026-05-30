@@ -21,12 +21,14 @@ import {
   findExpenseInPeriodByProviderFromPostgres,
   findProviderByNameWithRecurringFromPostgres,
   getAccountingPeriodIdAndStatusFromPostgres,
+  getExistingLiquidationRunForPeriodFromPostgres,
   getFirstActiveCashAccountFromPostgres,
   getLiquidationItemByRunUnitFromPostgres,
   getLiquidationRunByPeriodFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyForEmitFromPostgres,
   getProviderNameAndDefaultDescFromPostgres,
+  getRunPaymentStatsFromPostgres,
   insertBankMovementInPostgres,
   insertCollectionPaymentInPostgres,
   insertExpenseInPostgres,
@@ -244,6 +246,11 @@ const emitSchema = z.object({
   propertyId: z.string().uuid(),
   year: z.number().int(),
   month: z.number().int().min(1).max(12),
+  // Si el período ya fue emitido (issued/closed) y tiene pagos vivos, la
+  // re-emisión desde la planilla los desvincula (porque borra y reinserta
+  // los items + asientos del ledger). Requerimos confirmación explícita
+  // desde la UI antes de permitirlo.
+  acknowledgeReissueImpact: z.boolean().optional().default(false),
 })
 
 export type NeighborMessage = {
@@ -403,6 +410,38 @@ export async function emitAndNotify(
     periodMonth: parsed.month,
   })
   if (!period) throw new Error('El período no existe. Cargá al menos un gasto primero.')
+
+  // Gate de re-emisión: si ya hay un run emitido o cerrado, requerimos
+  // confirmación cuando el período está cerrado o cuando hay pagos vivos
+  // que quedarían desvinculados al borrar/regenerar los items.
+  const existingRun = await getExistingLiquidationRunForPeriodFromPostgres({
+    managedPropertyId: parsed.propertyId,
+    accountingPeriodId: period.id,
+  })
+  if (
+    existingRun &&
+    (existingRun.status === 'issued' || existingRun.status === 'closed')
+  ) {
+    const stats = await getRunPaymentStatsFromPostgres(existingRun.id)
+    const isClosed = existingRun.status === 'closed'
+    const hasLivePayments = stats.count > 0
+    if ((isClosed || hasLivePayments) && !parsed.acknowledgeReissueImpact) {
+      const lines: string[] = []
+      if (isClosed) {
+        lines.push('Este período está cerrado.')
+      }
+      if (hasLivePayments) {
+        lines.push(
+          `Hay ${stats.count} pago${stats.count === 1 ? '' : 's'} vigente${stats.count === 1 ? '' : 's'} ` +
+            `(total $${stats.total.toFixed(2)}) que quedan desvinculados al re-emitir.`,
+        )
+      }
+      throw new Error(
+        `${lines.join(' ')} Confirmá la re-emisión desde la UI ` +
+          `(o llamá con acknowledgeReissueImpact=true).`,
+      )
+    }
+  }
 
   const imputedExpenses = await listImputedExpensesAmountsByPeriodFromPostgres({
     managedPropertyId: parsed.propertyId,
