@@ -33,6 +33,10 @@ const TARGET_OPTIONS: Array<{ value: ImportTargetField; label: string }> = [
   { value: 'holder_tax_id', label: 'CUIT / DNI' },
   { value: 'holder_email', label: 'Email' },
   { value: 'holder_phone', label: 'Teléfono' },
+  { value: 'owner_name', label: 'Nombre propietario (si no vive ahí)' },
+  { value: 'owner_tax_id', label: 'CUIT / DNI propietario' },
+  { value: 'owner_email', label: 'Email propietario' },
+  { value: 'owner_phone', label: 'Teléfono propietario' },
 ]
 
 export function UnitsImportWizard({ administrationId, propertyId, propertyName }: Props) {
@@ -75,6 +79,10 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
         'CUIT/DNI': '20-12345678-9',
         'Email': 'juan@ejemplo.com',
         'Teléfono': '+54 9 11 1234-5678',
+        'Propietario (si no vive)': '',
+        'CUIT/DNI propietario': '',
+        'Email propietario': '',
+        'Teléfono propietario': '',
       },
       {
         'Unidad': 'PB-B',
@@ -87,6 +95,12 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
         'CUIT/DNI': '30-12345678-9',
         'Email': '',
         'Teléfono': '',
+        // Ejemplo: el local lo alquila Comercio SA pero el dueño es otra persona,
+        // se carga sólo como contacto.
+        'Propietario (si no vive)': 'María González',
+        'CUIT/DNI propietario': '27-87654321-3',
+        'Email propietario': 'maria.g@ejemplo.com',
+        'Teléfono propietario': '+54 9 11 9876-5432',
       },
     ]
     const ws = XLSX.utils.json_to_sheet(templateRows)
@@ -195,10 +209,11 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
             </p>
           </div>
         </div>
-        <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <dl className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
           <Stat label="Unidades nuevas" value={result.unitsCreated} tone="ok" />
           <Stat label="Unidades actualizadas" value={result.unitsUpdated} />
           <Stat label="Titulares nuevos" value={result.holdersCreated} tone="ok" />
+          <Stat label="Propietarios cargados" value={result.ownersCreated} tone="ok" />
           <Stat label="Filas salteadas" value={result.skippedRows.length} tone={result.skippedRows.length > 0 ? 'warning' : 'ok'} />
         </dl>
         {result.skippedRows.length > 0 ? (
@@ -300,10 +315,17 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
               <span>• CUIT / DNI</span>
               <span>• Email</span>
               <span>• Teléfono</span>
+              <span>• Propietario (cuando no vive ahí)</span>
+              <span>• CUIT/Email/Tel. propietario</span>
             </div>
             <p className="mt-2 text-[10px] text-muted-foreground italic">
               Las columnas que no matchean se marcan como "ignorar" — podés cambiar el mapeo
               antes de confirmar. Lo que no esté en tu Excel queda en blanco para que lo completes después.
+            </p>
+            <p className="mt-1 text-[10px] text-muted-foreground italic">
+              Si la unidad la usa un inquilino y querés guardar el contacto del dueño, completá
+              las columnas <strong>"Propietario"</strong>: se carga como contacto adicional sin
+              afectar la liquidación.
             </p>
           </div>
         </div>
@@ -502,6 +524,10 @@ function PreviewTable({
     { field: 'holder_tax_id', label: 'CUIT/DNI' },
     { field: 'holder_email', label: 'Email' },
     { field: 'holder_phone', label: 'Tel.' },
+    { field: 'owner_name', label: 'Propietario' },
+    { field: 'owner_tax_id', label: 'CUIT prop.' },
+    { field: 'owner_email', label: 'Email prop.' },
+    { field: 'owner_phone', label: 'Tel. prop.' },
   ]
   const cols = previewCols.filter((c) => targetToSource[c.field])
 
