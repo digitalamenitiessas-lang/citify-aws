@@ -230,6 +230,14 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
           draftDocument,
           ...providerPayload,
         })
+        if (!result.ok) {
+          setServerError(result.error)
+          toast.error('No se pudo cargar el gasto', {
+            description: result.error,
+            duration: 8000,
+          })
+          return
+        }
         if (result.status === 'imputed') {
           toast.success('Gasto cargado e imputado al periodo')
         } else {
@@ -239,7 +247,12 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
         reset()
         setOpen(false)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'No se pudo crear el gasto'
+        // Solo errores realmente inesperados (red, runtime). Los de negocio
+        // vienen como result.ok = false con mensaje detallado.
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Error inesperado. Intentá de nuevo o avisá al equipo.'
         setServerError(message)
         toast.error('No se pudo cargar el gasto', { description: message, duration: 8000 })
       }

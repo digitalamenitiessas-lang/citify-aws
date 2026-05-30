@@ -63,7 +63,33 @@ const createExpenseSchema = z.object({
 
 export type CreateExpenseInput = z.input<typeof createExpenseSchema>
 
-export async function createExpense(input: CreateExpenseInput) {
+export type CreateExpenseResult =
+  | { ok: true; id: string; status: IAdminExpenseStatus }
+  | { ok: false; error: string; code?: string }
+
+/**
+ * Wrapper público de la action. Envuelve `createExpenseImpl` para devolver los
+ * errores de negocio como objeto. Si tirábamos throw, Next.js en producción los
+ * reemplaza por "An error occurred in the Server Components render. ..." y el
+ * usuario nunca ve el mensaje real (período cerrado, alícuota > 100%, etc.).
+ */
+export async function createExpense(input: CreateExpenseInput): Promise<CreateExpenseResult> {
+  try {
+    const result = await createExpenseImpl(input)
+    return { ok: true, ...result }
+  } catch (error) {
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: string }).code
+      // Log server-side para no perder el stack; el cliente ve solo el mensaje.
+      console.error('[createExpense] business error:', error.message, code ? `(code=${code})` : '')
+      return { ok: false, error: error.message, code }
+    }
+    console.error('[createExpense] unknown error:', error)
+    return { ok: false, error: 'Error inesperado al cargar el gasto' }
+  }
+}
+
+async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: string; status: IAdminExpenseStatus }> {
   const parsed = createExpenseSchema.parse(input)
   const { profile, context } = await requireIAdmin({
     capability: 'expenses.create',
