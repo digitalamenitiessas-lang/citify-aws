@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { IAdminExpenseStatus, IAdminExpenseSummary } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
+import { PeriodPicker } from '@/components/admin-backoffice/shared/period-picker'
 
 const EXPENSE_STATUS_LABELS: Record<IAdminExpenseStatus, string> = {
   draft: 'Borrador',
@@ -40,8 +41,8 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
   const [statusFilter, setStatusFilter] = useState<'all' | IAdminExpenseStatus>(
     isValidStatus(initialStatus) ? initialStatus : 'all',
   )
-  // Filtro de período: "all" o "YYYY-MM"
-  const [periodFilter, setPeriodFilter] = useState<string>('all')
+  // Filtro de período: null = todos, o { year, month }
+  const [periodFilter, setPeriodFilter] = useState<{ year: number; month: number } | null>(null)
 
   // Si cambia el query param desde afuera, sincronizar.
   useEffect(() => {
@@ -49,28 +50,25 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
     if (s && isValidStatus(s)) setStatusFilter(s as 'all' | IAdminExpenseStatus)
   }, [searchParams])
 
-  // Lista única de períodos presentes (orden desc).
+  // Lista única de períodos presentes.
   const periodOptions = useMemo(() => {
     const seen = new Set<string>()
-    const options: { value: string; label: string }[] = []
+    const options: { year: number; month: number }[] = []
     for (const e of expenses) {
       if (e.periodYear == null || e.periodMonth == null) continue
-      const value = `${e.periodYear}-${String(e.periodMonth).padStart(2, '0')}`
-      if (seen.has(value)) continue
-      seen.add(value)
-      options.push({ value, label: value })
+      const key = `${e.periodYear}-${e.periodMonth}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      options.push({ year: e.periodYear, month: e.periodMonth })
     }
-    options.sort((a, b) => b.value.localeCompare(a.value))
     return options
   }, [expenses])
 
   const periodFiltered = useMemo(() => {
-    if (periodFilter === 'all') return expenses
-    return expenses.filter((e) => {
-      if (e.periodYear == null || e.periodMonth == null) return false
-      const v = `${e.periodYear}-${String(e.periodMonth).padStart(2, '0')}`
-      return v === periodFilter
-    })
+    if (periodFilter === null) return expenses
+    return expenses.filter(
+      (e) => e.periodYear === periodFilter.year && e.periodMonth === periodFilter.month,
+    )
   }, [expenses, periodFilter])
 
   const counts = useMemo(() => {
@@ -97,17 +95,14 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <label className="text-xs text-muted-foreground">Período:</label>
-        <select
+        <PeriodPicker
+          label="Período"
           value={periodFilter}
-          onChange={(e) => setPeriodFilter(e.target.value)}
-          className="rounded-md border border-input bg-background px-2.5 py-1 text-xs"
-        >
-          <option value="all">Todos</option>
-          {periodOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+          onChange={setPeriodFilter}
+          availablePeriods={periodOptions}
+          allowAll
+          allLabel="Todos"
+        />
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
         {FILTERS.map((f) => {

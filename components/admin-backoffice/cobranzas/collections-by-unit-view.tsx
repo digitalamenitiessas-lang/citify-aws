@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { NeighborDrawer } from '@/components/admin-backoffice/consorcio/neighbor-drawer'
 import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
+import { PeriodPicker } from '@/components/admin-backoffice/shared/period-picker'
 import type { IAdminCashAccountWithBalance, IAdminMesaState, IAdminMesaUnitLine } from '@/lib/types'
 import { quickPayFromMesa } from '@/app/iadmin/consorcios/[id]/planilla/actions'
 
@@ -95,26 +96,26 @@ export function CollectionsByUnitView({
   const periodLabel = `${MONTH_NAMES[month - 1]} ${year}`
   const currentPeriodValue = `${year}-${String(month).padStart(2, '0')}`
 
-  // Aseguramos que el período actual aparezca en el dropdown aunque no haya
-  // gastos cargados todavía.
+  // Aseguramos que el período actual aparezca aunque no haya datos todavía.
   const periodOptions = useMemo(() => {
     const seen = new Set<string>()
-    const opts: Array<{ value: string; label: string }> = []
+    const opts: Array<{ year: number; month: number }> = []
     for (const p of availablePeriods) {
-      const v = `${p.year}-${String(p.month).padStart(2, '0')}`
-      if (seen.has(v)) continue
-      seen.add(v)
-      opts.push({ value: v, label: `${MONTH_NAMES[p.month - 1]} ${p.year}` })
+      const k = `${p.year}-${p.month}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      opts.push({ year: p.year, month: p.month })
     }
-    if (!seen.has(currentPeriodValue)) {
-      opts.unshift({ value: currentPeriodValue, label: periodLabel })
-    }
+    const currentKey = `${year}-${month}`
+    if (!seen.has(currentKey)) opts.push({ year, month })
     return opts
-  }, [availablePeriods, currentPeriodValue, periodLabel])
+  }, [availablePeriods, year, month])
 
-  function changePeriod(value: string) {
-    const params = new URLSearchParams(window.location.search)
+  function changePeriod(next: { year: number; month: number } | null) {
+    if (!next) return
+    const value = `${next.year}-${String(next.month).padStart(2, '0')}`
     if (value === currentPeriodValue) return
+    const params = new URLSearchParams(window.location.search)
     params.set('period', value)
     router.push(`/iadmin/cobranzas?${params.toString()}`)
   }
@@ -122,16 +123,13 @@ export function CollectionsByUnitView({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <label className="text-xs text-muted-foreground">Período:</label>
-        <select
-          value={currentPeriodValue}
-          onChange={(e) => changePeriod(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium"
-        >
-          {periodOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <PeriodPicker
+          label="Período"
+          size="md"
+          value={{ year, month }}
+          onChange={changePeriod}
+          availablePeriods={periodOptions}
+        />
       </div>
 
       {/* KPIs arriba */}
