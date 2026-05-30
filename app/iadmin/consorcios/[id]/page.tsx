@@ -3,11 +3,35 @@ import { MonthlyPlanilla } from '@/components/admin-backoffice/consorcio/monthly
 import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminCashAccounts, getIAdminMesaState, getIAdminMonthlyGrid } from '@/lib/data'
 
-export default async function PlanillaPage({ params }: { params: Promise<{ id: string }> }) {
+function parsePeriodParam(raw: string | undefined | null): { year: number; month: number } | null {
+  if (!raw) return null
+  const m = /^(\d{4})-(\d{2})$/.exec(raw)
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2])
+  if (year < 2020 || year > 2100 || month < 1 || month > 12) return null
+  return { year, month }
+}
+
+export const dynamic = 'force-dynamic'
+
+export default async function PlanillaPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ period?: string }>
+}) {
   const { id } = await params
+  const sp = await searchParams
   const { context } = await requireIAdmin({ capability: 'consorcio.view' })
 
-  const grid = await getIAdminMonthlyGrid(id, { monthsCount: 12 })
+  const selectedPeriod = parsePeriodParam(sp.period)
+  const grid = await getIAdminMonthlyGrid(id, {
+    monthsCount: 12,
+    targetYear: selectedPeriod?.year,
+    targetMonth: selectedPeriod?.month,
+  })
   if (!grid) notFound()
 
   const currentMonth = grid.months[grid.months.length - 1]

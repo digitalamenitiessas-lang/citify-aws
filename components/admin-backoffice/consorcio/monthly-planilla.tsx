@@ -323,6 +323,13 @@ export function MonthlyPlanilla({
   }
 
   async function handleRequestPredictions() {
+    // Predictions sólo tienen sentido para el mes en curso o el siguiente
+    // (predicen contra histórico previo). Para meses pasados, los datos ya
+    // existen — no hay nada que predecir.
+    if (!currentMonth.isCurrent && !grid.isFuturePeriod) {
+      toast.info('La sugerencia con IA sólo aplica al mes en curso o siguiente.')
+      return
+    }
     try {
       const result = await generateMonthPredictions({
         propertyId: grid.propertyId,

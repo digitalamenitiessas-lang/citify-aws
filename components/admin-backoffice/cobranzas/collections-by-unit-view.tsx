@@ -295,6 +295,11 @@ export function CollectionsByUnitView({
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">
                           {u.subtotal > 0 ? u.subtotal.toLocaleString('es-AR') : '—'}
+                          {u.lateFee > 0 ? (
+                            <div className="text-[10px] text-amber-700 mt-0.5">
+                              +{u.lateFee.toLocaleString('es-AR')} mora
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-emerald-700">
                           {u.collected > 0 ? u.collected.toLocaleString('es-AR') : '—'}

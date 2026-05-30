@@ -1013,6 +1013,8 @@ export interface IAdminMesaUnitLine {
   ordinary: number
   extraordinary: number
   previousBalance: number
+  /** Recargo por mora abierto en el ledger para esta unidad/run. 0 si no hay. */
+  lateFee: number
   subtotal: number
   collected: number
   balance: number
@@ -1106,7 +1108,10 @@ export interface IAdminMonthlyGrid {
     year: number
     month: number
     label: string       // "NOV 25"
+    /** True si coincide con el mes calendario real (no con el seleccionado). */
     isCurrent: boolean
+    /** True si es el período sobre el que está pivoteando la Mesa (último de la ventana). */
+    isPivot: boolean
     total: number
     periodStatus: IAdminPeriodStatus | null
     runId: string | null
@@ -1117,7 +1122,13 @@ export interface IAdminMonthlyGrid {
   totalByMonth: Record<string, number>
   activeUnitsCount: number
   totalAlicuota: number            // suma de alicuotas activas
-  readyToEmit: boolean              // hay al menos 1 gasto en el mes actual
+  readyToEmit: boolean              // hay al menos 1 gasto en el mes pivote
+  /** Período que está activo (último mes de la ventana). */
+  selectedPeriod: { year: number; month: number }
+  /** Períodos contables del consorcio + mes actual + mes siguiente, para el picker. */
+  availablePeriods: Array<{ year: number; month: number }>
+  /** True si el período seleccionado es posterior al mes calendario actual. */
+  isFuturePeriod: boolean
 }
 
 export type IAdminClosingStepId =

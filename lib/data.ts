@@ -143,6 +143,7 @@ import {
   getMostRecentIssuedPriorRunItemsFromPostgres,
   listAccountingPeriodsByYearsFromPostgres,
   listAdministrationAccountingPeriodsFromPostgres,
+  listAllAccountingPeriodsFromPostgres,
   listActiveUnitsWithProrataAndHolderFromPostgres,
   listDashboardItemsByRunsFromPostgres,
   listDashboardRunsFromPostgres,
@@ -167,6 +168,8 @@ import {
   sumImputedTotalsForPeriodFromPostgres,
   sumLivePaymentsByUnitForItemsFromPostgres,
   sumLivePaymentsForRunFromPostgres,
+  sumOpenLateFeesByUnitForRunFromPostgres,
+  sumOpenLateFeesByUnitPriorPeriodsFromPostgres,
   type RunForMesaItemRow,
   type RunForMesaRow,
 } from '@/lib/db/iadmin-reads'
@@ -2598,6 +2601,15 @@ export async function getIAdminPortfolioOverview(
 
   if (!admin) return null
 
+  // Materializar recargos por mora antes de calcular los KPIs del overview.
+  // Sin esto el card "Morosidad acumulada" puede quedar bajo el valor real
+  // si nadie entró a Cobranzas en los últimos días.
+  await materializeLateFeesForAdministrationInPostgres({
+    administrationId,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    actorProfileId: null,
+  })
+
   const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
   const now = new Date()
   const selectedPeriod = selectedPeriodInput ?? {
@@ -2782,6 +2794,15 @@ export async function getIAdminMesaState(
   ])
   if (!property) return null
 
+  // Materializar recargos por mora antes de leer estado: garantiza que los
+  // saldos pendientes que ve el admin en Mesa ya reflejen los intereses
+  // acumulados según los due_dates configurados. Es idempotente.
+  await materializeLateFeesForAdministrationInPostgres({
+    administrationId: property.administration_id,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    actorProfileId: null,
+  })
+
   const period = await getAccountingPeriodIdAndStatusFromPostgres({
     managedPropertyId: propertyId,
     periodYear: year,
@@ -2845,6 +2866,18 @@ export async function getIAdminMesaState(
         if (debt > 0) previousBalanceByUnit.set(it.unit_id, debt)
       }
     }
+    // Sumar recargos por mora abiertos de períodos anteriores. Espeja la
+    // lógica de emitAndNotify para que el preview del Mesa de un período
+    // todavía no emitido refleje exactamente lo que se cargaría como
+    // previous_balance al emitirlo.
+    const priorLateFees = await sumOpenLateFeesByUnitPriorPeriodsFromPostgres({
+      managedPropertyId: propertyId,
+      excludePeriodId: period?.id ?? null,
+    })
+    for (const [unitId, fee] of priorLateFees.entries()) {
+      const current = previousBalanceByUnit.get(unitId) ?? 0
+      previousBalanceByUnit.set(unitId, Math.round((current + fee) * 100) / 100)
+    }
   }
 
   // Pagos del run actual
@@ -2856,6 +2889,12 @@ export async function getIAdminMesaState(
       paidByUnitCurrent.set(unitId, amount)
     }
   }
+
+  // Recargo por mora abierto del run actual (por unidad). Sólo si hay run
+  // emitido; el materializer ya corrió arriba para garantizar frescura.
+  const lateFeesByUnit = existingRun
+    ? await sumOpenLateFeesByUnitForRunFromPostgres(existingRun.id)
+    : new Map<string, number>()
 
   // Vencimientos: toma los del run o default (10 y 25 mes siguiente)
   const dueDates: IAdminDueDate[] = existingRun?.due_dates?.length
@@ -2887,7 +2926,11 @@ export async function getIAdminMesaState(
     const ord = Math.round(ordinaryTotal * prorata * 100) / 100
     const ext = Math.round(extraordinaryTotal * prorata * 100) / 100
     const prev = Math.round((previousBalanceByUnit.get(u.id) ?? 0) * 100) / 100
-    const subtotal = Math.round((ord + ext + prev) * 100) / 100
+    const lateFee = Math.round((lateFeesByUnit.get(u.id) ?? 0) * 100) / 100
+    // subtotal incluye el recargo: si la unidad acumuló mora desde la
+    // emisión, el "balance" pendiente del Mesa la refleja sin esperar al
+    // próximo período.
+    const subtotal = Math.round((ord + ext + prev + lateFee) * 100) / 100
     const collected = Math.round((paidByUnitCurrent.get(u.id) ?? 0) * 100) / 100
     const balance = Math.max(0, Math.round((subtotal - collected) * 100) / 100)
     const dueAmounts = dueDates.map((d) => ({
@@ -2905,6 +2948,7 @@ export async function getIAdminMesaState(
       ordinary: ord,
       extraordinary: ext,
       previousBalance: prev,
+      lateFee,
       subtotal,
       collected,
       balance,
@@ -3189,7 +3233,14 @@ export async function getIAdminUnitAccountStatement(
 
 export async function getIAdminMonthlyGrid(
   propertyId: string,
-  options: { year?: number; monthsCount?: number } = {},
+  options: {
+    /** Compat: si se pasa sin `targetMonth`, fija el año pero el mes pivote sigue siendo el calendario. */
+    year?: number
+    /** Mes pivote sobre el que se ancla la ventana. Default: mes calendario actual. */
+    targetYear?: number
+    targetMonth?: number
+    monthsCount?: number
+  } = {},
 ): Promise<IAdminMonthlyGrid | null> {
   const propertyRow = await getManagedPropertyFullFromPostgres(propertyId)
   if (!propertyRow) return null
@@ -3198,14 +3249,17 @@ export async function getIAdminMonthlyGrid(
   const administrationId = propertyRow.administration_id
 
   const now = new Date()
-  const currentYear = options.year ?? now.getFullYear()
-  const currentMonth = now.getMonth() + 1
-  const monthsCount = options.monthsCount ?? 3  // 2 meses previos + actual
+  const realYear = now.getFullYear()
+  const realMonth = now.getMonth() + 1
+  // Mes pivote = el último de la ventana, sobre el que opera Mesa del mes.
+  const pivotYear = options.targetYear ?? options.year ?? realYear
+  const pivotMonth = options.targetMonth ?? realMonth
+  const monthsCount = options.monthsCount ?? 3  // N-1 meses previos + pivote
 
-  // Armar la ventana de meses (más reciente al final)
+  // Armar la ventana de meses (más reciente al final = pivote)
   const months: IAdminMonthlyGrid['months'] = []
   for (let i = monthsCount - 1; i >= 0; i--) {
-    const d = new Date(currentYear, currentMonth - 1 - i, 1)
+    const d = new Date(pivotYear, pivotMonth - 1 - i, 1)
     const y = d.getFullYear()
     const m = d.getMonth() + 1
     const short = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'][m - 1]
@@ -3213,7 +3267,10 @@ export async function getIAdminMonthlyGrid(
       year: y,
       month: m,
       label: `${short} ${String(y).slice(2)}`,
-      isCurrent: y === currentYear && m === currentMonth,
+      // isCurrent = mes calendario real (para que el admin distinga "hoy")
+      isCurrent: y === realYear && m === realMonth,
+      // isPivot = es el mes pivote (último de la ventana, sobre el que opera Mesa)
+      isPivot: i === 0,
       total: 0,
       periodStatus: null,
       runId: null,
@@ -3409,8 +3466,32 @@ export async function getIAdminMonthlyGrid(
     0,
   )
 
-  const currentMonthObj = months[months.length - 1]
-  const readyToEmit = currentMonthObj.total > 0
+  const pivotMonthObj = months[months.length - 1]
+  const readyToEmit = pivotMonthObj.total > 0
+
+  // Construir la lista de períodos disponibles para el picker:
+  // (1) todos los períodos contables existentes del consorcio,
+  // (2) el mes calendario real (por si todavía no tiene período abierto),
+  // (3) el mes siguiente al calendario (para "adelantarse").
+  const existingPeriods = await listAllAccountingPeriodsFromPostgres(propertyId)
+  const seenPeriods = new Set<string>()
+  const availablePeriods: Array<{ year: number; month: number }> = []
+  function pushPeriod(y: number, m: number) {
+    const k = `${y}-${m}`
+    if (seenPeriods.has(k)) return
+    seenPeriods.add(k)
+    availablePeriods.push({ year: y, month: m })
+  }
+  for (const p of existingPeriods) pushPeriod(p.period_year, p.period_month)
+  pushPeriod(realYear, realMonth)
+  const nextMonthDate = new Date(realYear, realMonth, 1) // month es 0-indexed → ya es el mes siguiente
+  pushPeriod(nextMonthDate.getFullYear(), nextMonthDate.getMonth() + 1)
+  // Pivote también, por si está en una posición rara (ej. usuario eligió un período viejo no contable).
+  pushPeriod(pivotYear, pivotMonth)
+  availablePeriods.sort((a, b) => (b.year - a.year) * 100 + (b.month - a.month))
+
+  const isFuturePeriod =
+    pivotYear > realYear || (pivotYear === realYear && pivotMonth > realMonth)
 
   return {
     propertyId,
@@ -3423,6 +3504,9 @@ export async function getIAdminMonthlyGrid(
     activeUnitsCount,
     totalAlicuota: Math.round(totalAlicuota * 1000000) / 1000000,
     readyToEmit,
+    selectedPeriod: { year: pivotYear, month: pivotMonth },
+    availablePeriods,
+    isFuturePeriod,
   }
 }
 

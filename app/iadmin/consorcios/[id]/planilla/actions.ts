@@ -38,12 +38,14 @@ import {
   listLiquidationItemsByRunFromPostgres,
   listLiveShareTokensByItemsFromPostgres,
   listPriorRunItemsForEmitFromPostgres,
+  materializeLateFeesForAdministrationInPostgres,
   setProviderRecurringInPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
   updateExpenseAmountInPostgres,
   upsertIssuedLiquidationRunInPostgres,
   voidLedgerEntriesForRunInPostgres,
 } from '@/lib/db/iadmin-writes'
+import { sumOpenLateFeesByUnitPriorPeriodsFromPostgres } from '@/lib/db/iadmin-reads'
 import { notifyLiquidationIssued } from '@/lib/email/notifications/liquidations'
 import type { IAdminExpenseStatus, IAdminUnitAccountStatement } from '@/lib/types'
 
@@ -465,6 +467,15 @@ export async function emitAndNotify(
     throw new Error('No hay unidades activas con alícuota definida.')
   }
 
+  // Materializamos recargos antes de calcular previous_balance, para asegurar
+  // que los intereses por mora acumulados desde la última emisión estén
+  // reflejados en el saldo a arrastrar al nuevo período.
+  await materializeLateFeesForAdministrationInPostgres({
+    administrationId: property.administration_id,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    actorProfileId: profile.id,
+  })
+
   const previousBalanceByUnit = new Map<string, number>()
   const priorItems = await listPriorRunItemsForEmitFromPostgres({
     managedPropertyId: parsed.propertyId,
@@ -482,6 +493,19 @@ export async function emitAndNotify(
       const debt = Math.max(0, Math.round((sub - paid) * 100) / 100)
       if (debt > 0) previousBalanceByUnit.set(it.unit_id, debt)
     }
+  }
+  // Sumar al previous_balance los recargos por mora abiertos de períodos
+  // anteriores (entry_type='recargo_mora' en el ledger). Sin esto los
+  // intereses acumulados quedan "escondidos" en el ledger y no aparecen en
+  // el recibo nuevo. Ver caveat en docs/PERIODOS-Y-MOROSIDAD-PLAN.md sobre
+  // doble visibilidad (los recargos quedan vivos en el ledger viejo).
+  const priorLateFees = await sumOpenLateFeesByUnitPriorPeriodsFromPostgres({
+    managedPropertyId: parsed.propertyId,
+    excludePeriodId: period.id,
+  })
+  for (const [unitId, fee] of priorLateFees.entries()) {
+    const current = previousBalanceByUnit.get(unitId) ?? 0
+    previousBalanceByUnit.set(unitId, Math.round((current + fee) * 100) / 100)
   }
   const totalPreviousBalance = Array.from(previousBalanceByUnit.values()).reduce((s, v) => s + v, 0)
 

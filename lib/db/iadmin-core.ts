@@ -1405,6 +1405,24 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
           and not (r.period_year = $2 and r.period_month = $3)
         group by r.property_id
       ),
+      late_fee_overdue as (
+        -- Recargos por mora abiertos en el ledger, agrupados por propiedad y
+        -- excluyendo los recargos linkeados a items del mes en curso (que se
+        -- consideran "del mes" no "morosidad acumulada").
+        select
+          le.managed_property_id as property_id,
+          coalesce(sum(le.balance_open), 0) as overdue_amount
+        from public.iadmin_unit_ledger_entries le
+        left join public.iadmin_accounting_periods ap on ap.id = le.accounting_period_id
+        where le.managed_property_id in (select id from props)
+          and le.entry_type = 'recargo_mora'
+          and le.status in ('open', 'partially_paid')
+          and (
+            ap.id is null
+            or not (ap.period_year = $2 and ap.period_month = $3)
+          )
+        group by le.managed_property_id
+      ),
       current_run as (
         select distinct on (r.property_id)
           r.property_id,
@@ -1422,7 +1440,7 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
         coalesce(b.total_balance, 0)::text as total_balance,
         coalesce(er.pending_expenses, 0) as pending_expenses,
         coalesce(er.accounts_payable_total, 0)::text as accounts_payable_total,
-        coalesce(ho.overdue_amount, 0)::text as overdue_amount,
+        (coalesce(ho.overdue_amount, 0) + coalesce(lfo.overdue_amount, 0))::text as overdue_amount,
         coalesce(cr.current_month_liquidated, 0)::text as current_month_liquidated,
         coalesce(cr.current_month_collected, 0)::text as current_month_collected,
         case
@@ -1436,6 +1454,7 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
       left join balances b on b.property_id = p.id
       left join expense_rollup er on er.property_id = p.id
       left join historical_item_overdue ho on ho.property_id = p.id
+      left join late_fee_overdue lfo on lfo.property_id = p.id
       left join current_run cr on cr.property_id = p.id
       left join current_periods cp on cp.property_id = p.id
       order by p.id

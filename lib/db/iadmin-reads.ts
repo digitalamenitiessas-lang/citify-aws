@@ -594,6 +594,69 @@ export async function listLiquidationItemsByRunBasicFromPostgres(
   return result.rows
 }
 
+/**
+ * Suma del recargo por mora abierto agrupado por unidad para TODOS los runs
+ * del consorcio EXCEPTO los del período indicado. Sirve para calcular el
+ * `previous_balance` al emitir un nuevo período, arrastrando los recargos
+ * acumulados de períodos anteriores.
+ *
+ * NOTA: los recargos viejos siguen vivos en el ledger atados a sus items
+ * originales — no se voidean. Esto puede generar doble visualización
+ * (aparecen tanto en account-statement de meses viejos como en
+ * previous_balance del recibo nuevo), pero la lógica FIFO de aplicación de
+ * pagos los resuelve correctamente: el pago contra el item nuevo se aplica
+ * primero a los recargos viejos por antigüedad.
+ */
+export async function sumOpenLateFeesByUnitPriorPeriodsFromPostgres(input: {
+  managedPropertyId: string
+  excludePeriodId: string | null
+}): Promise<Map<string, number>> {
+  const result = await pgQuery<{ unit_id: string; total: string }>(
+    `
+      select li.unit_id, coalesce(sum(le.balance_open), 0)::text as total
+      from public.iadmin_unit_ledger_entries le
+      inner join public.iadmin_liquidation_items li on li.id = le.liquidation_item_id
+      inner join public.iadmin_liquidation_runs r on r.id = le.liquidation_run_id
+      where r.managed_property_id = $1
+        and ($2::uuid is null or r.accounting_period_id <> $2::uuid)
+        and le.entry_type = 'recargo_mora'
+        and le.status in ('open', 'partially_paid')
+      group by li.unit_id
+      having coalesce(sum(le.balance_open), 0) > 0
+    `,
+    [input.managedPropertyId, input.excludePeriodId],
+  )
+  const map = new Map<string, number>()
+  for (const r of result.rows) map.set(r.unit_id, Number(r.total))
+  return map
+}
+
+/**
+ * Suma del recargo por mora abierto (entry_type='recargo_mora', status
+ * open|partially_paid) agrupado por unidad para todos los items de un run.
+ * Devuelve sólo unidades con recargo > 0.
+ */
+export async function sumOpenLateFeesByUnitForRunFromPostgres(
+  runId: string,
+): Promise<Map<string, number>> {
+  const result = await pgQuery<{ unit_id: string; total: string }>(
+    `
+      select li.unit_id, coalesce(sum(le.balance_open), 0)::text as total
+      from public.iadmin_unit_ledger_entries le
+      inner join public.iadmin_liquidation_items li on li.id = le.liquidation_item_id
+      where le.liquidation_run_id = $1
+        and le.entry_type = 'recargo_mora'
+        and le.status in ('open', 'partially_paid')
+      group by li.unit_id
+      having coalesce(sum(le.balance_open), 0) > 0
+    `,
+    [runId],
+  )
+  const map = new Map<string, number>()
+  for (const r of result.rows) map.set(r.unit_id, Number(r.total))
+  return map
+}
+
 export async function getMostRecentIssuedPriorRunItemsFromPostgres(input: {
   managedPropertyId: string
   excludePeriodId: string | null
