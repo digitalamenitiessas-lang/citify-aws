@@ -903,6 +903,27 @@ export type AccountingPeriodWindowRow = {
 }
 
 /**
+ * Períodos contables distintos que tienen al menos una propiedad activa de la
+ * administración. Sirve para selectores de período a nivel admin (ej. Inicio).
+ */
+export async function listAdministrationAccountingPeriodsFromPostgres(
+  administrationId: string,
+): Promise<Array<{ period_year: number; period_month: number }>> {
+  const result = await pgQuery<{ period_year: number; period_month: number }>(
+    `
+      select distinct ap.period_year, ap.period_month
+      from public.iadmin_accounting_periods ap
+      inner join public.iadmin_managed_properties mp on mp.id = ap.managed_property_id
+      where mp.administration_id = $1
+        and mp.is_active = true
+      order by ap.period_year desc, ap.period_month desc
+    `,
+    [administrationId],
+  )
+  return result.rows
+}
+
+/**
  * Listado simple de todos los períodos existentes para un consorcio, orden
  * descendente (mas reciente primero). Lo usamos en filtros de UI.
  */

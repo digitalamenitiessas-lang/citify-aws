@@ -142,6 +142,7 @@ import {
   getUnitWithAdminAndHolderFromPostgres,
   getMostRecentIssuedPriorRunItemsFromPostgres,
   listAccountingPeriodsByYearsFromPostgres,
+  listAdministrationAccountingPeriodsFromPostgres,
   listActiveUnitsWithProrataAndHolderFromPostgres,
   listDashboardItemsByRunsFromPostgres,
   listDashboardRunsFromPostgres,
@@ -2585,20 +2586,28 @@ export async function getIAdminReminders(
   }))
 }
 
-export async function getIAdminPortfolioOverview(administrationId: string): Promise<IAdminPortfolioOverview | null> {
-  const [admin, propertyRows] = await Promise.all([
+export async function getIAdminPortfolioOverview(
+  administrationId: string,
+  selectedPeriodInput?: { year: number; month: number } | null,
+): Promise<IAdminPortfolioOverview | null> {
+  const [admin, propertyRows, availablePeriodRows] = await Promise.all([
     getIAdminAdministrationByIdFromPostgres(administrationId),
     getIAdminManagedPropertiesByAdministrationFromPostgres(administrationId),
+    listAdministrationAccountingPeriodsFromPostgres(administrationId),
   ])
 
   if (!admin) return null
 
   const properties = propertyRows.map(mapManagedPropertyFromPostgresRow)
   const now = new Date()
+  const selectedPeriod = selectedPeriodInput ?? {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  }
   const overviewRows = await getIAdminPortfolioOverviewRowsFromPostgres(
     administrationId,
-    now.getFullYear(),
-    now.getMonth() + 1,
+    selectedPeriod.year,
+    selectedPeriod.month,
   )
   const overviewByProperty = new Map(overviewRows.map((row) => [row.property_id, row]))
 
@@ -2675,6 +2684,11 @@ export async function getIAdminPortfolioOverview(administrationId: string): Prom
         pendingExpenses: 0,
       },
     ),
+    selectedPeriod,
+    availablePeriods: availablePeriodRows.map((p) => ({
+      year: p.period_year,
+      month: p.period_month,
+    })),
   }
 }
 

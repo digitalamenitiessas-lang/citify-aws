@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { Money } from '@/components/admin-backoffice/shared/money'
+import { DashboardPeriodPicker } from '@/components/admin-backoffice/home/dashboard-period-picker'
 import type { IAdminPortfolioOverview } from '@/lib/types'
 
 const MONTH_NAMES = [
@@ -46,9 +47,11 @@ type ActionableAlert = {
 }
 
 export function IAdminDashboard({ overview, administratorName }: Props) {
-  const { rows, totals, administration } = overview
+  const { rows, totals, administration, selectedPeriod, availablePeriods } = overview
   const now = new Date()
-  const periodLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`
+  const periodLabel = `${MONTH_NAMES[selectedPeriod.month - 1]} ${selectedPeriod.year}`
+  const isCurrentPeriod =
+    selectedPeriod.year === now.getFullYear() && selectedPeriod.month === now.getMonth() + 1
 
   // Tasa de cobranza global (mes en curso)
   const globalRate =
@@ -107,7 +110,7 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Saludo + estado del período */}
+      {/* Saludo + selector de período */}
       <section className="glass-card rounded-2xl p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
@@ -120,12 +123,15 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
               Resumen operativo de toda la cartera.
             </p>
           </div>
-          <div className="rounded-xl border border-border/50 bg-background px-4 py-3 text-right shrink-0">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground justify-end">
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
               <CalendarClock className="w-3 h-3" />
-              Período en curso
+              {isCurrentPeriod ? 'Período en curso' : 'Período seleccionado'}
             </div>
-            <div className="mt-0.5 font-serif text-lg font-bold text-foreground">{periodLabel}</div>
+            <DashboardPeriodPicker
+              selectedPeriod={selectedPeriod}
+              availablePeriods={availablePeriods}
+            />
           </div>
         </div>
       </section>

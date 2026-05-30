@@ -736,6 +736,10 @@ export interface IAdminPortfolioOverview {
     totalCollectedMonth: number
     pendingExpenses: number
   }
+  /** Período sobre el que se calcularon las métricas mensuales. */
+  selectedPeriod: { year: number; month: number }
+  /** Períodos contables con datos en la administración (orden desc). */
+  availablePeriods: Array<{ year: number; month: number }>
 }
 
 export interface IAdminUnit {
