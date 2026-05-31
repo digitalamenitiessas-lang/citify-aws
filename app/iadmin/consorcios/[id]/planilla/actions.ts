@@ -38,6 +38,7 @@ import {
   listLiquidationItemsByRunFromPostgres,
   listLiveShareTokensByItemsFromPostgres,
   listPriorRunItemsForEmitFromPostgres,
+  markLateFeesAbsorbedByItemInPostgres,
   materializeLateFeesForAdministrationInPostgres,
   setProviderRecurringInPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
@@ -567,6 +568,25 @@ export async function emitAndNotify(
 
   const newItems = await listLiquidationItemsByRunFromPostgres(run.id)
   const itemIds = newItems.map((it) => it.id)
+
+  // Marcamos como "absorbidos" los recargos por mora previos que arrastramos
+  // al `previous_balance` de los items nuevos. Pisamos su `balance_open=0`
+  // y seteamos `superseded_by_item_id = new_item.id`. Evita double-counting
+  // en el overview y en cualquier suma de recargos abiertos. Ver
+  // `docs/PERIODOS-Y-MOROSIDAD-PLAN.md`.
+  if (priorLateFees.size > 0) {
+    const newItemByUnit = new Map(newItems.map((it) => [it.unit_id, it.id]))
+    for (const unitId of priorLateFees.keys()) {
+      const newItemId = newItemByUnit.get(unitId)
+      if (!newItemId) continue
+      await markLateFeesAbsorbedByItemInPostgres({
+        unitId,
+        excludePeriodId: period.id,
+        newItemId,
+        actorProfileId: profile.id,
+      })
+    }
+  }
 
   if (itemIds.length > 0) {
     await bulkRevokeShareTokensInPostgres(itemIds)

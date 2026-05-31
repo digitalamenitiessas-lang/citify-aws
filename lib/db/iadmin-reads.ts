@@ -621,6 +621,7 @@ export async function sumOpenLateFeesByUnitPriorPeriodsFromPostgres(input: {
         and ($2::uuid is null or r.accounting_period_id <> $2::uuid)
         and le.entry_type = 'recargo_mora'
         and le.status in ('open', 'partially_paid')
+        and le.superseded_by_item_id is null
       group by li.unit_id
       having coalesce(sum(le.balance_open), 0) > 0
     `,
@@ -647,6 +648,7 @@ export async function sumOpenLateFeesByUnitForRunFromPostgres(
       where le.liquidation_run_id = $1
         and le.entry_type = 'recargo_mora'
         and le.status in ('open', 'partially_paid')
+        and le.superseded_by_item_id is null
       group by li.unit_id
       having coalesce(sum(le.balance_open), 0) > 0
     `,

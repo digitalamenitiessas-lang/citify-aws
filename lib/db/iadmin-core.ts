@@ -1407,8 +1407,13 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
       ),
       late_fee_overdue as (
         -- Recargos por mora abiertos en el ledger, agrupados por propiedad y
-        -- excluyendo los recargos linkeados a items del mes en curso (que se
-        -- consideran "del mes" no "morosidad acumulada").
+        -- excluyendo:
+        --   * los recargos linkeados a items del mes en curso (se consideran
+        --     "del mes", no "morosidad acumulada"),
+        --   * los recargos absorbidos en un item posterior
+        --     (superseded_by_item_id != null), porque su deuda vive ahora
+        --     en el previous_balance de ese item y se cuenta en el CTE
+        --     historical_item_overdue — contarlos acá generaría double-counting.
         select
           le.managed_property_id as property_id,
           coalesce(sum(le.balance_open), 0) as overdue_amount
@@ -1417,6 +1422,7 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
         where le.managed_property_id in (select id from props)
           and le.entry_type = 'recargo_mora'
           and le.status in ('open', 'partially_paid')
+          and le.superseded_by_item_id is null
           and (
             ap.id is null
             or not (ap.period_year = $2 and ap.period_month = $3)

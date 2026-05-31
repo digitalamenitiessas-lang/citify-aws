@@ -56,50 +56,58 @@ debajo qué falta.
 - [x] **B.4** `IAdminMesaUnitLine.lateFee` agregado y populado. La tabla de
   cobranzas-por-unidad muestra `+X mora` bajo el total. El neighbor-drawer
   ya lo mostraba.
-- [x] **B.3 (parcial — ver caveat)** Recargos abiertos de períodos
-  anteriores se suman al `previous_balance` del nuevo período en
-  `emitAndNotify` y en el preview de Mesa sin run. Nuevo helper
-  `sumOpenLateFeesByUnitPriorPeriodsFromPostgres`.
-- [ ] **B.5** Cron diario que materialice recargos para todos los admins.
+- [x] **B.3** Recargos abiertos de períodos anteriores se suman al
+  `previous_balance` del nuevo período en `emitAndNotify` y en el preview
+  de Mesa sin run. Nuevo helper
+  `sumOpenLateFeesByUnitPriorPeriodsFromPostgres`. **Caveat de
+  double-counting resuelto en B.3.1** (ver abajo).
+- [x] **B.3.1** Migración `superseded_by_item_id` + helper
+  `markLateFeesAbsorbedByItemInPostgres` + restauración en
+  `deleteLiquidationItemsForRunInPostgres`. Cierra el agujero de
+  double-count en el overview SQL y en el ledger.
+- [x] **B.5** Cron endpoint `/api/cron/materialize-late-fees` (mismo
+  patrón que `/api/cron/generate-reminders`, auth por `X-Cron-Secret`).
+  Falta agendar la invocación externa (EventBridge / Vercel Cron /
+  similar) — decisión de infra del usuario.
 
-#### Caveat conocido de B.3 — DOUBLE-COUNT en overview SQL
+#### Resolución del caveat B.3 (implementada en B.3.1)
 
-Al absorber los recargos viejos en `previous_balance` del período nuevo, las
-entries `recargo_mora` originales quedan `open` en el ledger atadas a su run
-original. Como no las voideamos ni les pisamos status, **se cuentan dos veces
-en `getIAdminPortfolioOverview`**:
+Se implementó la **Opción A**: nueva columna
+`superseded_by_item_id uuid references iadmin_liquidation_items(id) on
+delete set null` en `iadmin_unit_ledger_entries`
+(migración `20260530_iadmin_ledger_superseded_by_item.sql`).
 
-1. Dentro de `late_fee_overdue` (CTE B.2) las cuenta como recargo open.
-2. Dentro de `historical_item_overdue` las cuenta de nuevo, ahora embebidas
-   en el `previous_balance` del item del período siguiente.
+Flujo completo (sin double-count):
 
-Por qué no las voideamos: el materializer (`materializeLateFeesForUnit...`)
-calcula `delta = targetAmount - existingAssessed` y sólo considera entries
-con `status <> 'void'`. Si voideáramos, en la próxima corrida del
-materializer (que se dispara al abrir Mesa, Inicio, Cobranzas, etc.) las
-re-generaría → loop infinito de recargos.
+1. **Al emitir período N+1**, `emitAndNotify` materializa recargos,
+   computa `previousBalanceByUnit` sumando capital impago + recargos
+   abiertos de períodos anteriores, inserta los items nuevos y llama
+   `markLateFeesAbsorbedByItemInPostgres` por cada unidad con recargos
+   absorbidos. El helper:
+   - `balance_open = 0`
+   - `status = 'paid'` (saca al entry del FIFO de pagos sin que el
+     materializer lo re-genere — `existing_surcharge` cuenta status
+     `<> 'void'`, así sigue tomando el `amount` como assessed)
+   - `superseded_by_item_id = newItemId`
+   - guarda `metadata.pre_absorbed_balance_open` para auditoría.
+2. **Las queries de morosidad/arrastre** filtran
+   `superseded_by_item_id is null` para no contar los absorbidos
+   (overview SQL `late_fee_overdue`,
+   `sumOpenLateFeesByUnitForRunFromPostgres`,
+   `sumOpenLateFeesByUnitPriorPeriodsFromPostgres`).
+3. **Al re-emitir período N+1**, `deleteLiquidationItemsForRunInPostgres`
+   restaura `balance_open = amount` y `status = 'open'` de los recargos
+   absorbidos por items de ese run ANTES de borrar los items. Luego el
+   `on delete set null` del FK los deja con
+   `superseded_by_item_id = null`. El emit calcula de nuevo
+   `previousBalanceByUnit` (que ahora ve los recargos liberados) y vuelve
+   a absorberlos con los `newItemId` nuevos. ✅
 
-Opciones para resolver en próxima iteración:
-- **Opción A (preferida):** Migración `alter table iadmin_unit_ledger_entries
-  add column superseded_by_item_id uuid null`. Al absorber, setearlo. El
-  materializer ignora entries con `superseded_by_item_id is not null`. El
-  CTE `late_fee_overdue` filtra `superseded_by_item_id is null`.
-- **Opción B:** Cambiar status a 'paid' con `metadata.absorbed_into_run_id`.
-  El materializer ya cuenta entries non-void en `existing_surcharge` así que
-  no las regenera. El overview SQL filtra por `status in ('open',
-  'partially_paid')` — los absorbidos en status='paid' no cuentan. Riesgo:
-  cuando se re-emita el período viejo, `voidLedgerEntriesForRunInPostgres`
-  pasa los absorbidos a 'void' y luego el materializer los re-crea.
-  Necesita un guard en el re-emit que detecte y preserve los absorbidos.
-- **Opción C (workaround sin migración):** En el SQL del overview, en el CTE
-  `late_fee_overdue` filtrar recargos cuyos `liquidation_item_id` ya estén
-  "supersedidos" por un `previous_balance > 0` en un item posterior del
-  mismo unit. Heurística frágil.
-
-**Mientras tanto**, mitigación parcial: la lógica FIFO de aplicación de
-pagos resuelve el saldo real correctamente, pero el dashboard de Inicio
-puede mostrar morosidad inflada hasta resolver esto. Avisar al usuario si
-nota el síntoma.
+Asunción: los recargos absorbidos no reciben pagos parciales mientras
+están en status='paid' (FIFO los salta). Si en el futuro se permitiera
+modificar manualmente entries en status='paid', la restauración perdería
+ese pago — guardar `pre_absorbed_balance_open` en metadata permite
+reconstruir.
 
 ---
 
@@ -118,12 +126,27 @@ descubiertos, comandos útiles, etc.
   mes actual o futuro. El guard está en `handleRequestPredictions`. Si en
   el futuro se quiere mostrar el botón disabled en vez de toastear, pasar
   `canPredict` como prop al `MesaAssistant`.
-- B.3 deja un agujero en `getIAdminPortfolioOverview` (double-count en
-  morosidad). Ver caveat más arriba para resolver en próxima sesión.
-- Para validar B.2 + B.3 en datos reales: emitir período N con vencimiento
-  vencido, verificar que aparezca recargo en Cobranzas, luego emitir N+1
-  y chequear que el recibo del vecino arrastra el recargo en
-  `previous_balance`.
+- B.3 + B.3.1 cierran el ciclo de absorción de recargos al re-emitir.
+  Para validar end-to-end:
+  1. Emitir período N con vencimiento ya pasado → debe accruir recargo
+     en Cobranzas.
+  2. Emitir N+1 → el recibo del vecino debe arrastrar el recargo en
+     `previous_balance`. En el ledger el recargo viejo queda `paid` con
+     `superseded_by_item_id` apuntando al item nuevo.
+  3. El card "Morosidad acumulada" en Inicio debe coincidir con la suma
+     de saldos pendientes; sin double-count.
+  4. Re-emitir N+1 → los recargos vuelven a `open` antes del delete, se
+     recalcula `previous_balance` (idéntico) y vuelven a marcarse como
+     absorbidos. Idempotente.
+- **Pendiente operativo de B.5:** agendar el POST a
+  `/api/cron/materialize-late-fees` con header `X-Cron-Secret` (frecuencia
+  recomendada: diaria al amanecer). El endpoint ya está listo y replica
+  el patrón de `/api/cron/generate-reminders`.
+- **Pendiente de testing manual:** correr la migración
+  `20260530_iadmin_ledger_superseded_by_item.sql` en el RDS antes de
+  desplegar. El código de absorción tolera la columna no existente
+  durante el rollout? No — falla al setear `superseded_by_item_id`. La
+  migración debe aplicarse ANTES del deploy.
 
 ---
 
@@ -159,7 +182,27 @@ verificar rápidamente qué cambió.
 
 **Bloque B.3:**
 - `lib/db/iadmin-reads.ts` — helper
-  `sumOpenLateFeesByUnitPriorPeriodsFromPostgres` (con docstring del caveat).
+  `sumOpenLateFeesByUnitPriorPeriodsFromPostgres` (filtra
+  `superseded_by_item_id is null`).
 - `app/iadmin/consorcios/[id]/planilla/actions.ts` — `emitAndNotify`
-  materializa antes y suma recargos previos al `previousBalanceByUnit`.
-- `lib/data.ts` — mismo arrastre en el branch sin run del `getIAdminMesaState`.
+  materializa antes, suma recargos previos al `previousBalanceByUnit` y
+  llama `markLateFeesAbsorbedByItemInPostgres` por cada unidad después de
+  insertar items.
+- `lib/data.ts` — mismo arrastre en el branch sin run del
+  `getIAdminMesaState`.
+
+**Bloque B.3.1 (cierre del caveat):**
+- `db/migrations/20260530_iadmin_ledger_superseded_by_item.sql` — nueva
+  columna `superseded_by_item_id uuid` con FK `on delete set null` + index
+  parcial.
+- `lib/db/iadmin-writes.ts` — helper
+  `markLateFeesAbsorbedByItemInPostgres` y restauración dentro de
+  `deleteLiquidationItemsForRunInPostgres`.
+- `lib/db/iadmin-core.ts` — CTE `late_fee_overdue` filtra
+  `superseded_by_item_id is null`.
+- `lib/db/iadmin-reads.ts` — `sumOpenLateFeesByUnitForRunFromPostgres`
+  filtra `superseded_by_item_id is null`.
+
+**Bloque B.5:**
+- `app/api/cron/materialize-late-fees/route.ts` — endpoint POST con
+  auth `X-Cron-Secret`. Hay que agendar la invocación externa.

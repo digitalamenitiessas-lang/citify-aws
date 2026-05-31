@@ -2212,6 +2212,30 @@ export async function upsertLiquidationRunInPostgres(input: {
 }
 
 export async function deleteLiquidationItemsForRunInPostgres(runId: string): Promise<void> {
+  // ANTES de borrar los items, restauramos los recargos por mora que estaban
+  // absorbidos por items de este run. Al borrarse el item el FK
+  // `superseded_by_item_id` se setea a null por `on delete set null`, pero
+  // sin esta restauración los recargos quedarían con balance_open=0 y
+  // status='paid' (cómo los dejó markLateFeesAbsorbedByItemInPostgres) y
+  // perderíamos la deuda. Asumimos que mientras estaban absorbidos no
+  // recibieron pagos parciales (el FIFO los salta porque status='paid').
+  await pgQuery(
+    `
+      update public.iadmin_unit_ledger_entries le
+      set
+        balance_open = le.amount,
+        status = 'open'::iadmin_ledger_entry_status,
+        metadata = coalesce(le.metadata, '{}'::jsonb) || jsonb_build_object(
+          'released_at', now()::text,
+          'released_from_run', $1::text
+        )
+      from public.iadmin_liquidation_items li
+      where li.liquidation_run_id = $1
+        and le.superseded_by_item_id = li.id
+        and le.entry_type = 'recargo_mora'
+    `,
+    [runId],
+  )
   await pgQuery(`delete from public.iadmin_liquidation_items where liquidation_run_id = $1`, [runId])
 }
 
@@ -2978,6 +3002,56 @@ async function voidLedgerEntriesInPostgres(input: {
   )
 }
 
+/**
+ * Marca como "absorbidos" los recargos por mora abiertos de períodos
+ * anteriores que pasaron a formar parte del `previous_balance` del nuevo
+ * item de la unidad indicada:
+ *   - balance_open → 0 (el saldo ahora vive en el `saldo_anterior_migrado`
+ *     del item nuevo; dejar balance_open > 0 sería double-debt y FIFO de
+ *     pagos lo aplicaría al lugar equivocado),
+ *   - status → 'paid' (saca al entry del flujo FIFO de aplicación de pagos
+ *     sin perder el `amount` original; el materializer sigue contándolo
+ *     como assessed para no regenerarlo),
+ *   - superseded_by_item_id → newItemId (trazabilidad + filtro en queries
+ *     de morosidad para no double-count).
+ *
+ * Si el item absorbente se borra después (re-emit), el helper
+ * `deleteLiquidationItemsForRunInPostgres` restaura `balance_open` y
+ * `status='open'` para que la deuda vuelva a estar viva.
+ *
+ * Idempotente: si ya están supersedidos, no los toca.
+ */
+export async function markLateFeesAbsorbedByItemInPostgres(input: {
+  unitId: string
+  excludePeriodId: string | null
+  newItemId: string
+  actorProfileId: string | null
+}): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_unit_ledger_entries le
+      set
+        balance_open = 0,
+        status = 'paid'::iadmin_ledger_entry_status,
+        superseded_by_item_id = $3::uuid,
+        metadata = coalesce(le.metadata, '{}'::jsonb) || jsonb_build_object(
+          'absorbed_at', now()::text,
+          'absorbed_by_item_id', $3::text,
+          'absorbed_by_actor', coalesce($4::text, ''),
+          'pre_absorbed_balance_open', le.balance_open::text
+        )
+      from public.iadmin_liquidation_runs r
+      where le.liquidation_run_id = r.id
+        and le.unit_id = $1::uuid
+        and le.entry_type = 'recargo_mora'
+        and le.status in ('open', 'partially_paid')
+        and le.superseded_by_item_id is null
+        and ($2::uuid is null or r.accounting_period_id <> $2::uuid)
+    `,
+    [input.unitId, input.excludePeriodId, input.newItemId, input.actorProfileId],
+  )
+}
+
 export async function materializeLateFeesForUnitInPostgres(input: {
   administrationId: string
   unitId: string
@@ -3015,6 +3089,10 @@ export async function materializeLateFeesForUnitInPostgres(input: {
         group by li.unit_id, le.managed_property_id, le.accounting_period_id, le.liquidation_run_id, le.liquidation_item_id
       ),
       existing_surcharge as (
+        -- IMPORTANTE: incluimos los entries con superseded_by_item_id NOT NULL
+        -- (recargos absorbidos en items posteriores). El amount original
+        -- sigue contando para que el materializer vea el target ya aplicado
+        -- y no regenere un recargo nuevo.
         select
           liquidation_item_id,
           coalesce(sum(amount), 0) as total_amount,
