@@ -3419,7 +3419,12 @@ export async function getIAdminMonthlyGrid(
         amount,
         expenseId: single?.id ?? null,
         hasDocument: list.some((e) => e.hasDocument),
-        isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+        isEditable:
+          list.length <= 1 &&
+          m.periodStatus !== 'closed' &&
+          m.periodStatus !== 'locked' &&
+          m.runStatus !== 'issued' &&
+          m.runStatus !== 'closed',
         createdByName: single?.createdByName ?? null,
         createdAt: single?.createdAt ?? null,
         updatedAt: single?.updatedAt ?? null,
@@ -3548,7 +3553,12 @@ function buildRow(
       amount: list.length > 0 ? Math.round(total * 100) / 100 : null,
       expenseId: single?.id ?? null,
       hasDocument: list.some((e) => e.hasDocument),
-      isEditable: list.length <= 1 && m.periodStatus !== 'closed',
+      isEditable:
+        list.length <= 1 &&
+        m.periodStatus !== 'closed' &&
+        m.periodStatus !== 'locked' &&
+        m.runStatus !== 'issued' &&
+        m.runStatus !== 'closed',
       createdByName: single?.createdByName ?? null,
       createdAt: single?.createdAt ?? null,
       updatedAt: single?.updatedAt ?? null,

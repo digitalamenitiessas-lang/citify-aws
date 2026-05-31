@@ -2,11 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Check, ChevronRight, Info, Loader2, Lock, Plus, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, FileSpreadsheet, Info, Loader2, Lock, RefreshCw, Send, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import type {
   IAdminCashAccountWithBalance,
   IAdminMesaState,
@@ -14,7 +12,6 @@ import type {
   IAdminMonthlyGridRow,
 } from '@/lib/types'
 import {
-  addRecurringRubro,
   emitAndNotify,
   quickPayFromMesa,
   type EmitAndNotifyResult,
@@ -22,7 +19,6 @@ import {
 } from '@/app/iadmin/consorcios/[id]/planilla/actions'
 import {
   acceptPredictionsAndEmit,
-  generateMonthPredictions,
   type MonthPrediction,
 } from '@/app/iadmin/consorcios/[id]/planilla/predict-actions'
 import {
@@ -38,13 +34,9 @@ import {
 import { PublishDialog } from '@/components/admin-backoffice/consorcio/publish-dialog'
 import { MesaDistribution } from '@/components/admin-backoffice/consorcio/mesa-distribution'
 import { MesaPayments } from '@/components/admin-backoffice/consorcio/mesa-payments'
-import { MesaAssistant, type MesaAssistantTab } from '@/components/admin-backoffice/consorcio/mesa-assistant'
 import { MesaHeader } from '@/components/admin-backoffice/consorcio/mesa-header'
 import { MesaPreviousRecap } from '@/components/admin-backoffice/consorcio/mesa-previous-recap'
 import { CellHistoryPopover } from '@/components/admin-backoffice/consorcio/cell-history-popover'
-import { MesaCommandPalette } from '@/components/admin-backoffice/consorcio/mesa-command-palette'
-import { MesaHelpOverlay } from '@/components/admin-backoffice/consorcio/mesa-help-overlay'
-import { MesaDropZone } from '@/components/admin-backoffice/consorcio/mesa-drop-zone'
 import {
   MesaBatchBar,
   applyDeltaToAmount,
@@ -57,7 +49,6 @@ import { SavedIndicator } from '@/components/admin-backoffice/shared/saved-indic
 import { HistoryIndicator } from '@/components/admin-backoffice/shared/history-indicator'
 import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
-import { FileSpreadsheet, SearchX } from 'lucide-react'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -130,21 +121,17 @@ export function MonthlyPlanilla({
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const [_, startTransition] = useTransition()
 
-  const [showRubroForm, setShowRubroForm] = useState(false)
-  const [newRubroName, setNewRubroName] = useState('')
   const [reissueDialogOpen, setReissueDialogOpen] = useState(false)
 
   const [publishResult, setPublishResult] = useState<EmitAndNotifyResult | null>(null)
   const [publishing, setPublishing] = useState(false)
 
-  const [assistantOpen, setAssistantOpen] = useState(false)
-  const [assistantTab, setAssistantTab] = useState<MesaAssistantTab>('menu')
-  const [assistantDraggedFile, setAssistantDraggedFile] = useState<File | null>(null)
+  // Predictions: la generación se disparaba desde el Asistente, que fue
+  // removido. El estado se mantiene porque varios handlers (acceptPrediction,
+  // dismissPrediction, handleAcceptAllAndEmit) lo leen/escriben. Sin
+  // Asistente, `predictions` siempre va a estar vacío y `hasPredictions`
+  // siempre será false.
   const [predictions, setPredictions] = useState<Map<string, MonthPrediction>>(new Map())
-
-  // Command palette + help overlay
-  const [commandOpen, setCommandOpen] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(false)
 
   // Rango visible persistido (3 / 6 / 12)
   const [visibleRange, setVisibleRange] = useLocalPref<VisibleRange>('mesa.visibleRange', 3)
@@ -184,12 +171,12 @@ export function MonthlyPlanilla({
     setSelectionAnchor(null)
   }
 
-  // Búsqueda + agrupación (groupBy + rango persistidos)
-  const [search, setSearch] = useState('')
+  // Agrupación persistida (la búsqueda inline se removió junto con el
+  // header de la planilla; `search` queda como literal vacío para que los
+  // checks `search.trim()` repartidos en el render siempre den false).
   const [groupBy, setGroupBy] = useLocalPref<'none' | 'category'>('mesa.groupBy', 'none')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const search = ''
 
   const visibleMonths = useMemo(() => {
     const take = Math.min(visibleRange, grid.months.length)
@@ -285,24 +272,6 @@ export function MonthlyPlanilla({
     })
   }
 
-  async function handleAddRubro(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const name = newRubroName.trim()
-    if (!name) {
-      toast.error('Nombre obligatorio')
-      return
-    }
-    try {
-      await addRecurringRubro({ administrationId: grid.administrationId, name })
-      toast.success('Rubro agregado')
-      setNewRubroName('')
-      setShowRubroForm(false)
-      router.refresh()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error')
-    }
-  }
-
   async function handleEmit(opts?: { acknowledgeReissueImpact?: boolean }) {
     setPublishing(true)
     try {
@@ -319,33 +288,6 @@ export function MonthlyPlanilla({
       toast.error(error instanceof Error ? error.message : 'Error al emitir')
     } finally {
       setPublishing(false)
-    }
-  }
-
-  async function handleRequestPredictions() {
-    // Predictions sólo tienen sentido para el mes en curso o el siguiente
-    // (predicen contra histórico previo). Para meses pasados, los datos ya
-    // existen — no hay nada que predecir.
-    if (!currentMonth.isCurrent && !grid.isFuturePeriod) {
-      toast.info('La sugerencia con IA sólo aplica al mes en curso o siguiente.')
-      return
-    }
-    try {
-      const result = await generateMonthPredictions({
-        propertyId: grid.propertyId,
-        year: currentMonth.year,
-        month: currentMonth.month,
-      })
-      const map = new Map<string, MonthPrediction>()
-      for (const p of result.predictions) map.set(p.providerId, p)
-      setPredictions(map)
-      if (result.predictions.length === 0) {
-        toast.info('No hay historial suficiente para sugerir montos')
-      } else {
-        toast.success(`IA sugirió ${result.predictions.length} montos. Revisá cada uno.`)
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error de IA')
     }
   }
 
@@ -423,60 +365,10 @@ export function MonthlyPlanilla({
   const hasPredictions = predictions.size > 0
 
   // --------------------------------------------------------------------------
-  // Acciones rápidas (para command palette + hotkeys)
-  // --------------------------------------------------------------------------
-  const openAssistantTab = useCallback((tab: MesaAssistantTab) => {
-    setAssistantOpen(true)
-    setAssistantTab(tab)
-  }, [])
-
-  const focusSearch = useCallback(() => {
-    searchInputRef.current?.focus()
-    searchInputRef.current?.select()
-  }, [])
-
-  const handleAddRubroTrigger = useCallback(() => {
-    if (!canManageRubros) return
-    setShowRubroForm(true)
-    // Delay para esperar el render del form
-    setTimeout(() => {
-      const el = document.querySelector<HTMLInputElement>('[data-rubro-name-input]')
-      el?.focus()
-    }, 50)
-  }, [canManageRubros])
-
-  const handleToggleChart = useCallback(() => {
-    // MesaHeader expone el toggle internamente; emitimos un evento que el header escucha
-    window.dispatchEvent(new CustomEvent('mesa:toggle-chart'))
-  }, [])
-
-  const handleJumpToProvider = useCallback((providerId: string) => {
-    // Scroll + flash visual sobre la row del rubro
-    const row = document.querySelector<HTMLTableRowElement>(`[data-provider-id="${providerId}"]`)
-    if (!row) return
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    row.classList.add('mesa-fade-in')
-    setTimeout(() => row.classList.remove('mesa-fade-in'), 600)
-  }, [])
-
-  const handleOpenUnit = useCallback((unitId: string) => {
-    // Emitimos un evento que MesaPayments puede escuchar para abrir el drawer
-    window.dispatchEvent(new CustomEvent('mesa:open-unit', { detail: { unitId } }))
-  }, [])
-
-  const handleDropFile = useCallback((file: File) => {
-    setAssistantDraggedFile(file)
-    openAssistantTab('extract')
-  }, [openAssistantTab])
-
-  // --------------------------------------------------------------------------
-  // Hotkeys globales
+  // Hotkeys mínimos (solo undo/redo/copy). El resto fue removido junto con
+  // las features de búsqueda, asistente, agregar rubro y atajos visibles.
   // --------------------------------------------------------------------------
   useHotkeys({
-    'mod+k': (e) => {
-      e.preventDefault()
-      setCommandOpen(true)
-    },
     'mod+z': (e) => {
       e.preventDefault()
       void undo()
@@ -496,49 +388,12 @@ export function MonthlyPlanilla({
       e.preventDefault()
       void copySelection()
     },
-    '?': (e) => {
-      e.preventDefault()
-      setHelpOpen(true)
-    },
-    '/': (e) => {
-      e.preventDefault()
-      focusSearch()
-    },
-    a: (e) => {
-      e.preventDefault()
-      setAssistantOpen((v) => !v)
-      if (!assistantOpen) setAssistantTab('menu')
-    },
-    n: (e) => {
-      if (!canManageRubros) return
-      e.preventDefault()
-      handleAddRubroTrigger()
-    },
-    e: (e) => {
-      if (!canEmit || (!grid.readyToEmit && !hasPredictions)) return
-      e.preventDefault()
-      // Scroll al botón emitir para feedback visual
-      document.querySelector('[data-emit-button]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      ;(document.querySelector<HTMLButtonElement>('[data-emit-button]'))?.focus()
-    },
     escape: () => {
-      if (commandOpen) setCommandOpen(false)
-      else if (helpOpen) setHelpOpen(false)
-      else if (assistantOpen) setAssistantOpen(false)
-      else if (selection.size > 0) clearSelection()
+      if (selection.size > 0) clearSelection()
     },
   })
 
-  // Filtro por search (por nombre de rubro o categoría)
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return allRows
-    return allRows.filter(
-      (r) =>
-        r.providerName.toLowerCase().includes(q) ||
-        (r.category ?? '').toLowerCase().includes(q),
-    )
-  }, [allRows, search])
+  const filteredRows = allRows
 
   // Agrupación: si groupBy = 'category', armamos grupos. Extraordinarias siempre
   // forman su propio grupo al final. Si hay búsqueda activa, no agrupamos.
@@ -942,78 +797,12 @@ export function MonthlyPlanilla({
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCommandOpen(true)}
-              className="hidden md:inline-flex items-center gap-2 rounded-full border border-border/50 bg-background px-3 py-1 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
-              title="Acciones rápidas"
-            >
-              <Search className="w-3 h-3" />
-              Buscar
-              <span className="kbd-hint">⌘K</span>
-            </button>
-            {canManageRubros && !showRubroForm ? (
-              <Button size="sm" variant="outline" onClick={() => setShowRubroForm(true)}>
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Rubro
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant={assistantOpen ? 'default' : 'ghost'}
-              onClick={() => {
-                setAssistantOpen((v) => !v)
-                if (!assistantOpen) setAssistantTab('menu')
-              }}
-              className={assistantOpen ? '' : 'text-muted-foreground'}
-            >
-              <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-              Asistente
-            </Button>
-            <button
-              type="button"
-              onClick={() => setHelpOpen(true)}
-              className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="Atajos de teclado"
-              title="Atajos (?)"
-            >
-              <Info className="w-3.5 h-3.5" />
-            </button>
-          </div>
         </header>
 
         <div className="divider-soft" />
 
         {allRows.length > 3 ? (
           <div className="px-6 py-2.5 flex items-center gap-2 flex-wrap bg-muted/10">
-            <div className="relative flex-1 min-w-[180px] max-w-sm">
-              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Buscar rubro… (/)"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setSearch('')
-                    ;(e.target as HTMLInputElement).blur()
-                  }
-                }}
-                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-full border border-border/50 bg-background focus:outline-none focus:border-primary/40 focus:shadow-[0_0_0_3px_rgba(240, 78, 35,0.08)] transition-shadow"
-              />
-              {search ? (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              ) : null}
-            </div>
-            <div className="flex-1" />
             <div className="seg" role="group" aria-label="Agrupar rubros">
               <button
                 type="button"
@@ -1030,31 +819,7 @@ export function MonthlyPlanilla({
                 Por categoría
               </button>
             </div>
-            {filteredRows.length !== allRows.length ? (
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                {filteredRows.length} / {allRows.length}
-              </span>
-            ) : null}
           </div>
-        ) : null}
-
-        {showRubroForm ? (
-          <form onSubmit={handleAddRubro} className="px-6 py-3 bg-muted/20 flex items-end gap-2 mesa-fade-in">
-            <div className="flex-1 space-y-1">
-              <Label className="text-xs">Nombre del rubro</Label>
-              <Input
-                data-rubro-name-input
-                value={newRubroName}
-                onChange={(e) => setNewRubroName(e.target.value)}
-                placeholder="Ej. Fondo de obra"
-                autoFocus
-              />
-            </div>
-            <Button type="submit" size="sm">Agregar</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => { setShowRubroForm(false); setNewRubroName('') }}>
-              Cancelar
-            </Button>
-          </form>
         ) : null}
 
         {hasPredictions ? (
@@ -1093,31 +858,7 @@ export function MonthlyPlanilla({
                     <EmptyState
                       icon={FileSpreadsheet}
                       title="La planilla está vacía"
-                      description={
-                        canManageRubros
-                          ? 'Agregá tu primer rubro (luz, encargado, mantenimiento…) o arrastrá una factura y la IA la carga sola.'
-                          : 'Todavía no se cargaron rubros. Un administrador con permisos puede agregarlos.'
-                      }
-                      actions={
-                        canManageRubros
-                          ? [
-                              { label: 'Agregar rubro', onClick: () => setShowRubroForm(true), shortcut: 'N', kind: 'primary' },
-                              { label: 'Extraer factura', onClick: () => openAssistantTab('extract'), kind: 'secondary' },
-                            ]
-                          : []
-                      }
-                    />
-                  </td>
-                </tr>
-              ) : visibleRows.length === 0 ? (
-                <tr>
-                  <td colSpan={visibleMonths.length + 1} className="px-0 py-0">
-                    <EmptyState
-                      icon={SearchX}
-                      title="Sin resultados"
-                      description={`No hay rubros que coincidan con "${search}". Probá otra palabra o limpiá la búsqueda.`}
-                      actions={[{ label: 'Limpiar búsqueda', onClick: () => setSearch(''), kind: 'secondary' }]}
-                      compact
+                      description="Todavía no se cargaron rubros. Configurá proveedores recurrentes desde Proveedores."
                     />
                   </td>
                 </tr>
@@ -1600,57 +1341,6 @@ export function MonthlyPlanilla({
       {publishResult ? (
         <PublishDialog result={publishResult} onClose={() => setPublishResult(null)} />
       ) : null}
-
-      {assistantOpen ? (
-        <MesaAssistant
-          propertyId={grid.propertyId}
-          administrationId={grid.administrationId}
-          year={currentMonth.year}
-          month={currentMonth.month}
-          hasPredictions={hasPredictions}
-          initialTab={assistantTab}
-          draggedFile={assistantDraggedFile}
-          onDraggedFileConsumed={() => setAssistantDraggedFile(null)}
-          onRequestPredictions={handleRequestPredictions}
-          onClose={() => {
-            setAssistantOpen(false)
-            setAssistantDraggedFile(null)
-          }}
-        />
-      ) : null}
-
-      <MesaCommandPalette
-        open={commandOpen}
-        onOpenChange={setCommandOpen}
-        grid={grid}
-        state={state}
-        canEmit={canEmit}
-        canManageRubros={canManageRubros}
-        canUndo={history.length > 0}
-        canRedo={redoStack.length > 0}
-        undoLabel={history[history.length - 1]?.label}
-        redoLabel={redoStack[redoStack.length - 1]?.label}
-        onUndo={() => void undo()}
-        onRedo={() => void redo()}
-        onOpenAssistant={() => openAssistantTab('menu')}
-        onOpenAssistantExtract={() => openAssistantTab('extract')}
-        onOpenAssistantAnnounce={() => openAssistantTab('announce')}
-        onToggleChart={handleToggleChart}
-        onFocusSearch={focusSearch}
-        onAddRubro={handleAddRubroTrigger}
-        onEmit={() => {
-          document.querySelector('[data-emit-button]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          ;(document.querySelector<HTMLButtonElement>('[data-emit-button]'))?.focus()
-        }}
-        onOpenUnit={handleOpenUnit}
-        onJumpToProvider={handleJumpToProvider}
-        onOpenConfiguracion={() => router.push(`/iadmin/consorcios/${grid.propertyId}/configuracion`)}
-        onOpenHelp={() => setHelpOpen(true)}
-      />
-
-      <MesaHelpOverlay open={helpOpen} onOpenChange={setHelpOpen} />
-
-      <MesaDropZone onFile={handleDropFile} />
 
       {selection.size > 1 ? (
         <MesaBatchBar

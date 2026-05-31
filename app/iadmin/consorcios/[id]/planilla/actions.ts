@@ -100,6 +100,9 @@ export async function upsertMonthlyCell(
   if (periodStatus === 'closed') {
     throw new Error(`El período ${periodLabel} está cerrado. Reabrilo desde Liquidaciones para editar.`)
   }
+  if (periodStatus === 'locked') {
+    throw new Error(`El período ${periodLabel} está bloqueado. Desbloquealo desde Liquidaciones para editar.`)
+  }
 
   // Bloqueo: si ya hay una liquidación issued/closed para este período,
   // no se admiten ediciones (afectaría el cálculo de lo que ya se emitió).
