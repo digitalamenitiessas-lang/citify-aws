@@ -308,7 +308,7 @@ function KpiCard({
             />
           ) : null}
         </p>
-        <p className="stat-value font-serif text-[20px] sm:text-[22px] font-semibold text-foreground leading-tight mt-0.5 whitespace-nowrap tabular-nums tracking-tight overflow-hidden text-ellipsis">
+        <p className="stat-value font-serif text-lg sm:text-[20px] xl:text-[22px] font-semibold text-foreground leading-tight mt-0.5 whitespace-nowrap tabular-nums tracking-tight">
           <AnimatedNumber value={value} format={format} />
         </p>
         <div className={`text-[11px] ${hintColor} mt-1 flex items-center gap-1.5 flex-wrap`}>
@@ -334,7 +334,7 @@ function KpiCard({
           ) : null}
         </div>
       </div>
-      {sparkline ? <div className="shrink-0 pt-1 -mr-1 hidden lg:block">{sparkline}</div> : null}
+      {sparkline ? <div className="shrink-0 pt-1 -mr-1 hidden xl:block">{sparkline}</div> : null}
     </>
   )
 
