@@ -15,6 +15,7 @@ import { pgQuery } from '@/lib/db/postgres'
 import {
   assertProrataNotOver100,
   changeExpenseStatusInPostgres,
+  deleteExpenseFromPostgres,
   deleteExpensesForPeriodFromPostgres,
   ensureAccountingPeriodInPostgres,
   findProviderByNameInPostgres,
@@ -387,6 +388,86 @@ async function updateExpenseImpl(input: UpdateExpenseInput): Promise<void> {
 
   revalidatePath('/iadmin/gastos')
   revalidatePath(`/iadmin/gastos/${parsed.expenseId}`)
+  revalidatePath('/iadmin/cartera')
+  revalidatePath(`/iadmin/consorcios/${ctx.managed_property_id}`)
+}
+
+const deleteExpenseSchema = z.object({
+  expenseId: z.string().uuid(),
+})
+
+export type DeleteExpenseInput = z.input<typeof deleteExpenseSchema>
+
+export type DeleteExpenseResult = { ok: true } | { ok: false; error: string; code?: string }
+
+/**
+ * Borra un gasto ya cargado. Mismo gate que `updateExpense`: sólo se permite
+ * mientras el período siga abierto y NO exista una liquidación emitida/cerrada
+ * para ese mes. Una vez liquidado, el monto ya impactó en las expensas y
+ * borrarlo rompería el cálculo (hay que reabrir la liquidación primero).
+ */
+export async function deleteExpense(input: DeleteExpenseInput): Promise<DeleteExpenseResult> {
+  try {
+    await deleteExpenseImpl(input)
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: string }).code
+      console.error('[deleteExpense] business error:', error.message, code ? `(code=${code})` : '')
+      return { ok: false, error: error.message, code }
+    }
+    console.error('[deleteExpense] unknown error:', error)
+    return { ok: false, error: 'Error inesperado al borrar el gasto' }
+  }
+}
+
+async function deleteExpenseImpl(input: DeleteExpenseInput): Promise<void> {
+  const parsed = deleteExpenseSchema.parse(input)
+
+  const ctx = await getExpenseEditContextFromPostgres(parsed.expenseId)
+  if (!ctx) throw new Error('Gasto no encontrado')
+
+  // Anti-IDOR + permiso de carga de gastos sobre la administración del gasto.
+  const { profile } = await requireIAdmin({
+    capability: 'expenses.create',
+    administrationId: ctx.administration_id,
+  })
+
+  const periodLabel =
+    ctx.period_year && ctx.period_month
+      ? `${String(ctx.period_month).padStart(2, '0')}/${ctx.period_year}`
+      : 'el período'
+
+  if (ctx.period_status === 'closed') {
+    throw new Error(`El periodo ${periodLabel} esta cerrado y no admite borrar gastos.`)
+  }
+  if (ctx.period_status === 'locked') {
+    throw new Error(`El periodo ${periodLabel} esta bloqueado y no admite borrar gastos.`)
+  }
+  if (ctx.blocking_run_status) {
+    const error = new Error(
+      `Periodo ${periodLabel} ya ${ctx.blocking_run_status === 'issued' ? 'liquidado' : 'cerrado'}. ` +
+        `Reabri la liquidacion si necesitas borrar este gasto.`,
+    )
+    ;(error as Error & { code?: string }).code = 'PERIOD_ALREADY_LIQUIDATED'
+    throw error
+  }
+
+  await deleteExpenseFromPostgres(parsed.expenseId)
+
+  await insertIAdminAuditLogInPostgres({
+    administrationId: ctx.administration_id,
+    actorProfileId: profile.id,
+    entityType: 'iadmin_expenses',
+    entityId: parsed.expenseId,
+    action: 'expense.deleted',
+    metadata: {
+      period_year: ctx.period_year,
+      period_month: ctx.period_month,
+    },
+  })
+
+  revalidatePath('/iadmin/gastos')
   revalidatePath('/iadmin/cartera')
   revalidatePath(`/iadmin/consorcios/${ctx.managed_property_id}`)
 }

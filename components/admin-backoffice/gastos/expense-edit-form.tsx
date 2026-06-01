@@ -2,10 +2,19 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, Pencil, X } from 'lucide-react'
+import { Loader2, Lock, Pencil, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { updateExpense } from '@/app/iadmin/gastos/actions'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { deleteExpense, updateExpense } from '@/app/iadmin/gastos/actions'
 import type { IAdminExpenseKind } from '@/lib/types'
 
 type Props = {
@@ -25,6 +34,8 @@ export function ExpenseEditForm({ expenseId, initial, canEdit, blockedReason }: 
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const [description, setDescription] = useState(initial.description)
   const [amount, setAmount] = useState(String(initial.amount))
@@ -51,12 +62,71 @@ export function ExpenseEditForm({ expenseId, initial, canEdit, blockedReason }: 
     setExpenseKind(initial.expenseKind)
   }
 
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const result = await deleteExpense({ expenseId })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Gasto borrado')
+      setConfirmDelete(false)
+      // El gasto ya no existe: volvemos a la bandeja de gastos.
+      router.push('/iadmin/gastos')
+      router.refresh()
+    } catch {
+      toast.error('No se pudo borrar el gasto')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const deleteDialog = (
+    <AlertDialog open={confirmDelete} onOpenChange={(o) => (!deleting ? setConfirmDelete(o) : null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Borrar este gasto?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vas a borrar <strong>{initial.description}</strong>. Esta acción no se puede deshacer.
+            Como el período todavía no fue liquidado, no afecta ninguna expensa emitida.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+          <AlertDialogCancel disabled={deleting} className="w-full sm:w-auto">
+            Cancelar
+          </AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={deleting}
+            onClick={handleDelete}
+            className="w-full sm:w-auto"
+          >
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Borrar gasto'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
   if (!open) {
     return (
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Pencil className="w-3.5 h-3.5 mr-1.5" />
-        Editar gasto
-      </Button>
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Pencil className="w-3.5 h-3.5 mr-1.5" />
+          Editar gasto
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setConfirmDelete(true)}
+          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+          Borrar
+        </Button>
+        {deleteDialog}
+      </div>
     )
   }
 
@@ -170,7 +240,7 @@ export function ExpenseEditForm({ expenseId, initial, canEdit, blockedReason }: 
         </label>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button size="sm" onClick={handleSubmit} disabled={saving}>
           {saving ? 'Guardando…' : 'Guardar cambios'}
         </Button>
@@ -185,7 +255,18 @@ export function ExpenseEditForm({ expenseId, initial, canEdit, blockedReason }: 
         >
           Cancelar
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setConfirmDelete(true)}
+          disabled={saving}
+          className="ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+          Borrar gasto
+        </Button>
       </div>
+      {deleteDialog}
     </div>
   )
 }
