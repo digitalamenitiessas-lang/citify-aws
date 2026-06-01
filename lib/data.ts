@@ -178,6 +178,7 @@ import {
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyOperationalSettingsFromPostgres,
   getRunPaymentStatsFromPostgres,
+  isLiquidationRunSupersededInPostgres,
   listProfileNamesByIdsFromPostgres,
   materializeLateFeesForAdministrationInPostgres,
   sumLivePaymentsByItemIdsFromPostgres,
@@ -2320,6 +2321,14 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
 
   const cashAccounts = await getIAdminCashAccounts(row.managed_property_id)
 
+  // Solo tiene sentido chequear supersesión en runs emitidas/cerradas (las
+  // únicas reabribles). Si ya fue arrastrada a una posterior, la UI oculta la
+  // reapertura.
+  const isSuperseded =
+    row.status === 'issued' || row.status === 'closed'
+      ? await isLiquidationRunSupersededInPostgres(runId)
+      : false
+
   return {
     id: row.id,
     administrationId: row.administration_id,
@@ -2353,6 +2362,7 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     collectedTotal,
     balanceTotal,
     cashAccounts,
+    isSuperseded,
   }
 }
 

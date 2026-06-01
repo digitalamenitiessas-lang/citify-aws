@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import {
   AdminCreateUserCommand,
   AdminGetUserCommand,
@@ -9,6 +10,32 @@ import {
   MessageActionType,
   UsernameExistsException,
 } from '@aws-sdk/client-cognito-identity-provider'
+
+// Genera una contraseña temporal de 14 chars con al menos 1 de cada clase
+// (mayúscula, minúscula, dígito, símbolo). Cognito valida su policy en
+// AdminSetUserPassword, así que dejamos holgura sobre el mínimo habitual.
+// Usa crypto.randomInt (CSPRNG) y luego baraja para no fijar las posiciones.
+export function generateTempPassword(length = 14): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lower = 'abcdefghijkmnpqrstuvwxyz'
+  const digits = '23456789'
+  const symbols = '!@#$%*?-_'
+  const all = upper + lower + digits + symbols
+
+  const pick = (set: string) => set[randomInt(set.length)]
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)]
+  while (chars.length < length) {
+    chars.push(pick(all))
+  }
+
+  // Fisher-Yates con randomInt para no dejar las 4 clases fijas al inicio.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+
+  return chars.join('')
+}
 
 type CognitoEnv = {
   region: string

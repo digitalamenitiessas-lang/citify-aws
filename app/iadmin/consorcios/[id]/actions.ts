@@ -4,9 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireIAdmin } from '@/lib/auth'
 import type { UnitProfileRelationship, UserRole } from '@/lib/types'
-import { adminCreateCognitoUser } from '@/lib/aws/cognito'
-import { findProfileById, findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
+import { findProfileById } from '@/lib/db/profiles'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
+import { ensureUnitUserWithCredentials } from '@/lib/iadmin/unit-users'
+import { sendWelcomeEmail } from '@/lib/email/notifications/welcome'
 import { getRunIdAndStatusForPeriodFromPostgres } from '@/lib/db/iadmin-reads'
 import {
   changeAccountingPeriodStatusInPostgres,
@@ -435,56 +436,6 @@ const createUnitUserSchema = z.object({
   isPrimaryOwner: z.boolean().optional().default(false),
 })
 
-function roleForRelationship(_relationshipType: UnitProfileRelationship): UserRole {
-  return 'vecino'
-}
-
-function avatarFromName(fullName: string) {
-  return (
-    fullName
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'U'
-  )
-}
-
-async function ensureProfileForUnit(input: {
-  fullName: string
-  email: string
-  phone: string | null
-  password: string
-  role: UserRole
-  buildingId: string
-}): Promise<string> {
-  const normalizedEmail = input.email.toLowerCase()
-  const existing = await findProfileByEmail(normalizedEmail)
-
-  let profileId = existing?.id
-  if (!profileId) {
-    const { sub } = await adminCreateCognitoUser({
-      email: normalizedEmail,
-      password: input.password,
-      fullName: input.fullName,
-    })
-    profileId = sub
-  }
-
-  await upsertProfile({
-    id: profileId,
-    email: normalizedEmail,
-    fullName: input.fullName,
-    avatarText: avatarFromName(input.fullName),
-    role: input.role,
-    phone: input.phone,
-    buildingId: input.buildingId,
-    businessId: null,
-  })
-
-  return profileId
-}
-
 export async function createUnitUser(input: z.input<typeof createUnitUserSchema>) {
   const parsed = createUnitUserSchema.parse(input)
 
@@ -496,51 +447,31 @@ export async function createUnitUser(input: z.input<typeof createUnitUserSchema>
     administrationId: scope.administrationId,
   })
 
-  const role = roleForRelationship(parsed.relationshipType)
-  const targetProfileId = await ensureProfileForUnit({
+  const result = await ensureUnitUserWithCredentials({
+    scope: {
+      unitId: scope.unitId,
+      unitCode: scope.unitCode,
+      buildingId: scope.buildingId,
+      administrationId: scope.administrationId,
+    },
     fullName: parsed.fullName,
     email: parsed.email,
     phone: parsed.phone ?? null,
-    password: parsed.password,
-    role,
-    buildingId: scope.buildingId,
-  })
-
-  if (parsed.relationshipType === 'vecino_principal') {
-    await deactivateActivePrincipalMembershipsInPostgres(scope.unitId)
-  }
-
-  const existingMembership = await findUnitProfileMembershipFromPostgres({
-    unitId: scope.unitId,
-    profileId: targetProfileId,
     relationshipType: parsed.relationshipType,
-  })
-
-  await upsertUnitProfileMembershipInPostgres({
-    membershipId: existingMembership?.id ?? null,
-    unitId: scope.unitId,
-    buildingId: scope.buildingId,
-    profileId: targetProfileId,
-    relationshipType: parsed.relationshipType,
-    isPrimary: false,
-    createdByProfileId: profile.id,
-  })
-
-  await insertIAdminAuditLogInPostgres({
-    administrationId: scope.administrationId,
     actorProfileId: profile.id,
-    entityType: 'unit_profile_memberships',
-    entityId: scope.unitId,
-    action: 'unit_user.created',
-    metadata: {
-      unit_code: scope.unitCode,
-      profile_id: targetProfileId,
-      relationship_type: parsed.relationshipType,
-    },
+    password: parsed.password,
+    via: 'individual',
+  })
+
+  // Mail de bienvenida con credenciales (best-effort; sólo si se creó el perfil).
+  void sendWelcomeEmail({
+    profileId: result.profileId,
+    reason: 'neighbor_added',
+    temporaryPassword: result.temporaryPassword ?? undefined,
   })
 
   revalidatePath(`/iadmin/consorcios/${scope.managedPropertyId}`)
-  return { profileId: targetProfileId }
+  return { profileId: result.profileId }
 }
 
 const linkExistingProfileSchema = z.object({

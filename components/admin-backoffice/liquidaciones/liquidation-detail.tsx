@@ -148,6 +148,7 @@ export function LiquidationDetail({ run, userCapabilities }: Props) {
           periodId={run.accountingPeriodId}
           currentStatus={run.status}
           userCapabilities={userCapabilities}
+          isSuperseded={run.isSuperseded}
         />
       </section>
 

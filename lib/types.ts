@@ -1438,4 +1438,7 @@ export interface IAdminLiquidationRunDetail {
   collectedTotal: number
   balanceTotal: number
   cashAccounts: IAdminCashAccountWithBalance[]
+  // true si esta liquidación ya fue superada por una posterior (sus saldos se
+  // arrastraron). No es reabrible hasta reabrir la más reciente (orden LIFO).
+  isSuperseded: boolean
 }

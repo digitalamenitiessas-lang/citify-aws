@@ -18,6 +18,9 @@ type Props = {
   periodId: string
   currentStatus: IAdminLiquidationStatus
   userCapabilities: IAdminCapability[]
+  // true si esta liquidación ya fue arrastrada a una posterior: no se puede
+  // reabrir hasta reabrir la más reciente (orden LIFO). Ocultamos esa acción.
+  isSuperseded?: boolean
 }
 
 type ReopenImpact = {
@@ -31,6 +34,7 @@ export function LiquidationStatusActions({
   periodId,
   currentStatus,
   userCapabilities,
+  isSuperseded = false,
 }: Props) {
   const [pending, startTransition] = useTransition()
   const [confirming, setConfirming] = useState<IAdminLiquidationStatus | null>(null)
@@ -38,7 +42,13 @@ export function LiquidationStatusActions({
   const [loadingImpact, setLoadingImpact] = useState(false)
 
   const caps = new Set(userCapabilities)
-  const available = LIQUIDATION_TRANSITIONS[currentStatus].filter((t) => caps.has(t.requires))
+  const isReopen = (to: IAdminLiquidationStatus) =>
+    (to === 'calculated' || to === 'draft') &&
+    (currentStatus === 'issued' || currentStatus === 'closed')
+  const available = LIQUIDATION_TRANSITIONS[currentStatus]
+    .filter((t) => caps.has(t.requires))
+    // Si ya fue superada por una liquidación posterior, no ofrecemos reabrir.
+    .filter((t) => !(isSuperseded && isReopen(t.to)))
   const canRecalculate =
     (currentStatus === 'draft' || currentStatus === 'calculated') && caps.has('liquidations.create')
 
@@ -91,6 +101,17 @@ export function LiquidationStatusActions({
   }
 
   if (available.length === 0 && !canRecalculate) {
+    if (isSuperseded) {
+      return (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            Esta liquidación ya fue arrastrada a una posterior, por eso no se puede reabrir. Para
+            corregirla, reabrí primero la liquidación más reciente.
+          </span>
+        </div>
+      )
+    }
     return (
       <div className="text-xs text-muted-foreground">
         Esta corrida está cerrada. No hay acciones disponibles.
@@ -100,6 +121,12 @@ export function LiquidationStatusActions({
 
   return (
     <div className="space-y-3">
+      {isSuperseded ? (
+        <p className="text-xs text-muted-foreground">
+          La reapertura no está disponible: esta liquidación ya fue arrastrada a una posterior.
+          Reabrí primero la más reciente.
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {canRecalculate ? (
           <Button size="sm" variant="outline" disabled={pending} onClick={handleRecalculate}>

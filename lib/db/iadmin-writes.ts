@@ -3132,10 +3132,21 @@ async function voidLedgerEntriesInPostgres(input: {
   reason: string
 }): Promise<void> {
   if (input.entryIds.length === 0) return
+  // Antes de anular guardamos un snapshot del balance_open y status vigentes en
+  // metadata.pre_void. Esto permite restaurar fielmente la deuda si la anulación
+  // se revierte (p.ej. al reabrir una liquidación que había migrado estos
+  // cargos a su "saldo anterior migrado"). Sin el snapshot perderíamos el
+  // balance parcial de entries `partially_paid`, ya que el void lo lleva a 0.
   await pgQuery(
     `
       update public.iadmin_unit_ledger_entries
       set status = 'void'::iadmin_ledger_entry_status,
+          metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+            'pre_void', jsonb_build_object(
+              'balance_open', balance_open::text,
+              'status', status::text
+            )
+          ),
           balance_open = 0,
           voided_at = now(),
           voided_by = $1,
@@ -3144,6 +3155,68 @@ async function voidLedgerEntriesInPostgres(input: {
         and status <> 'void'
     `,
     [input.actorProfileId, input.reason, input.entryIds],
+  )
+}
+
+// Revierte la migración de saldos al reabrir una liquidación: restaura los
+// entries que `createLedgerEntriesForIssuedRunInPostgres` había anulado con
+// reason `migrated_to_run:${runId}` (sus saldos se habían consolidado en el
+// `saldo_anterior_migrado` del run que ahora se reabre). Sin esto, reabrir una
+// liquidación emitida perdía permanentemente la deuda anterior. Mirror de
+// `deleteLiquidationItemsForRunInPostgres`, que restaura los recargos por mora.
+// Detecta si los cargos de este run ya fueron arrastrados/migrados a una
+// liquidación posterior. Cuando un run B emite, anula los cargos abiertos de A
+// con `void_reason = 'migrated_to_run:B'` (A nunca se migra a sí misma). Si A
+// tiene asientos así, está "superada" por una liquidación más reciente y no se
+// puede reabrir sin desarmar antes la posterior (orden LIFO). Devuelve el id de
+// la liquidación que la superó, o null si no fue superada.
+// Wrapper booleano para el read-path (detalle de liquidación): true si el run
+// ya fue superado por una liquidación posterior y por ende no es reabrible.
+export async function isLiquidationRunSupersededInPostgres(runId: string): Promise<boolean> {
+  return (await getSupersedingRunIdFromPostgres(runId)) !== null
+}
+
+async function getSupersedingRunIdFromPostgres(runId: string): Promise<string | null> {
+  const result = await pgQuery<{ void_reason: string }>(
+    `
+      select void_reason
+      from public.iadmin_unit_ledger_entries
+      where liquidation_run_id = $1
+        and status = 'void'
+        and void_reason like 'migrated_to_run:%'
+      limit 1
+    `,
+    [runId],
+  )
+  if (result.rows.length === 0) return null
+  const target = result.rows[0].void_reason.slice('migrated_to_run:'.length).trim()
+  return target && target !== runId ? target : null
+}
+
+async function restoreMigratedLedgerEntriesForRunInPostgres(runId: string): Promise<void> {
+  await pgQuery(
+    `
+      update public.iadmin_unit_ledger_entries
+      set
+        balance_open = coalesce(
+          nullif(metadata #>> '{pre_void,balance_open}', '')::numeric,
+          amount
+        ),
+        status = coalesce(
+          nullif(metadata #>> '{pre_void,status}', ''),
+          'open'
+        )::iadmin_ledger_entry_status,
+        voided_at = null,
+        voided_by = null,
+        void_reason = null,
+        metadata = (coalesce(metadata, '{}'::jsonb) - 'pre_void') || jsonb_build_object(
+          'restored_at', now()::text,
+          'restored_from_run', $1::text
+        )
+      where void_reason = ('migrated_to_run:' || $1::text)
+        and status = 'void'
+    `,
+    [runId],
   )
 }
 
@@ -3460,6 +3533,17 @@ export async function voidLedgerEntriesForRunInPostgres(input: {
   // quedan desvinculados pero siguen vigentes en iadmin_payments), permitir.
   allowWithLivePayments?: boolean
 }): Promise<void> {
+  // Guard LIFO: no se puede reabrir una liquidación cuyos saldos ya fueron
+  // arrastrados a una posterior (la deuda vive ahora en la más reciente).
+  // Hay que reabrir primero la última. La UI ya oculta el botón en este caso;
+  // esto es la red de seguridad del servidor.
+  const supersededBy = await getSupersedingRunIdFromPostgres(input.runId)
+  if (supersededBy) {
+    throw new Error(
+      'No se puede reabrir esta liquidación: sus saldos ya fueron arrastrados a una liquidación posterior. ' +
+        'Reabrí primero la liquidación más reciente.',
+    )
+  }
   const livePayments = await getLivePaymentsCountByRunFromPostgres(input.runId)
   if (livePayments > 0 && !input.allowWithLivePayments) {
     throw new Error('No se puede reabrir una liquidacion emitida con pagos registrados.')
@@ -3478,6 +3562,13 @@ export async function voidLedgerEntriesForRunInPostgres(input: {
     actorProfileId: input.actorProfileId,
     reason: input.reason,
   })
+  // Al reabrir, además de anular los cargos de ESTE run (incluido su
+  // `saldo_anterior_migrado`), restauramos los cargos de períodos anteriores
+  // que este run había consolidado/anulado al emitirse. Sin esto la deuda
+  // anterior se perdía de forma permanente. Los conjuntos son disjuntos (los
+  // recién anulados pertenecen a este run; los restaurados pertenecen a runs
+  // previos), así que no hay riesgo de doble conteo.
+  await restoreMigratedLedgerEntriesForRunInPostgres(input.runId)
 }
 
 export async function applyPaymentToLedgerInPostgres(input: {

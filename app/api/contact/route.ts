@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { sendEmail } from '@/lib/aws/ses'
+import { sendEmail } from '@/lib/email/provider'
 import { insertOnboardingRequestInPostgres } from '@/lib/db/onboarding'
 import { getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
-    console.error('[api/contact] SES sendEmail error:', err)
+    console.error('[api/contact] sendEmail error:', err)
     return NextResponse.json(
       { error: 'No pudimos enviar tu mensaje. Probá de nuevo en un rato.' },
       { status: 502 },

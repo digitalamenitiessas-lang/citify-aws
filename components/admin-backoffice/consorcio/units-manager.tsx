@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Sparkles, UploadCloud, UserPlus, UserX } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Sparkles, UploadCloud, UserPlus, Users, UserX } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -380,17 +380,31 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
             <span className="ml-2 text-amber-700">⚠ deberia sumar 100%</span>
           ) : null}
         </div>
-        {canManageUnits && !creating ? (
+        {(canManageUnits || canManageHolders) && !creating ? (
           <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              href={`/iadmin/consorcios/${propertyId}/importar`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
-              title="Subir Excel/CSV con todas las unidades de una vez"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              Importar Excel
-            </Link>
-            <Button size="sm" onClick={() => setCreating(true)}>Nueva unidad</Button>
+            {canManageUnits ? (
+              <Link
+                href={`/iadmin/consorcios/${propertyId}/importar`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
+                title="Subir Excel/CSV con todas las unidades de una vez"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Importar Excel
+              </Link>
+            ) : null}
+            {canManageHolders ? (
+              <Link
+                href={`/iadmin/consorcios/${propertyId}/vecinos-masivo`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors"
+                title="Cargar vecinos pegando una tabla (unidad, nombre, email, relación)"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Carga masiva de vecinos
+              </Link>
+            ) : null}
+            {canManageUnits ? (
+              <Button size="sm" onClick={() => setCreating(true)}>Nueva unidad</Button>
+            ) : null}
           </div>
         ) : null}
       </div>
