@@ -1038,6 +1038,12 @@ export interface IAdminUnitAccountMonth {
   collected: number
   balance: number         // saldo pendiente
   isCurrent: boolean
+  // true si la deuda de este mes se arrastró a una liquidación posterior (sus
+  // cargos se consolidaron en el "saldo anterior" del mes destino). El mes sí se
+  // facturó, pero su saldo vivo dejó de estar acá: balance=0 y la deuda figura
+  // en `rolledForwardToLabel`. Permite distinguirlo de un mes "sin facturar".
+  rolledForward: boolean
+  rolledForwardToLabel: string | null  // "JUN 26", si se pudo resolver el destino
 }
 
 export interface IAdminUnitPaymentReceipt {

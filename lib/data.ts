@@ -3058,6 +3058,8 @@ export async function getIAdminUnitAccountStatement(
       collected: 0,
       balance: 0,
       isCurrent: y === currentYear && m === currentMonth,
+      rolledForward: false,
+      rolledForwardToLabel: null,
     })
   }
 
@@ -3081,7 +3083,16 @@ export async function getIAdminUnitAccountStatement(
     if (found) m.periodStatus = found.status
   }
 
+  // run_id → etiqueta de mes ("JUN 26"), para poder decir a qué liquidación se
+  // arrastró la deuda de un mes migrado.
+  const runLabelById = new Map<string, string>()
   for (const r of runRows) {
+    if (r.period_year && r.period_month) {
+      runLabelById.set(
+        r.run_id,
+        `${MONTH_LABELS_SHORT[r.period_month - 1]} ${String(r.period_year).slice(2)}`,
+      )
+    }
     if (!r.period_year || !r.period_month) continue
     const monthTarget = months.find((mm) => mm.year === r.period_year && mm.month === r.period_month)
     if (!monthTarget) continue
@@ -3130,7 +3141,25 @@ export async function getIAdminUnitAccountStatement(
       voidReason: row.void_reason,
     })
 
-    if (!monthTarget || status === 'void') continue
+    if (!monthTarget) continue
+
+    // Un cargo anulado porque se arrastró a una liquidación posterior
+    // (void_reason = 'migrated_to_run:<run>') NO debe tratarse como "sin
+    // facturar": el mes sí se facturó, su saldo vivo simplemente se mudó al mes
+    // destino. Lo contamos como facturado (para que el mes muestre su importe)
+    // pero NO como saldo pendiente (esa deuda vive ahora en el mes destino).
+    const isMigratedForward =
+      status === 'void' &&
+      typeof row.void_reason === 'string' &&
+      row.void_reason.startsWith('migrated_to_run:')
+    if (status === 'void' && !isMigratedForward) continue
+    if (isMigratedForward) {
+      monthTarget.rolledForward = true
+      const targetRunId = (row.void_reason as string).slice('migrated_to_run:'.length).trim()
+      const targetLabel = runLabelById.get(targetRunId) ?? null
+      if (targetLabel) monthTarget.rolledForwardToLabel = targetLabel
+    }
+
     if (entryType === 'expensa_ordinaria') {
       monthTarget.ordinary = Math.round((monthTarget.ordinary + amount) * 100) / 100
     } else if (entryType === 'expensa_extraordinaria') {
@@ -3140,7 +3169,9 @@ export async function getIAdminUnitAccountStatement(
     } else if (entryType !== 'pago') {
       monthTarget.previousBalance = Math.round((monthTarget.previousBalance + amount) * 100) / 100
     }
-    if (entryType !== 'pago' && (status === 'open' || status === 'partially_paid')) {
+    // El saldo pendiente del mes solo suma cargos vivos (no migrados): los
+    // migrados tienen balance_open=0 igual, pero somos explícitos por claridad.
+    if (!isMigratedForward && entryType !== 'pago' && (status === 'open' || status === 'partially_paid')) {
       monthTarget.balance = Math.round((monthTarget.balance + balanceOpen) * 100) / 100
     }
   }

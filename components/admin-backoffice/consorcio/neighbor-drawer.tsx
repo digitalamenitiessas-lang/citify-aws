@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from 'react'
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   ExternalLink,
   Loader2,
@@ -361,18 +362,26 @@ function TotalPill({
 
 function MonthRow({ month }: { month: IAdminUnitAccountMonth }) {
   const hasData = month.subtotal > 0
+  // Mes facturado cuya deuda se arrastró a una liquidación posterior: se
+  // muestra como facturado, pero la deuda viva figura en el mes destino.
+  const isRolled = month.rolledForward
   const ratio = month.subtotal > 0 ? Math.min(1, month.collected / month.subtotal) : 0
   const pct = Math.round(ratio * 100)
-  const fullyPaid = hasData && month.balance < 0.01
-  const overdue = hasData && month.balance > 0.01 && !month.isCurrent
+  const fullyPaid = hasData && !isRolled && month.balance < 0.01
+  const overdue = hasData && !isRolled && month.balance > 0.01 && !month.isCurrent
 
   const stateChip = !hasData
     ? null
-    : fullyPaid
-      ? { label: 'al día', tone: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
-      : overdue
-        ? { label: 'con saldo', tone: 'bg-rose-50 text-rose-800 border-rose-200' }
-        : { label: 'pendiente', tone: 'bg-amber-50 text-amber-800 border-amber-200' }
+    : isRolled
+      ? {
+          label: month.rolledForwardToLabel ? `trasladado a ${month.rolledForwardToLabel}` : 'trasladado',
+          tone: 'bg-sky-50 text-sky-800 border-sky-200',
+        }
+      : fullyPaid
+        ? { label: 'al día', tone: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
+        : overdue
+          ? { label: 'con saldo', tone: 'bg-rose-50 text-rose-800 border-rose-200' }
+          : { label: 'pendiente', tone: 'bg-amber-50 text-amber-800 border-amber-200' }
 
   return (
     <div
@@ -397,7 +406,7 @@ function MonthRow({ month }: { month: IAdminUnitAccountMonth }) {
           ) : null}
           {stateChip ? (
             <span className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[9px] font-medium ${stateChip.tone}`}>
-              {fullyPaid ? <CheckCircle2 className="w-2.5 h-2.5" /> : overdue ? <AlertTriangle className="w-2.5 h-2.5" /> : null}
+              {isRolled ? <ArrowRight className="w-2.5 h-2.5" /> : fullyPaid ? <CheckCircle2 className="w-2.5 h-2.5" /> : overdue ? <AlertTriangle className="w-2.5 h-2.5" /> : null}
               {stateChip.label}
             </span>
           ) : null}
@@ -411,7 +420,15 @@ function MonthRow({ month }: { month: IAdminUnitAccountMonth }) {
         )}
       </div>
 
-      {hasData ? (
+      {isRolled ? (
+        <div className="mt-1.5 flex items-center gap-1.5 rounded bg-sky-50/70 border border-sky-200 px-1.5 py-1 text-[10px] text-sky-800">
+          <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+          <span>
+            Se facturó <b className="tabular-nums">$ {formatARS(month.subtotal)}</b> y la deuda impaga se
+            trasladó al saldo de {month.rolledForwardToLabel ?? 'la liquidación siguiente'}.
+          </span>
+        </div>
+      ) : hasData ? (
         <>
           <div className="mt-1.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
             <div

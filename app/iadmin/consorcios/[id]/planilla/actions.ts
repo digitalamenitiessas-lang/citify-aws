@@ -37,16 +37,13 @@ import {
   listImputedExpensesAmountsByPeriodFromPostgres,
   listLiquidationItemsByRunFromPostgres,
   listLiveShareTokensByItemsFromPostgres,
-  listPriorRunItemsForEmitFromPostgres,
-  markLateFeesAbsorbedByItemInPostgres,
   materializeLateFeesForAdministrationInPostgres,
   setProviderRecurringInPostgres,
-  sumLivePaymentsByItemIdsFromPostgres,
+  sumOpenLedgerBalanceByUnitForPropertyFromPostgres,
   updateExpenseAmountInPostgres,
   upsertIssuedLiquidationRunInPostgres,
   voidLedgerEntriesForRunInPostgres,
 } from '@/lib/db/iadmin-writes'
-import { sumOpenLateFeesByUnitPriorPeriodsFromPostgres } from '@/lib/db/iadmin-reads'
 import { notifyLiquidationIssued } from '@/lib/email/notifications/liquidations'
 import type { IAdminExpenseStatus, IAdminUnitAccountStatement } from '@/lib/types'
 
@@ -480,37 +477,16 @@ export async function emitAndNotify(
     actorProfileId: profile.id,
   })
 
-  const previousBalanceByUnit = new Map<string, number>()
-  const priorItems = await listPriorRunItemsForEmitFromPostgres({
+  // Modelo "ledger acumulativo (no colapsar)": el saldo anterior de cada
+  // unidad es la suma de sus entradas de ledger ABIERTAS de períodos previos
+  // (expensas ordinarias/extraordinarias + recargos por mora vivos). No se
+  // colapsa ni se absorbe nada: cada mes impago queda como entrada abierta y
+  // los recargos por mora siguen vivos por período. Excluimos el run de este
+  // período (si ya existía) para no doble-contar al re-emitir.
+  const previousBalanceByUnit = await sumOpenLedgerBalanceByUnitForPropertyFromPostgres({
     managedPropertyId: parsed.propertyId,
-    excludePeriodId: period.id,
+    excludeRunId: existingRun?.id ?? null,
   })
-  if (priorItems.length > 0) {
-    const itemIds = priorItems.map((it) => it.item_id)
-    const paidByItem = await sumLivePaymentsByItemIdsFromPostgres(itemIds)
-    for (const it of priorItems) {
-      const sub =
-        Number(it.ordinary_amount ?? 0) +
-        Number(it.extraordinary_amount ?? 0) +
-        Number(it.previous_balance ?? 0)
-      const paid = paidByItem.get(it.item_id) ?? 0
-      const debt = Math.max(0, Math.round((sub - paid) * 100) / 100)
-      if (debt > 0) previousBalanceByUnit.set(it.unit_id, debt)
-    }
-  }
-  // Sumar al previous_balance los recargos por mora abiertos de períodos
-  // anteriores (entry_type='recargo_mora' en el ledger). Sin esto los
-  // intereses acumulados quedan "escondidos" en el ledger y no aparecen en
-  // el recibo nuevo. Ver caveat en docs/PERIODOS-Y-MOROSIDAD-PLAN.md sobre
-  // doble visibilidad (los recargos quedan vivos en el ledger viejo).
-  const priorLateFees = await sumOpenLateFeesByUnitPriorPeriodsFromPostgres({
-    managedPropertyId: parsed.propertyId,
-    excludePeriodId: period.id,
-  })
-  for (const [unitId, fee] of priorLateFees.entries()) {
-    const current = previousBalanceByUnit.get(unitId) ?? 0
-    previousBalanceByUnit.set(unitId, Math.round((current + fee) * 100) / 100)
-  }
   const totalPreviousBalance = Array.from(previousBalanceByUnit.values()).reduce((s, v) => s + v, 0)
 
   const nextMonth = parsed.month === 12 ? 1 : parsed.month + 1
@@ -572,24 +548,11 @@ export async function emitAndNotify(
   const newItems = await listLiquidationItemsByRunFromPostgres(run.id)
   const itemIds = newItems.map((it) => it.id)
 
-  // Marcamos como "absorbidos" los recargos por mora previos que arrastramos
-  // al `previous_balance` de los items nuevos. Pisamos su `balance_open=0`
-  // y seteamos `superseded_by_item_id = new_item.id`. Evita double-counting
-  // en el overview y en cualquier suma de recargos abiertos. Ver
-  // `docs/PERIODOS-Y-MOROSIDAD-PLAN.md`.
-  if (priorLateFees.size > 0) {
-    const newItemByUnit = new Map(newItems.map((it) => [it.unit_id, it.id]))
-    for (const unitId of priorLateFees.keys()) {
-      const newItemId = newItemByUnit.get(unitId)
-      if (!newItemId) continue
-      await markLateFeesAbsorbedByItemInPostgres({
-        unitId,
-        excludePeriodId: period.id,
-        newItemId,
-        actorProfileId: profile.id,
-      })
-    }
-  }
+  // No-colapsar: NO absorbemos ni pisamos los recargos por mora previos.
+  // Quedan como entradas de ledger abiertas por período y ya están
+  // contemplados en `previousBalanceByUnit` (suma de ledger abierto). El
+  // `previous_balance` del recibo es informativo (saldo arrastrado), mientras
+  // que el ledger sigue siendo la fuente de verdad por mes.
 
   if (itemIds.length > 0) {
     await bulkRevokeShareTokensInPostgres(itemIds)

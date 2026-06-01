@@ -19,11 +19,10 @@ import {
   getLiquidationRunWithAdminFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyOperationalSettingsFromPostgres,
-  getMostRecentPriorRunWithItemsFromPostgres,
   getRunPaymentStatsFromPostgres,
   listActiveUnitsWithProrataFromPostgres,
   listImputedExpensesByPeriodFromPostgres,
-  sumLivePaymentsByItemIdsFromPostgres,
+  sumOpenLedgerBalanceByUnitForPropertyFromPostgres,
   updateLiquidationRunStatusInPostgres,
   upsertLiquidationRunInPostgres,
   voidLedgerEntriesForRunInPostgres,
@@ -131,27 +130,16 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
     throw new Error('No hay unidades activas con alicuota definida. Cargalas antes de liquidar.')
   }
 
-  const previousBalanceByUnit = new Map<string, number>()
-  const priorItems = await getMostRecentPriorRunWithItemsFromPostgres({
+  // Saldo anterior = deuda viva real acumulada en el ledger (modelo
+  // acumulativo). Es la suma de los asientos abiertos de meses previos por
+  // unidad (ordinarias/extraordinarias/recargos impagos), fuente autoritativa
+  // y siempre consistente con el estado de cuenta del vecino. Excluimos el run
+  // que se está (re)generando por las dudas, aunque en 'calculated' todavía no
+  // tiene asientos (el ledger se escribe al emitir).
+  const previousBalanceByUnit = await sumOpenLedgerBalanceByUnitForPropertyFromPostgres({
     managedPropertyId: parsed.propertyId,
     excludeRunId: existingRun?.id ?? null,
   })
-
-  if (priorItems.length > 0) {
-    const itemIds = priorItems.map((it) => it.item_id)
-    const paidByItem = await sumLivePaymentsByItemIdsFromPostgres(itemIds)
-    for (const it of priorItems) {
-      const subtotal =
-        Number(it.ordinary_amount ?? 0) +
-        Number(it.extraordinary_amount ?? 0) +
-        Number(it.previous_balance ?? 0)
-      const paid = paidByItem.get(it.item_id) ?? 0
-      const debt = Math.max(0, round2(subtotal - paid))
-      if (debt > 0) {
-        previousBalanceByUnit.set(it.unit_id, debt)
-      }
-    }
-  }
 
   const propertySettings = await getManagedPropertyOperationalSettingsFromPostgres(parsed.propertyId)
   const configuredRules = Array.isArray(propertySettings?.operational_settings?.dueDateRules)

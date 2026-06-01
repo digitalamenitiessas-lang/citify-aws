@@ -3043,6 +3043,37 @@ export async function listOpenLedgerEntriesByUnitFromPostgres(input: {
   return result.rows
 }
 
+// Suma del saldo abierto (deuda viva) por unidad para todo un consorcio. Es la
+// fuente autoritativa del "saldo anterior" que se imprime en cada boleta: la
+// deuda real acumulada de meses previos (ordinarias/extraordinarias/recargos
+// impagos) en el modelo de ledger acumulativo. excludeRunId permite no contar
+// los asientos del propio run que se está generando/emitiendo.
+export async function sumOpenLedgerBalanceByUnitForPropertyFromPostgres(input: {
+  managedPropertyId: string
+  excludeRunId?: string | null
+}): Promise<Map<string, number>> {
+  const result = await pgQuery<{ unit_id: string; open_balance: string }>(
+    `
+      select
+        unit_id,
+        coalesce(sum(balance_open), 0)::text as open_balance
+      from public.iadmin_unit_ledger_entries
+      where managed_property_id = $1
+        and status in ('open', 'partially_paid')
+        and entry_type <> 'pago'
+        and ($2::uuid is null or liquidation_run_id is distinct from $2::uuid)
+      group by unit_id
+    `,
+    [input.managedPropertyId, input.excludeRunId ?? null],
+  )
+  const map = new Map<string, number>()
+  for (const row of result.rows) {
+    const balance = Math.round(Number(row.open_balance ?? 0) * 100) / 100
+    if (balance > 0.009) map.set(row.unit_id, balance)
+  }
+  return map
+}
+
 export async function getLiveLedgerEntriesByRunCountFromPostgres(runId: string): Promise<number> {
   const result = await pgQuery<{ count: string }>(
     `
@@ -3446,22 +3477,21 @@ export async function createLedgerEntriesForIssuedRunInPostgres(input: {
   const liveCount = await getLiveLedgerEntriesByRunCountFromPostgres(input.runId)
   if (liveCount > 0) return
 
+  // Modelo de ledger ACUMULATIVO (no colapsar): al emitir solo insertamos los
+  // cargos NUEVOS del mes (ordinaria/extraordinaria). Los cargos impagos de
+  // meses anteriores NO se anulan ni se funden en un lump "saldo anterior
+  // migrado": cada uno sigue como su propio asiento abierto hasta que se paga
+  // (los pagos se aplican FIFO en applyPaymentToLedgerInPostgres). Esto permite
+  // medir la deuda mes a mes y que el recargo por mora corra contra el
+  // vencimiento de cada mes en vez de reiniciarse al consolidar.
+  //
+  // El "saldo anterior" que ve el vecino en la boleta no es un asiento del
+  // ledger: se calcula como la suma de los asientos abiertos de meses previos
+  // (item.previous_balance, computado en la generación). Por eso acá NO creamos
+  // un asiento por ese importe (sería doble conteo contra los asientos vivos).
   for (const row of runResult.rows) {
     const dueDates = Array.isArray(row.due_dates) ? (row.due_dates as Array<Record<string, unknown>>) : []
     const firstDueDate = (typeof dueDates[0]?.date === 'string' ? dueDates[0]?.date : null) as string | null
-    const priorOpen = await listOpenLedgerEntriesByUnitFromPostgres({
-      administrationId: row.administration_id,
-      unitId: row.unit_id,
-      excludeRunId: input.runId,
-    })
-    const previousBalance = Math.round(
-      priorOpen.reduce((acc, entry) => acc + Number(entry.balance_open ?? 0), 0) * 100,
-    ) / 100
-    await voidLedgerEntriesInPostgres({
-      entryIds: priorOpen.map((entry) => entry.id),
-      actorProfileId: input.actorProfileId,
-      reason: `migrated_to_run:${input.runId}`,
-    })
 
     const ordinaryAmount = Number(row.ordinary_amount ?? 0)
     const extraordinaryAmount = Number(row.extraordinary_amount ?? 0)
@@ -3499,25 +3529,6 @@ export async function createLedgerEntriesForIssuedRunInPostgres(input: {
         dueDate: firstDueDate,
         amount: extraordinaryAmount,
         balanceOpen: extraordinaryAmount,
-        status: 'open',
-        createdBy: input.actorProfileId,
-      })
-    }
-    if (previousBalance > 0.009) {
-      await insertLedgerEntryInPostgres({
-        administrationId: row.administration_id,
-        managedPropertyId: row.managed_property_id,
-        unitId: row.unit_id,
-        accountingPeriodId: row.accounting_period_id,
-        liquidationRunId: row.run_id,
-        liquidationItemId: row.item_id,
-        entryType: 'saldo_anterior_migrado',
-        originType: 'ledger_rollover',
-        originId: row.item_id,
-        description: 'Saldo anterior migrado',
-        dueDate: firstDueDate,
-        amount: previousBalance,
-        balanceOpen: previousBalance,
         status: 'open',
         createdBy: input.actorProfileId,
       })
