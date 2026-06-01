@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import type { IAdminExpenseStatus, IAdminExpenseSummary } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { PeriodPicker } from '@/components/admin-backoffice/shared/period-picker'
+import { RepeatPreviousMonthButton } from '@/components/admin-backoffice/gastos/repeat-previous-month-button'
 
 const EXPENSE_STATUS_LABELS: Record<IAdminExpenseStatus, string> = {
   draft: 'Borrador',
@@ -35,7 +36,14 @@ const FILTERS: ReadonlyArray<{ value: 'all' | IAdminExpenseStatus; label: string
   { value: 'rejected', label: 'Rechazados' },
 ]
 
-export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }) {
+export function ExpensesTable({
+  expenses,
+  repeatPropertyId,
+}: {
+  expenses: IAdminExpenseSummary[]
+  /** Si hay un consorcio activo, habilita repetir gastos del mes anterior en el período filtrado. */
+  repeatPropertyId?: string | null
+}) {
   const searchParams = useSearchParams()
   const initialStatus = (searchParams?.get('status') as IAdminExpenseStatus | 'all' | null) ?? 'all'
   const [statusFilter, setStatusFilter] = useState<'all' | IAdminExpenseStatus>(
@@ -85,9 +93,20 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
   }, [periodFiltered, statusFilter])
 
   if (expenses.length === 0) {
+    const now = new Date()
     return (
-      <div className="glass-card rounded-2xl px-5 py-12 text-center text-sm text-muted-foreground">
-        No hay gastos cargados todavía.
+      <div className="glass-card rounded-2xl px-5 py-12 text-center text-sm text-muted-foreground space-y-4">
+        <p>No hay gastos cargados todavía.</p>
+        {repeatPropertyId ? (
+          <div className="flex justify-center">
+            <RepeatPreviousMonthButton
+              managedPropertyId={repeatPropertyId}
+              targetYear={now.getFullYear()}
+              targetMonth={now.getMonth() + 1}
+              targetHasExpenses={false}
+            />
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -103,6 +122,14 @@ export function ExpensesTable({ expenses }: { expenses: IAdminExpenseSummary[] }
           allowAll
           allLabel="Todos"
         />
+        {repeatPropertyId && periodFilter ? (
+          <RepeatPreviousMonthButton
+            managedPropertyId={repeatPropertyId}
+            targetYear={periodFilter.year}
+            targetMonth={periodFilter.month}
+            targetHasExpenses={periodFiltered.length > 0}
+          />
+        ) : null}
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
         {FILTERS.map((f) => {

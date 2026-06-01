@@ -15,19 +15,23 @@ import { pgQuery } from '@/lib/db/postgres'
 import {
   assertProrataNotOver100,
   changeExpenseStatusInPostgres,
+  deleteExpensesForPeriodFromPostgres,
   ensureAccountingPeriodInPostgres,
   findProviderByNameInPostgres,
   getAccountingPeriodIdAndStatusFromPostgres,
   getAIExtractionWithAdminFromPostgres,
   getExpenseDocumentWithAdminFromPostgres,
+  getExpenseEditContextFromPostgres,
   getExpenseStatusInfoFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
   insertAIExtractionInPostgres,
   insertExpenseDocumentInPostgres,
   insertExpenseInPostgres,
   insertProviderQuickFromPostgres,
+  listExpensesForPeriodFromPostgres,
   setProviderDefaultCategoryIfNullInPostgres,
   updateAIExtractionDecisionInPostgres,
+  updateExpenseInPostgres,
 } from '@/lib/db/iadmin-writes'
 import type { IAdminCapability, IAdminExpenseStatus } from '@/lib/types'
 
@@ -291,6 +295,269 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   revalidatePath('/iadmin/cartera')
   revalidatePath(`/iadmin/consorcios/${parsed.managedPropertyId}`)
   return { id: created.id, status: initialStatus }
+}
+
+const updateExpenseSchema = z.object({
+  expenseId: z.string().uuid(),
+  description: z.string().trim().min(1).max(240),
+  amount: z.number().nonnegative(),
+  category: z.string().trim().max(80).nullable().optional(),
+  issuedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  expenseKind: z.enum(['ordinaria', 'extraordinaria']),
+})
+
+export type UpdateExpenseInput = z.input<typeof updateExpenseSchema>
+
+export type UpdateExpenseResult = { ok: true } | { ok: false; error: string; code?: string }
+
+/**
+ * Edita los datos de un gasto ya cargado. Sólo se permite mientras el período
+ * siga abierto y NO exista una liquidación emitida/cerrada para ese mes — una
+ * vez liquidado, el monto ya impactó en las expensas y editarlo rompería el
+ * cálculo. Misma lógica de gate que `createExpense`.
+ */
+export async function updateExpense(input: UpdateExpenseInput): Promise<UpdateExpenseResult> {
+  try {
+    await updateExpenseImpl(input)
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: string }).code
+      console.error('[updateExpense] business error:', error.message, code ? `(code=${code})` : '')
+      return { ok: false, error: error.message, code }
+    }
+    console.error('[updateExpense] unknown error:', error)
+    return { ok: false, error: 'Error inesperado al editar el gasto' }
+  }
+}
+
+async function updateExpenseImpl(input: UpdateExpenseInput): Promise<void> {
+  const parsed = updateExpenseSchema.parse(input)
+
+  const ctx = await getExpenseEditContextFromPostgres(parsed.expenseId)
+  if (!ctx) throw new Error('Gasto no encontrado')
+
+  // Valida que el usuario pertenezca a la administración del gasto (anti-IDOR)
+  // y tenga permiso de carga de gastos.
+  const { profile } = await requireIAdmin({
+    capability: 'expenses.create',
+    administrationId: ctx.administration_id,
+  })
+
+  const periodLabel =
+    ctx.period_year && ctx.period_month
+      ? `${String(ctx.period_month).padStart(2, '0')}/${ctx.period_year}`
+      : 'el período'
+
+  if (ctx.period_status === 'closed') {
+    throw new Error(`El periodo ${periodLabel} esta cerrado y no admite editar gastos.`)
+  }
+  if (ctx.period_status === 'locked') {
+    throw new Error(`El periodo ${periodLabel} esta bloqueado y no admite editar gastos.`)
+  }
+  if (ctx.blocking_run_status) {
+    const error = new Error(
+      `Periodo ${periodLabel} ya ${ctx.blocking_run_status === 'issued' ? 'liquidado' : 'cerrado'}. ` +
+        `Reabri la liquidacion si necesitas editar este gasto.`,
+    )
+    ;(error as Error & { code?: string }).code = 'PERIOD_ALREADY_LIQUIDATED'
+    throw error
+  }
+
+  await updateExpenseInPostgres({
+    expenseId: parsed.expenseId,
+    description: parsed.description,
+    amount: parsed.amount,
+    category: parsed.category ?? null,
+    issuedAt: parsed.issuedAt ?? null,
+    expenseKind: parsed.expenseKind,
+  })
+
+  await insertIAdminAuditLogInPostgres({
+    administrationId: ctx.administration_id,
+    actorProfileId: profile.id,
+    entityType: 'iadmin_expenses',
+    entityId: parsed.expenseId,
+    action: 'expense.updated',
+    metadata: {
+      amount: parsed.amount,
+      expense_kind: parsed.expenseKind,
+    },
+  })
+
+  revalidatePath('/iadmin/gastos')
+  revalidatePath(`/iadmin/gastos/${parsed.expenseId}`)
+  revalidatePath('/iadmin/cartera')
+  revalidatePath(`/iadmin/consorcios/${ctx.managed_property_id}`)
+}
+
+const repeatExpensesSchema = z.object({
+  managedPropertyId: z.string().uuid(),
+  targetYear: z.number().int().min(2020).max(2100),
+  targetMonth: z.number().int().min(1).max(12),
+  // 'add'     → suma los gastos del mes anterior a los que ya haya en el destino.
+  // 'replace' → descarta los gastos ya cargados en el destino y sólo deja los copiados.
+  mode: z.enum(['add', 'replace']).default('add'),
+})
+
+export type RepeatExpensesInput = z.input<typeof repeatExpensesSchema>
+
+export type RepeatExpensesResult =
+  | { ok: true; copied: number; replaced: number }
+  | { ok: false; error: string; code?: string }
+
+/**
+ * Copia los gastos del mes anterior al período destino, dejándolos editables.
+ * Permite arrancar un mes nuevo sin tener que recargar todos los rubros a mano.
+ * Sólo funciona si el destino no está cerrado/bloqueado ni liquidado.
+ */
+export async function repeatPreviousMonthExpenses(
+  input: RepeatExpensesInput,
+): Promise<RepeatExpensesResult> {
+  try {
+    return await repeatPreviousMonthExpensesImpl(input)
+  } catch (error) {
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: string }).code
+      console.error('[repeatPreviousMonthExpenses] business error:', error.message, code ? `(code=${code})` : '')
+      return { ok: false, error: error.message, code }
+    }
+    console.error('[repeatPreviousMonthExpenses] unknown error:', error)
+    return { ok: false, error: 'Error inesperado al repetir los gastos' }
+  }
+}
+
+async function repeatPreviousMonthExpensesImpl(
+  input: RepeatExpensesInput,
+): Promise<{ ok: true; copied: number; replaced: number }> {
+  const parsed = repeatExpensesSchema.parse(input)
+
+  const property = await getManagedPropertyAdminIdFromPostgres(parsed.managedPropertyId)
+  if (!property) throw new Error('Consorcio no encontrado')
+
+  const { profile, context } = await requireIAdmin({
+    capability: 'expenses.create',
+    administrationId: property.administration_id,
+  })
+
+  const targetLabel = `${String(parsed.targetMonth).padStart(2, '0')}/${parsed.targetYear}`
+
+  // 1) El período destino no puede estar cerrado/bloqueado ni liquidado.
+  const targetPeriod = await getAccountingPeriodIdAndStatusFromPostgres({
+    managedPropertyId: parsed.managedPropertyId,
+    periodYear: parsed.targetYear,
+    periodMonth: parsed.targetMonth,
+  })
+  if (targetPeriod?.status === 'closed') {
+    throw new Error(`El periodo ${targetLabel} esta cerrado y no admite cargar gastos.`)
+  }
+  if (targetPeriod?.status === 'locked') {
+    throw new Error(`El periodo ${targetLabel} esta bloqueado y no admite cargar gastos.`)
+  }
+  if (targetPeriod) {
+    const liqRes = await pgQuery<{ status: string }>(
+      `select status::text as status
+         from public.iadmin_liquidation_runs
+        where managed_property_id = $1
+          and accounting_period_id = $2
+          and status in ('issued', 'closed')
+        limit 1`,
+      [parsed.managedPropertyId, targetPeriod.id],
+    )
+    if (liqRes.rows[0]) {
+      const error = new Error(
+        `Periodo ${targetLabel} ya ${liqRes.rows[0].status === 'issued' ? 'liquidado' : 'cerrado'}. ` +
+          `Reabri la liquidacion si necesitas cargar mas gastos en ese mes.`,
+      )
+      ;(error as Error & { code?: string }).code = 'PERIOD_ALREADY_LIQUIDATED'
+      throw error
+    }
+  }
+
+  // 2) Resolver el mes anterior y traer sus gastos.
+  const prevDate = new Date(parsed.targetYear, parsed.targetMonth - 2, 1)
+  const prevYear = prevDate.getFullYear()
+  const prevMonth = prevDate.getMonth() + 1
+  const prevLabel = `${String(prevMonth).padStart(2, '0')}/${prevYear}`
+
+  const prevPeriod = await getAccountingPeriodIdAndStatusFromPostgres({
+    managedPropertyId: parsed.managedPropertyId,
+    periodYear: prevYear,
+    periodMonth: prevMonth,
+  })
+  if (!prevPeriod) {
+    throw new Error(`El mes anterior (${prevLabel}) no tiene gastos para repetir.`)
+  }
+  const prevExpenses = await listExpensesForPeriodFromPostgres({
+    managedPropertyId: parsed.managedPropertyId,
+    accountingPeriodId: prevPeriod.id,
+  })
+  if (prevExpenses.length === 0) {
+    throw new Error(`El mes anterior (${prevLabel}) no tiene gastos para repetir.`)
+  }
+
+  // 3) Asegurar que exista el período destino.
+  let targetPeriodId = targetPeriod?.id ?? null
+  if (!targetPeriodId) {
+    const created = await ensureAccountingPeriodInPostgres({
+      managedPropertyId: parsed.managedPropertyId,
+      periodYear: parsed.targetYear,
+      periodMonth: parsed.targetMonth,
+    })
+    targetPeriodId = created.id
+  }
+
+  // 4) Modo "reemplazar": borrar lo ya cargado en el destino.
+  let replaced = 0
+  if (parsed.mode === 'replace') {
+    replaced = await deleteExpensesForPeriodFromPostgres({
+      managedPropertyId: parsed.managedPropertyId,
+      accountingPeriodId: targetPeriodId,
+    })
+  }
+
+  const canApprove =
+    context.isSuperAdmin ||
+    (context.memberships
+      .find((m) => m.administration.id === property.administration_id)
+      ?.capabilities.includes('expenses.approve') ?? false)
+  const initialStatus: IAdminExpenseStatus = canApprove ? 'imputed' : 'pending_review'
+
+  // 5) Copiar cada gasto del mes anterior al destino (montos editables después).
+  let copied = 0
+  for (const e of prevExpenses) {
+    await insertExpenseInPostgres({
+      administrationId: property.administration_id,
+      managedPropertyId: parsed.managedPropertyId,
+      accountingPeriodId: targetPeriodId,
+      providerId: e.provider_id,
+      category: e.category,
+      description: e.description,
+      amount: e.amount,
+      currency: e.currency,
+      issuedAt: null,
+      dueAt: null,
+      status: initialStatus,
+      expenseKind: e.expense_kind,
+      createdBy: profile.id,
+      approvedBy: initialStatus === 'imputed' ? profile.id : null,
+    })
+    copied += 1
+  }
+
+  await insertIAdminAuditLogInPostgres({
+    administrationId: property.administration_id,
+    actorProfileId: profile.id,
+    entityType: 'iadmin_expenses',
+    entityId: targetPeriodId,
+    action: 'expense.repeated_from_previous_month',
+    metadata: { from: prevLabel, to: targetLabel, mode: parsed.mode, copied, replaced },
+  })
+
+  revalidatePath('/iadmin/gastos')
+  revalidatePath('/iadmin/cartera')
+  revalidatePath(`/iadmin/consorcios/${parsed.managedPropertyId}`)
+  return { ok: true, copied, replaced }
 }
 
 const changeStatusSchema = z.object({

@@ -535,6 +535,151 @@ export async function changeExpenseStatusInPostgres(input: {
   }
 }
 
+/**
+ * Devuelve el contexto necesario para decidir si un gasto se puede editar:
+ * a qué administración/consorcio/período pertenece, el estado del período y
+ * si existe una liquidación emitida/cerrada que lo "congele". Lo usan tanto la
+ * página de detalle (para mostrar/ocultar el form) como la action `updateExpense`
+ * (para revalidar server-side y no confiar en el cliente).
+ */
+export async function getExpenseEditContextFromPostgres(expenseId: string): Promise<{
+  id: string
+  administration_id: string
+  managed_property_id: string
+  accounting_period_id: string | null
+  status: string
+  currency: string
+  period_status: string | null
+  period_year: number | null
+  period_month: number | null
+  blocking_run_status: string | null
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    administration_id: string
+    managed_property_id: string
+    accounting_period_id: string | null
+    status: string
+    currency: string
+    period_status: string | null
+    period_year: number | null
+    period_month: number | null
+    blocking_run_status: string | null
+  }>(
+    `select e.id,
+            e.administration_id,
+            e.managed_property_id,
+            e.accounting_period_id,
+            e.status::text as status,
+            e.currency,
+            p.status::text as period_status,
+            p.period_year,
+            p.period_month,
+            (
+              select r.status::text
+                from public.iadmin_liquidation_runs r
+               where r.managed_property_id = e.managed_property_id
+                 and r.accounting_period_id = e.accounting_period_id
+                 and r.status in ('issued', 'closed')
+               limit 1
+            ) as blocking_run_status
+       from public.iadmin_expenses e
+       left join public.iadmin_accounting_periods p on p.id = e.accounting_period_id
+      where e.id = $1
+      limit 1`,
+    [expenseId],
+  )
+  return result.rows[0] ?? null
+}
+
+export async function updateExpenseInPostgres(input: {
+  expenseId: string
+  description: string
+  amount: number
+  category: string | null
+  issuedAt: string | null
+  expenseKind: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_expenses
+        set description = $2,
+            amount = $3,
+            category = $4,
+            issued_at = $5::date,
+            expense_kind = $6::iadmin_expense_kind,
+            updated_at = now()
+      where id = $1`,
+    [
+      input.expenseId,
+      input.description,
+      input.amount,
+      input.category,
+      input.issuedAt,
+      input.expenseKind,
+    ],
+  )
+}
+
+/**
+ * Lista los gastos cargados en un período (para repetirlos en otro mes).
+ * Devuelve sólo los campos que se copian; el estado/fechas se regeneran.
+ */
+export async function listExpensesForPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<
+  Array<{
+    provider_id: string | null
+    category: string | null
+    description: string
+    amount: number
+    currency: string
+    expense_kind: string
+  }>
+> {
+  type PrevExpenseRow = {
+    provider_id: string | null
+    category: string | null
+    description: string
+    amount: string
+    currency: string
+    expense_kind: string
+  }
+  const result = await pgQuery<PrevExpenseRow>(
+    `select provider_id, category, description, amount, currency, expense_kind::text as expense_kind
+       from public.iadmin_expenses
+      where managed_property_id = $1
+        and accounting_period_id = $2
+      order by created_at asc`,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rows.map((r: PrevExpenseRow) => ({
+    provider_id: r.provider_id,
+    category: r.category,
+    description: r.description,
+    amount: Number(r.amount),
+    currency: r.currency,
+    expense_kind: r.expense_kind,
+  }))
+}
+
+/**
+ * Borra todos los gastos de un período (modo "reemplazar" al repetir). Sólo se
+ * usa sobre períodos NO liquidados — el caller valida ese gate antes.
+ */
+export async function deleteExpensesForPeriodFromPostgres(input: {
+  managedPropertyId: string
+  accountingPeriodId: string
+}): Promise<number> {
+  const result = await pgQuery(
+    `delete from public.iadmin_expenses
+      where managed_property_id = $1
+        and accounting_period_id = $2`,
+    [input.managedPropertyId, input.accountingPeriodId],
+  )
+  return result.rowCount ?? 0
+}
+
 export async function insertExpenseDocumentInPostgres(input: {
   expenseId: string
   storagePath: string

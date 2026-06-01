@@ -82,7 +82,7 @@ export default async function GastosPage() {
         />
       ) : null}
 
-      <ExpensesTable expenses={expenses} />
+      <ExpensesTable expenses={expenses} repeatPropertyId={currentPropertyId} />
     </div>
   )
 }

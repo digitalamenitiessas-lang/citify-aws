@@ -49,6 +49,7 @@ import { SavedIndicator } from '@/components/admin-backoffice/shared/saved-indic
 import { HistoryIndicator } from '@/components/admin-backoffice/shared/history-indicator'
 import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
+import { RepeatPreviousMonthButton } from '@/components/admin-backoffice/gastos/repeat-previous-month-button'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -797,6 +798,27 @@ export function MonthlyPlanilla({
               />
             </div>
           </div>
+          {(() => {
+            // Botón para repetir los gastos del mes anterior en el período pivote.
+            // Sólo si el período sigue editable (no cerrado/bloqueado ni liquidado).
+            const pivot = grid.months[grid.months.length - 1]
+            if (!canManageRubros || !pivot) return null
+            const editable =
+              pivot.periodStatus !== 'closed' &&
+              pivot.periodStatus !== 'locked' &&
+              pivot.runStatus !== 'issued' &&
+              pivot.runStatus !== 'closed'
+            if (!editable) return null
+            const pivotHasExpenses = (grid.totalByMonth[`${pivot.year}-${pivot.month}`] ?? 0) > 0
+            return (
+              <RepeatPreviousMonthButton
+                managedPropertyId={grid.propertyId}
+                targetYear={pivot.year}
+                targetMonth={pivot.month}
+                targetHasExpenses={pivotHasExpenses}
+              />
+            )
+          })()}
         </header>
 
         <div className="divider-soft" />
