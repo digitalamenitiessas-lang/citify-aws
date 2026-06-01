@@ -113,19 +113,30 @@ export function RepeatPreviousMonthButton({
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <AlertDialogCancel disabled={pending} className="w-full sm:w-auto">
+              Cancelar
+            </AlertDialogCancel>
             {targetHasExpenses ? (
               <>
-                <Button variant="destructive" disabled={pending} onClick={() => run('replace')}>
-                  {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Reemplazar los actuales'}
+                <Button
+                  variant="destructive"
+                  disabled={pending}
+                  onClick={() => run('replace')}
+                  className="w-full sm:w-auto"
+                >
+                  {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Reemplazar'}
                 </Button>
-                <Button disabled={pending} onClick={() => run('add')}>
+                <Button
+                  disabled={pending}
+                  onClick={() => run('add')}
+                  className="w-full sm:w-auto"
+                >
                   {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sumar a los actuales'}
                 </Button>
               </>
             ) : (
-              <Button disabled={pending} onClick={() => run('add')}>
+              <Button disabled={pending} onClick={() => run('add')} className="w-full sm:w-auto">
                 {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Repetir gastos'}
               </Button>
             )}
