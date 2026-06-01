@@ -365,34 +365,9 @@ export function MonthlyPlanilla({
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
   const hasPredictions = predictions.size > 0
 
-  // --------------------------------------------------------------------------
-  // Hotkeys mínimos (solo undo/redo/copy). El resto fue removido junto con
-  // las features de búsqueda, asistente, agregar rubro y atajos visibles.
-  // --------------------------------------------------------------------------
-  useHotkeys({
-    'mod+z': (e) => {
-      e.preventDefault()
-      void undo()
-    },
-    'mod+shift+z': (e) => {
-      e.preventDefault()
-      void redo()
-    },
-    'mod+y': (e) => {
-      e.preventDefault()
-      void redo()
-    },
-    'mod+c': (e) => {
-      // Sólo interceptamos si hay selección múltiple; si no, dejamos pasar
-      // el copy nativo del browser.
-      if (selection.size < 2) return
-      e.preventDefault()
-      void copySelection()
-    },
-    escape: () => {
-      if (selection.size > 0) clearSelection()
-    },
-  })
+  // La grilla es de solo lectura: no hay edición de celdas, atajos de
+  // deshacer/rehacer/copiar ni selección múltiple. Los gastos se cargan y
+  // editan exclusivamente desde la sección Gastos.
 
   const filteredRows = allRows
 
@@ -783,19 +758,8 @@ export function MonthlyPlanilla({
             <div className="min-w-0">
               <h2 className="font-serif text-lg font-semibold text-foreground">Gastos del mes</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Cargá los montos. Cada celda se guarda sola. La mini-curva a la derecha es la tendencia del rubro.
+                Resumen de solo lectura. Para cargar o editar gastos usá la sección Gastos. La mini-curva a la derecha es la tendencia del rubro.
               </p>
-            </div>
-            <div className="pt-1 flex items-center gap-3 flex-wrap">
-              <SavedIndicator lastSavedAt={lastSavedAt} pendingCount={pendingCells.size} />
-              <HistoryIndicator
-                canUndo={history.length > 0}
-                canRedo={redoStack.length > 0}
-                undoLabel={history[history.length - 1]?.label}
-                redoLabel={redoStack[redoStack.length - 1]?.label}
-                onUndo={() => void undo()}
-                onRedo={() => void redo()}
-              />
             </div>
           </div>
           {(() => {
@@ -841,15 +805,6 @@ export function MonthlyPlanilla({
                 Por categoría
               </button>
             </div>
-          </div>
-        ) : null}
-
-        {hasPredictions ? (
-          <div className="px-6 py-2 bg-primary/5 text-xs text-foreground flex items-center justify-between gap-3 flex-wrap mesa-fade-in">
-            <span>{predictions.size} montos sugeridos aplicados en la columna {currentMonth.label}. Revisá cada uno.</span>
-            <button onClick={() => setPredictions(new Map())} className="text-muted-foreground hover:text-foreground text-xs">
-              Descartar todos
-            </button>
           </div>
         ) : null}
 
@@ -987,7 +942,7 @@ export function MonthlyPlanilla({
                                 amount={displayedAmount}
                                 prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
-                                isEditable={cellData?.isEditable ?? true}
+                                isEditable={false}
                                 isSelected={isSelected}
                                 isAnchor={isAnchor}
                                 selectionSize={selection.size}
@@ -1363,16 +1318,6 @@ export function MonthlyPlanilla({
       {publishResult ? (
         <PublishDialog result={publishResult} onClose={() => setPublishResult(null)} />
       ) : null}
-
-      {selection.size > 1 ? (
-        <MesaBatchBar
-          count={selection.size}
-          onClear={clearSelection}
-          onApplyDelta={applyDeltaToSelection}
-          onClearValues={clearSelectedCells}
-          onCopy={copySelection}
-        />
-      ) : null}
     </div>
   )
 }
@@ -1669,12 +1614,12 @@ function EditableCell({
       className={`px-4 py-2 text-right tabular-nums transition-colors outline-none focus:shadow-[inset_0_0_0_2px_rgba(240, 78, 35,0.5)] ${
         isCurrent ? 'th-current-month font-medium' : ''
       } ${
-        isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-not-allowed opacity-60'
+        isEditable ? 'cursor-pointer hover:bg-primary/10' : 'cursor-default'
       } ${amount !== null ? 'text-foreground' : 'text-muted-foreground/70'} ${saved ? 'cell-saved' : ''} ${selectionClass}`}
       title={
         isEditable
           ? 'Enter edita · Del limpia · Shift+click selecciona rango · Ctrl/Cmd+click toggle'
-          : 'Período cerrado'
+          : undefined
       }
     >
       {contents}

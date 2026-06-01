@@ -508,12 +508,24 @@ async function repeatPreviousMonthExpensesImpl(
   }
 
   // 4) Modo "reemplazar": borrar lo ya cargado en el destino.
+  //    Modo "sumar": conservar lo que el usuario ya cargó a mano y NO duplicar
+  //    los proveedores que ya tienen un gasto este mes — sólo se agregan los
+  //    rubros del mes anterior que todavía no están cargados.
   let replaced = 0
+  const existingProviderIds = new Set<string>()
   if (parsed.mode === 'replace') {
     replaced = await deleteExpensesForPeriodFromPostgres({
       managedPropertyId: parsed.managedPropertyId,
       accountingPeriodId: targetPeriodId,
     })
+  } else {
+    const existing = await listExpensesForPeriodFromPostgres({
+      managedPropertyId: parsed.managedPropertyId,
+      accountingPeriodId: targetPeriodId,
+    })
+    for (const e of existing) {
+      if (e.provider_id) existingProviderIds.add(e.provider_id)
+    }
   }
 
   const canApprove =
@@ -524,8 +536,13 @@ async function repeatPreviousMonthExpensesImpl(
   const initialStatus: IAdminExpenseStatus = canApprove ? 'imputed' : 'pending_review'
 
   // 5) Copiar cada gasto del mes anterior al destino (montos editables después).
+  //    En modo "sumar", saltear los proveedores ya cargados este mes para no
+  //    pisar/duplicar los gastos que el usuario registró aparte.
   let copied = 0
   for (const e of prevExpenses) {
+    if (parsed.mode === 'add' && e.provider_id && existingProviderIds.has(e.provider_id)) {
+      continue
+    }
     await insertExpenseInPostgres({
       administrationId: property.administration_id,
       managedPropertyId: parsed.managedPropertyId,

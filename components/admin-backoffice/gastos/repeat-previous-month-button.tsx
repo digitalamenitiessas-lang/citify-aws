@@ -66,10 +66,15 @@ export function RepeatPreviousMonthButton({
         toast.error(result.error)
         return
       }
+      if (result.copied === 0 && result.replaced === 0) {
+        toast.info(`Ya tenías cargados todos los rubros de ${prevLabel}. No se agregó nada.`)
+        setOpen(false)
+        return
+      }
       const replacedNote =
         result.replaced > 0 ? ` · ${result.replaced} reemplazado${result.replaced === 1 ? '' : 's'}` : ''
       toast.success(
-        `${result.copied} gasto${result.copied === 1 ? '' : 's'} copiado${result.copied === 1 ? '' : 's'} de ${prevLabel}${replacedNote}`,
+        `${result.copied} gasto${result.copied === 1 ? '' : 's'} agregado${result.copied === 1 ? '' : 's'} de ${prevLabel}${replacedNote}`,
       )
       setOpen(false)
       router.refresh()
@@ -94,9 +99,10 @@ export function RepeatPreviousMonthButton({
             <AlertDialogDescription>
               {targetHasExpenses ? (
                 <>
-                  El período <strong>{targetLabel}</strong> ya tiene gastos cargados. ¿Querés{' '}
-                  <strong>sumar</strong> los gastos de {prevLabel} a los existentes, o{' '}
-                  <strong>reemplazar</strong> los actuales por los de {prevLabel}?
+                  El período <strong>{targetLabel}</strong> ya tiene gastos cargados.{' '}
+                  <strong>Sumar</strong> mantiene tus gastos y agrega sólo los rubros de {prevLabel}{' '}
+                  que todavía no cargaste. <strong>Reemplazar</strong> borra lo cargado este mes y
+                  copia todo desde {prevLabel}.
                 </>
               ) : (
                 <>
@@ -111,7 +117,7 @@ export function RepeatPreviousMonthButton({
             <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
             {targetHasExpenses ? (
               <>
-                <Button variant="outline" disabled={pending} onClick={() => run('replace')}>
+                <Button variant="destructive" disabled={pending} onClick={() => run('replace')}>
                   {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Reemplazar los actuales'}
                 </Button>
                 <Button disabled={pending} onClick={() => run('add')}>
