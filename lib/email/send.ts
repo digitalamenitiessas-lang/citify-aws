@@ -1,4 +1,4 @@
-import { sendEmail as sendViaSes } from '@/lib/aws/ses'
+import { sendEmail as sendViaProvider } from '@/lib/email/provider'
 import { pgQuery } from '@/lib/db/postgres'
 import type {
   EmailPreferenceKey,
@@ -155,7 +155,7 @@ export async function sendNotificationEmail(input: SendInput): Promise<SendResul
 
   // 3) Envio
   try {
-    const { messageId } = await sendViaSes({
+    const { messageId } = await sendViaProvider({
       to: to.email,
       subject,
       bodyText: text,

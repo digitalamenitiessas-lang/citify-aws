@@ -1,0 +1,49 @@
+{
+  "Comment": "Resend email verification records for citify.com.ar",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "resend._domainkey.citify.com.ar.",
+        "Type": "TXT",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "\"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDEz+uyPGd/BWTMzRjJs9y2jdQraLHzLkau6yHfas1owbevcLqh5fg4RJfu7ei5ZK0WROfsLdnrCBDfuo7vV/1cDwW0xBQAYvi9g8PljuJ4FBJs1XaretpPZsGxnYjDOdoca+4LzBh23RN7YNLkMHwdmFsPxprQuJZTyPsI3fpoiQIDAQAB\"" }
+        ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "send.citify.com.ar.",
+        "Type": "MX",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "10 feedback-smtp.us-east-1.amazonses.com" }
+        ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "send.citify.com.ar.",
+        "Type": "TXT",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "\"v=spf1 include:amazonses.com ~all\"" }
+        ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "_dmarc.citify.com.ar.",
+        "Type": "TXT",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "\"v=DMARC1; p=none;\"" }
+        ]
+      }
+    }
+  ]
+}

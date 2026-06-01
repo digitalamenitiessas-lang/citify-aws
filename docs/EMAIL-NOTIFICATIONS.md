@@ -20,15 +20,44 @@ admins, negocio admins), con:
 
 ## Stack
 
-- **Sender**: AWS SES v2, dominio `citify.com.ar` verificado + DKIM.
-- **Eventos**: SES → SNS topic `citify-ses-events` → webhook
-  `POST /api/email/ses-webhook` → tabla `email_events`.
-- **Config set**: `citify-default` (publica BOUNCE/COMPLAINT/DELIVERY).
-- **From**: `noreply@citify.com.ar`.
+- **Sender**: **Resend** (AWS no aprobó SES producción → migramos). Dominio
+  `citify.com.ar` verificado en Resend con SPF + DKIM. SES queda como
+  fallback seleccionable.
+- **Selector de proveedor**: `lib/email/provider.ts` decide Resend vs SES
+  según `EMAIL_PROVIDER` (o auto: Resend si hay `RESEND_API_KEY`). Tanto
+  `lib/aws/ses.ts#sendEmail` como `lib/email/resend.ts#sendEmail` comparten
+  la firma `SendEmailInput → { messageId }`, así `sendNotificationEmail` no
+  cambia.
+- **Eventos**: Resend → webhook `POST /api/email/resend-webhook` (firma Svix
+  con `RESEND_WEBHOOK_SECRET`) → tabla `email_events`. El viejo
+  `POST /api/email/ses-webhook` (SNS) queda inactivo mientras `EMAIL_PROVIDER`
+  no sea `ses`.
+- **From**: `RESEND_FROM_ADDRESS` (ej. `Citify <noreply@citify.com.ar>`).
 - **Templates**: strings + helpers en `lib/email/templates/`, layout
-  compartido en `lib/email/layout.ts`.
+  compartido en `lib/email/layout.ts` (sin cambios).
 - **Reset de password**: flujo propio con magic link, tabla
   `password_reset_tokens` (token hasheado, TTL 24h, single-use).
+
+### Variables de entorno (Resend)
+
+| Var | Requerida | Default | Notas |
+|---|---|---|---|
+| `RESEND_API_KEY` | sí | — | API key del dashboard de Resend. |
+| `RESEND_FROM_ADDRESS` | no | `Citify <noreply@citify.com.ar>` | From verificado. Cae a `EMAIL_FROM_ADDRESS` / `SES_FROM_ADDRESS`. |
+| `RESEND_WEBHOOK_SECRET` | sí (prod) | — | `whsec_...` del webhook en Resend. Verifica firma Svix. |
+| `EMAIL_PROVIDER` | no | auto | `resend` \| `ses`. Auto = Resend si hay API key. |
+| `ALLOW_UNSIGNED_EMAIL_WEBHOOK` | no | — | `1` en dev para saltear verificación de firma. |
+
+### Setup en Resend (una vez)
+
+1. Crear cuenta y agregar dominio `citify.com.ar` en Resend → Domains.
+2. Cargar los registros DNS (SPF/DKIM/`return-path` MX) que indica el panel
+   en la zona de `citify.com.ar`. Esperar estado **Verified**.
+3. Crear API key (scope full o sending) → `RESEND_API_KEY`.
+4. En Webhooks, agregar endpoint `https://<dominio>/api/email/resend-webhook`
+   con eventos `email.bounced`, `email.complained`, `email.delivered`.
+   Copiar el signing secret → `RESEND_WEBHOOK_SECRET`.
+5. Probar: disparar un welcome a un inbox real y verificar `email_events`.
 
 ## Decisiones tomadas
 
@@ -39,13 +68,16 @@ admins, negocio admins), con:
 | Preferencias | Granular por tipo (`complaints`, `liquidations`, `announcements`, `promotions`) |
 | Orden | Foundation primero, después auth, después consorcio |
 
-## Estado SES
+## Estado del envío
 
-- Dominio `citify.com.ar`: **VERIFIED**, DKIM `SUCCESS`.
-- Cuenta: **SANDBOX** (200/día, 1/s). Producción solicitada — case
-  `177930958100136` denied una vez, respondido con detalle. Pendiente
-  re-review.
-- Addresses verificadas para testing en sandbox:
+- **Proveedor activo: Resend** (migrado desde SES). Code-side ya está listo
+  (`lib/email/resend.ts` + `lib/email/provider.ts` + webhook). Falta el setup
+  operativo: verificar dominio en Resend, cargar las env vars y probar a un
+  inbox real.
+- **SES**: queda como fallback (`EMAIL_PROVIDER=ses`). Sigue en **SANDBOX**
+  (AWS no aprobó producción, case `177930958100136`), por eso no es el default.
+  Dominio `citify.com.ar` VERIFIED + DKIM `SUCCESS` en SES.
+- Addresses verificadas para testing histórico en sandbox SES:
   - `digitalamenitiessas@gmail.com`
   - `lucianobonilla27@gmail.com`
 
