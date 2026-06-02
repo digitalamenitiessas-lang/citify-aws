@@ -178,13 +178,17 @@ function normalizeUnitKind(raw: unknown): string {
   return 'otro'
 }
 
+// No asumir 'propietario': si la columna no vino o no se reconoce, dejamos el
+// vínculo neutro 'otro'. El admin lo corrige después en la unidad. Asumir
+// propietario etiquetaba mal a todos los titulares cuando el Excel no traía
+// una columna de tipo.
 function normalizeHolderKind(raw: unknown): string {
   const s = String(raw ?? '').toLowerCase().trim()
-  if (!s) return 'propietario'
+  if (!s) return 'otro'
   for (const [k, v] of Object.entries(holderKindMap)) {
     if (s.includes(k)) return v
   }
-  return 'propietario'
+  return 'otro'
 }
 
 function normalizeProrata(raw: unknown): number | null {

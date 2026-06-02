@@ -493,6 +493,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
             {units.map((unit) => {
               const isExpanded = expandedUnitId === unit.id
               const activeHolders = unit.holders.filter((h) => h.isActive)
+              const activeMemberships = unit.memberships.filter((m) => m.active)
               const isEditing = editingUnitId === unit.id
               const isAddingHolder = addingHolderFor === unit.id
               const isAddingUser = addingUserFor === unit.id
@@ -507,16 +508,32 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
                       {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-foreground">{unit.code}</span>
                         <span className="text-xs text-muted-foreground capitalize">{unit.kind}</span>
                         {!unit.isActive ? <span className="text-xs bg-muted px-1.5 py-0.5 rounded">inactiva</span> : null}
+                        {activeMemberships.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800 border border-emerald-200">
+                            <UserCheck className="w-2.5 h-2.5" />
+                            {activeMemberships.length} usuario{activeMemberships.length === 1 ? '' : 's'}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {activeHolders.length > 0
-                          ? activeHolders.map((h) => `${h.holderKind}: ${h.fullName}`).join(' · ')
-                          : 'sin titulares activos'}
-                      </div>
+                      {activeHolders.length > 0 ? (
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                          {activeHolders.map((h) => (
+                            <span key={h.id} className="text-muted-foreground">
+                              <span className="capitalize text-foreground/70">{h.holderKind}</span>
+                              {': '}
+                              <span className="text-foreground">{h.fullName}</span>
+                              {h.email ? <span className="text-muted-foreground/70"> · {h.email}</span> : null}
+                              {h.phone ? <span className="text-muted-foreground/70"> · {h.phone}</span> : null}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-0.5 text-xs text-muted-foreground italic">sin titulares activos</div>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground tabular-nums shrink-0">
                       {unit.prorataCoefficient !== null ? `${(unit.prorataCoefficient * 100).toFixed(2)}%` : '—'}
