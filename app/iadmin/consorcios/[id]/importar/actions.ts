@@ -191,6 +191,18 @@ function normalizeHolderKind(raw: unknown): string {
   return 'otro'
 }
 
+// Trata guiones/placeholders ("-", "–", "—", "n/a", "s/d", "sin datos", "null")
+// como celda vacía. Sin esto, una celda con "–" se importaba como un titular
+// fantasma llamado "–".
+function cleanCell(raw: unknown): string {
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  if (/^[-–—.]+$/.test(s)) return ''
+  const low = s.toLowerCase().replace(/[\s./]/g, '')
+  if (['na', 'sd', 'sindatos', 'sininfo', 's/d', 'null', 'none', 'nc'].includes(low)) return ''
+  return s
+}
+
 function normalizeProrata(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === '') return null
   const s = String(raw).replace('%', '').replace(',', '.').trim()
@@ -271,8 +283,7 @@ export async function importUnitsAndHolders(
     }
 
     const kind = normalizeUnitKind(readField(row, 'unit_kind'))
-    const floorRaw = readField(row, 'floor')
-    const floor = floorRaw !== undefined ? String(floorRaw).trim() : null
+    const floor = cleanCell(readField(row, 'floor')) || null
     const surface = normalizeNumber(readField(row, 'surface_m2'))
     const prorata = normalizeProrata(readField(row, 'prorata_percent'))
 
@@ -304,12 +315,11 @@ export async function importUnitsAndHolders(
       continue
     }
 
-    const rawHolderName = readField(row, 'holder_name')
-    const holderName = rawHolderName ? String(rawHolderName).trim() : ''
+    const holderName = cleanCell(readField(row, 'holder_name'))
     const holderKind = normalizeHolderKind(readField(row, 'holder_kind'))
-    const holderTaxId = readField(row, 'holder_tax_id')
-    const holderEmail = readField(row, 'holder_email')
-    const holderPhone = readField(row, 'holder_phone')
+    const holderTaxId = cleanCell(readField(row, 'holder_tax_id'))
+    const holderEmail = cleanCell(readField(row, 'holder_email'))
+    const holderPhone = cleanCell(readField(row, 'holder_phone'))
 
     if (holderName) {
       if (parsed.replaceActiveHolders) {
@@ -320,9 +330,9 @@ export async function importUnitsAndHolders(
           unitId,
           fullName: holderName,
           holderKind,
-          taxId: holderTaxId ? String(holderTaxId).trim() : null,
-          email: holderEmail ? String(holderEmail).trim() : null,
-          phone: holderPhone ? String(holderPhone).trim() : null,
+          taxId: holderTaxId || null,
+          email: holderEmail || null,
+          phone: holderPhone || null,
         })
         result.holdersCreated += 1
       } catch {
@@ -333,8 +343,7 @@ export async function importUnitsAndHolders(
     // --- Propietario adicional (solo a fines de control y contacto) ---
     // Sólo lo creamos si vino owner_name, es distinto del titular principal
     // y el titular principal NO es ya un propietario (para no duplicar).
-    const rawOwnerName = readField(row, 'owner_name')
-    const ownerName = rawOwnerName ? String(rawOwnerName).trim() : ''
+    const ownerName = cleanCell(readField(row, 'owner_name'))
     const sameAsHolder =
       ownerName !== '' &&
       holderName !== '' &&
@@ -342,9 +351,9 @@ export async function importUnitsAndHolders(
     const holderIsAlreadyOwner = holderName !== '' && holderKind === 'propietario'
 
     if (ownerName && !sameAsHolder && !holderIsAlreadyOwner) {
-      const ownerTaxId = readField(row, 'owner_tax_id')
-      const ownerEmail = readField(row, 'owner_email')
-      const ownerPhone = readField(row, 'owner_phone')
+      const ownerTaxId = cleanCell(readField(row, 'owner_tax_id'))
+      const ownerEmail = cleanCell(readField(row, 'owner_email'))
+      const ownerPhone = cleanCell(readField(row, 'owner_phone'))
 
       if (parsed.replaceActiveHolders) {
         await closeActiveHoldersOfKindInPostgres({ unitId, holderKind: 'propietario' })
@@ -355,9 +364,9 @@ export async function importUnitsAndHolders(
           unitId,
           fullName: ownerName,
           holderKind: 'propietario',
-          taxId: ownerTaxId ? String(ownerTaxId).trim() : null,
-          email: ownerEmail ? String(ownerEmail).trim() : null,
-          phone: ownerPhone ? String(ownerPhone).trim() : null,
+          taxId: ownerTaxId || null,
+          email: ownerEmail || null,
+          phone: ownerPhone || null,
         })
         result.ownersCreated += 1
       } catch {
