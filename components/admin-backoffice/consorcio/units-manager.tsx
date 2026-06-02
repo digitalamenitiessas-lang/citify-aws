@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Sparkles, UploadCloud, UserPlus, Users, UserX } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Sparkles, UploadCloud, UserCheck, UserPlus, Users, UserX } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import type { IAdminHolderKind, IAdminLinkableProfile, IAdminUnitKind, IAdminUnitWithHolders } from '@/lib/types'
 import {
+  createAccessForHolder,
   createUnitUser,
   createUnit,
   createUnitHolder,
@@ -117,6 +118,8 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
   const [expandedUnitId, setExpandedUnitId] = useState<string | null>(null)
   const [addingHolderFor, setAddingHolderFor] = useState<string | null>(null)
   const [addingUserFor, setAddingUserFor] = useState<string | null>(null)
+  // Contacto (holder) para el que se está por crear el acceso/login.
+  const [accessDraft, setAccessDraft] = useState<{ holderId: string; isResponsableDePago: boolean } | null>(null)
   const [holderDraft, setHolderDraft] = useState({
     fullName: '',
     holderKind: 'propietario' as IAdminHolderKind,
@@ -128,6 +131,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
   })
   const [userDraft, setUserDraft] = useState({
     relationshipType: 'vecino_principal' as (typeof UNIT_USER_OPTIONS)[number]['value'],
+    holderKind: 'propietario' as IAdminHolderKind,
     fullName: '',
     email: '',
     phone: '',
@@ -250,6 +254,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
   function resetUserDraft() {
     setUserDraft({
       relationshipType: 'vecino_principal',
+      holderKind: 'propietario',
       fullName: '',
       email: '',
       phone: '',
@@ -289,6 +294,7 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
         await createUnitUser({
           unitId,
           relationshipType: userDraft.relationshipType,
+          holderKind: userDraft.holderKind,
           fullName: userDraft.fullName.trim(),
           email: userDraft.email.trim(),
           phone: userDraft.phone.trim() || null,
@@ -297,6 +303,23 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
         })
         toast.success('Usuario vinculado a la unidad')
         resetUserDraft()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error')
+      }
+    })
+  }
+
+  function submitCreateAccess() {
+    if (!accessDraft) return
+    const draft = accessDraft
+    startTransition(async () => {
+      try {
+        await createAccessForHolder({
+          holderId: draft.holderId,
+          isResponsableDePago: draft.isResponsableDePago,
+        })
+        toast.success('Acceso creado: se envió la contraseña temporal por mail')
+        setAccessDraft(null)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
       }
@@ -565,26 +588,72 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
                         ) : (
                           <ul className="space-y-1.5">
                             {unit.holders.map((h) => (
-                              <li key={h.id} className="flex items-center justify-between text-xs rounded-md bg-background px-3 py-2 border border-border/40">
-                                <div>
-                                  <div className="font-medium text-foreground">
-                                    {h.fullName} <span className="text-muted-foreground capitalize font-normal">· {h.holderKind}</span>
+                              <li key={h.id} className="text-xs rounded-md bg-background px-3 py-2 border border-border/40">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+                                      <span>
+                                        {h.fullName} <span className="text-muted-foreground capitalize font-normal">· {h.holderKind}</span>
+                                      </span>
+                                      {h.profileId ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800 border border-emerald-200">
+                                          <UserCheck className="w-2.5 h-2.5" /> con usuario
+                                        </span>
+                                      ) : h.isActive ? (
+                                        <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/40">
+                                          sin usuario
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      {h.isActive ? (
+                                        <>desde {h.startDate ?? '—'}</>
+                                      ) : (
+                                        <>del {h.startDate ?? '—'} al {h.endDate ?? '—'}</>
+                                      )}
+                                      {h.email ? ` · ${h.email}` : ''}
+                                      {h.phone ? ` · ${h.phone}` : ''}
+                                    </div>
                                   </div>
-                                  <div className="text-muted-foreground">
-                                    {h.isActive ? (
-                                      <>desde {h.startDate ?? '—'}</>
-                                    ) : (
-                                      <>del {h.startDate ?? '—'} al {h.endDate ?? '—'}</>
-                                    )}
-                                    {h.email ? ` · ${h.email}` : ''}
-                                    {h.phone ? ` · ${h.phone}` : ''}
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {h.isActive && canManageHolders && !h.profileId && h.email && accessDraft?.holderId !== h.id ? (
+                                      <Button size="sm" variant="outline" disabled={pending} onClick={() => setAccessDraft({ holderId: h.id, isResponsableDePago: false })}>
+                                        <UserPlus className="w-3.5 h-3.5 mr-1" />
+                                        Crear acceso
+                                      </Button>
+                                    ) : null}
+                                    {h.isActive && canManageHolders ? (
+                                      <Button size="sm" variant="ghost" disabled={pending} onClick={() => handleEndHolder(h.id)}>
+                                        <UserX className="w-3.5 h-3.5 mr-1" />
+                                        Finalizar
+                                      </Button>
+                                    ) : null}
                                   </div>
                                 </div>
-                                {h.isActive && canManageHolders ? (
-                                  <Button size="sm" variant="ghost" disabled={pending} onClick={() => handleEndHolder(h.id)}>
-                                    <UserX className="w-3.5 h-3.5 mr-1" />
-                                    Finalizar
-                                  </Button>
+                                {h.isActive && canManageHolders && !h.profileId && !h.email ? (
+                                  <div className="mt-1.5 text-[11px] text-muted-foreground italic">
+                                    Agregá un email a este contacto para poder crearle un usuario.
+                                  </div>
+                                ) : null}
+                                {accessDraft?.holderId === h.id ? (
+                                  <div className="mt-2 rounded-md border border-border/50 bg-muted/30 p-2 space-y-2">
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Se creará un usuario para <b className="text-foreground">{h.email}</b> con una contraseña
+                                      temporal enviada por mail. En el primer ingreso deberá cambiarla.
+                                    </p>
+                                    <label className="flex items-center gap-2 text-xs text-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessDraft.isResponsableDePago}
+                                        onChange={(e) => setAccessDraft({ holderId: h.id, isResponsableDePago: e.target.checked })}
+                                      />
+                                      Responsable de pago (vecino principal de la unidad)
+                                    </label>
+                                    <div className="flex justify-end gap-2">
+                                      <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setAccessDraft(null)}>Cancelar</Button>
+                                      <Button type="button" size="sm" disabled={pending} onClick={submitCreateAccess}>Crear acceso</Button>
+                                    </div>
+                                  </div>
                                 ) : null}
                               </li>
                             ))}
@@ -783,15 +852,30 @@ export function UnitsManager({ propertyId, units, linkableProfiles, canManageUni
                               <div className="relative flex justify-center text-[10px] uppercase tracking-wider"><span className="bg-background px-2 text-muted-foreground">o crear nuevo</span></div>
                             </div>
                           <form onSubmit={(e) => submitUnitUser(e, unit.id)} className="space-y-3">
+                            <p className="text-[11px] text-muted-foreground">
+                              Crea el contacto y su usuario en un paso. Si ya cargaste el contacto, usá <b>Crear acceso</b> en la lista de titulares para no repetir datos.
+                            </p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <div className="space-y-1.5">
-                                <Label>Tipo de vinculo</Label>
+                                <Label>Responsable de pago</Label>
                                 <select
                                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                   value={userDraft.relationshipType}
                                   onChange={(e) => setUserDraft({ ...userDraft, relationshipType: e.target.value as typeof userDraft.relationshipType })}
                                 >
                                   {UNIT_USER_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Vínculo legal con la unidad</Label>
+                                <select
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                  value={userDraft.holderKind}
+                                  onChange={(e) => setUserDraft({ ...userDraft, holderKind: e.target.value as IAdminHolderKind })}
+                                >
+                                  {HOLDER_KIND_OPTIONS.map((opt) => (
                                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                                   ))}
                                 </select>

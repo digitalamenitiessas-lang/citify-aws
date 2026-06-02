@@ -18,6 +18,14 @@ type Props = {
 }
 
 type Relationship = 'vecino_principal' | 'vecino_adicional'
+type HolderKind = 'propietario' | 'inquilino' | 'apoderado' | 'otro'
+
+const HOLDER_KIND_OPTIONS: Array<{ value: HolderKind; label: string }> = [
+  { value: 'propietario', label: 'Propietario' },
+  { value: 'inquilino', label: 'Inquilino' },
+  { value: 'apoderado', label: 'Apoderado' },
+  { value: 'otro', label: 'Otro' },
+]
 
 type EditableRow = {
   // id local estable para keys de React (no se manda al server).
@@ -56,6 +64,9 @@ export function BulkUnitUsersWizard({ administrationId, propertyId, propertyName
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [validating, setValidating] = useState(false)
   const [result, setResult] = useState<ConfirmBulkResult | null>(null)
+  // Vínculo legal por defecto para contactos NUEVOS (sin holder previo con ese
+  // email). No se asume: el admin lo elige. Si el contacto ya existe, se respeta.
+  const [defaultHolderKind, setDefaultHolderKind] = useState<HolderKind>('propietario')
   const [pending, startTransition] = useTransition()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -158,7 +169,7 @@ export function BulkUnitUsersWizard({ administrationId, propertyId, propertyName
 
     startTransition(async () => {
       try {
-        const res = await confirmBulkUnitUsers({ administrationId, propertyId, rows: toCreate })
+        const res = await confirmBulkUnitUsers({ administrationId, propertyId, rows: toCreate, defaultHolderKind })
         setResult(res)
         setPhase('done')
       } catch (err) {
@@ -427,6 +438,26 @@ export function BulkUnitUsersWizard({ administrationId, propertyId, propertyName
                 </p>
               )
             })}
+          </div>
+        )}
+
+        {summary && summary.willCreate > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-sm">
+            <label className="text-muted-foreground">
+              Vínculo legal para los <b className="text-foreground">{summary.willCreate}</b> contactos nuevos:
+            </label>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+              value={defaultHolderKind}
+              onChange={(e) => setDefaultHolderKind(e.target.value as HolderKind)}
+            >
+              {HOLDER_KIND_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <span className="text-[11px] text-muted-foreground">
+              Si el contacto ya existe (mismo email en la unidad), se respeta su vínculo.
+            </span>
           </div>
         )}
 

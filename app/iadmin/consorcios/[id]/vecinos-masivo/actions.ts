@@ -180,6 +180,10 @@ const confirmSchema = z.object({
   administrationId: z.string().uuid(),
   propertyId: z.string().uuid(),
   rows: z.array(confirmRowSchema).min(1).max(500),
+  // Vínculo legal a usar SÓLO para contactos nuevos (sin holder previo con ese
+  // email). No se asume: el wizard lo pide. Si ya existe el contacto, se respeta
+  // su vínculo y este valor se ignora.
+  defaultHolderKind: z.enum(['propietario', 'inquilino', 'apoderado', 'otro']).default('otro'),
 })
 
 export interface ConfirmBulkResult {
@@ -230,6 +234,7 @@ export async function confirmBulkUnitUsers(
         relationshipType: row.relationshipType,
         actorProfileId: profile.id,
         via: 'bulk',
+        holderKind: parsed.defaultHolderKind,
       })
 
       if (result.created) {

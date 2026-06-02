@@ -20,6 +20,7 @@ import {
   findUnitProfileMembershipFromPostgres,
   getAccountingPeriodWithAdminFromPostgres,
   getBuildingIdForPropertyFromPostgres,
+  getHolderForAccessFromPostgres,
   getHolderWithAdminFromPostgres,
   getManagedPropertyAdminIdFromPostgres,
   getManagedPropertyOperationalSettingsFromPostgres,
@@ -429,6 +430,11 @@ export async function endUnitHolder(input: z.input<typeof endHolderSchema>) {
 const createUnitUserSchema = z.object({
   unitId: z.string().uuid(),
   relationshipType: z.enum(['vecino_principal', 'vecino_adicional']),
+  // Vínculo legal del contacto que se crea junto con el usuario. Se pide
+  // explícitamente (no se asume propietario). Sólo se usa si hay que crear un
+  // holder nuevo; si ya existe un contacto con ese email, se linkea y se respeta
+  // su vínculo actual.
+  holderKind: z.enum(['propietario', 'inquilino', 'apoderado', 'otro']),
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(160),
   phone: z.string().trim().max(40).nullable().optional(),
@@ -461,6 +467,7 @@ export async function createUnitUser(input: z.input<typeof createUnitUserSchema>
     actorProfileId: profile.id,
     password: parsed.password,
     via: 'individual',
+    holderKind: parsed.holderKind,
   })
 
   // Mail de bienvenida con credenciales (best-effort; sólo si se creó el perfil).
@@ -471,6 +478,64 @@ export async function createUnitUser(input: z.input<typeof createUnitUserSchema>
   })
 
   revalidatePath(`/iadmin/consorcios/${scope.managedPropertyId}`)
+  return { profileId: result.profileId }
+}
+
+// Crea el acceso (login) para un contacto YA existente. Toma nombre+email del
+// holder (no se re-piden) y linkea el perfil al holder vía profile_id. El
+// vínculo legal queda como está en el contacto (acá no se pregunta nada). El eje
+// "responsable de pago" se elige con isResponsableDePago → relationship_type.
+const createAccessForHolderSchema = z.object({
+  holderId: z.string().uuid(),
+  isResponsableDePago: z.boolean().optional().default(false),
+})
+
+export async function createAccessForHolder(
+  input: z.input<typeof createAccessForHolderSchema>,
+) {
+  const parsed = createAccessForHolderSchema.parse(input)
+
+  const holder = await getHolderForAccessFromPostgres(parsed.holderId)
+  if (!holder) throw new Error('Contacto no encontrado')
+  if (!holder.is_active) throw new Error('El contacto no está activo')
+  if (holder.profile_id) throw new Error('Este contacto ya tiene un usuario asociado')
+
+  const email = holder.email?.trim()
+  if (!email) {
+    throw new Error('Agregá un email al contacto antes de crear su acceso')
+  }
+  if (holder.full_name.trim().length < 2) {
+    throw new Error('El contacto necesita un nombre válido para crear el acceso')
+  }
+
+  const { profile } = await requireIAdmin({
+    capability: 'holders.manage',
+    administrationId: holder.administration_id,
+  })
+
+  const result = await ensureUnitUserWithCredentials({
+    scope: {
+      unitId: holder.unit_id,
+      unitCode: holder.unit_code,
+      buildingId: holder.building_id,
+      administrationId: holder.administration_id,
+    },
+    fullName: holder.full_name,
+    email,
+    phone: holder.phone,
+    relationshipType: parsed.isResponsableDePago ? 'vecino_principal' : 'vecino_adicional',
+    actorProfileId: profile.id,
+    via: 'from_holder',
+    holderId: holder.id,
+  })
+
+  void sendWelcomeEmail({
+    profileId: result.profileId,
+    reason: 'neighbor_added',
+    temporaryPassword: result.temporaryPassword ?? undefined,
+  })
+
+  revalidatePath(`/iadmin/consorcios/${holder.managed_property_id}`)
   return { profileId: result.profileId }
 }
 

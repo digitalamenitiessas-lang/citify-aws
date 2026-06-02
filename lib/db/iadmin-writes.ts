@@ -990,6 +990,100 @@ export async function getHolderWithAdminFromPostgres(holderId: string): Promise<
   return result.rows[0] ?? null
 }
 
+// Vincula un holder (contacto) a un perfil (login). Es el puente que convierte
+// un contacto en "contacto con usuario". Forward-only: sólo se setea cuando se
+// crea/da acceso desde los flujos nuevos.
+export async function setUnitHolderProfileIdInPostgres(input: {
+  holderId: string
+  profileId: string
+}): Promise<void> {
+  await pgQuery(
+    `update public.iadmin_unit_holders set profile_id = $2, updated_at = now() where id = $1`,
+    [input.holderId, input.profileId],
+  )
+}
+
+// Busca un holder ACTIVO de la unidad cuyo email coincida (normalizado). Sirve
+// para reconciliar: si ya existe el contacto, los flujos de login lo linkean en
+// vez de crear un holder duplicado.
+export async function findActiveUnitHolderByEmailInPostgres(input: {
+  unitId: string
+  email: string
+}): Promise<{
+  id: string
+  profile_id: string | null
+  full_name: string
+  email: string | null
+  phone: string | null
+  holder_kind: string
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    profile_id: string | null
+    full_name: string
+    email: string | null
+    phone: string | null
+    holder_kind: string
+  }>(
+    `
+      select id, profile_id, full_name, email, phone, holder_kind
+      from public.iadmin_unit_holders
+      where unit_id = $1
+        and is_active = true
+        and email is not null
+        and lower(trim(email)) = lower(trim($2))
+      order by created_at asc
+      limit 1
+    `,
+    [input.unitId, input.email],
+  )
+  return result.rows[0] ?? null
+}
+
+// Holder completo + scope de la unidad, para "crear acceso desde contacto".
+export async function getHolderForAccessFromPostgres(holderId: string): Promise<{
+  id: string
+  unit_id: string
+  unit_code: string
+  managed_property_id: string
+  administration_id: string
+  building_id: string
+  profile_id: string | null
+  full_name: string
+  email: string | null
+  phone: string | null
+  holder_kind: string
+  is_active: boolean
+} | null> {
+  const result = await pgQuery<{
+    id: string
+    unit_id: string
+    unit_code: string
+    managed_property_id: string
+    administration_id: string
+    building_id: string
+    profile_id: string | null
+    full_name: string
+    email: string | null
+    phone: string | null
+    holder_kind: string
+    is_active: boolean
+  }>(
+    `
+      select h.id, h.unit_id, u.code as unit_code, u.managed_property_id,
+             mp.administration_id, mp.building_id,
+             h.profile_id, h.full_name, h.email, h.phone, h.holder_kind, h.is_active
+      from public.iadmin_unit_holders h
+      inner join public.iadmin_units u on u.id = h.unit_id
+      inner join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      where h.id = $1
+      limit 1
+    `,
+    [holderId],
+  )
+  return result.rows[0] ?? null
+}
+
 export async function endHolderInPostgres(input: {
   holderId: string
   endDate: string

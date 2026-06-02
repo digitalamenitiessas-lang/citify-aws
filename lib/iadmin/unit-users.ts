@@ -5,13 +5,16 @@
 // poder compartir helpers entre múltiples server actions sin las restricciones
 // de export de Next.js.
 
-import type { UnitProfileRelationship } from '@/lib/types'
+import type { IAdminHolderKind, UnitProfileRelationship } from '@/lib/types'
 import { adminCreateCognitoUser, generateTempPassword } from '@/lib/aws/cognito'
 import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import {
   deactivateActivePrincipalMembershipsInPostgres,
+  findActiveUnitHolderByEmailInPostgres,
   findUnitProfileMembershipFromPostgres,
+  insertUnitHolderFromCrudInPostgres,
+  setUnitHolderProfileIdInPostgres,
   upsertUnitProfileMembershipInPostgres,
 } from '@/lib/db/iadmin-writes'
 
@@ -43,7 +46,15 @@ export interface EnsureUnitUserInput {
   // Contraseña explícita (form individual); si falta se genera una temporal.
   password?: string
   // Para distinguir el origen en el audit log.
-  via: 'individual' | 'bulk'
+  via: 'individual' | 'bulk' | 'from_holder'
+  // Holder (contacto) ya existente al que linkear el login. Si se pasa, se usa
+  // ese holder directamente (caso "crear acceso desde contacto"). Si no, se
+  // reconcilia por email en la unidad y, si no hay match, se crea un holder
+  // nuevo usando `holderKind`.
+  holderId?: string
+  // Vínculo legal a usar SÓLO si hay que crear un holder nuevo (no se asume:
+  // los flujos lo piden). Si falta como última red, cae a 'otro' (neutral).
+  holderKind?: IAdminHolderKind
 }
 
 export interface EnsureUnitUserResult {
@@ -110,6 +121,37 @@ export async function ensureUnitUserWithCredentials(
     isPrimary: false,
     createdByProfileId: input.actorProfileId,
   })
+
+  // --- Puente contacto ↔ usuario (holder canónico) ---
+  // Todo login queda asociado a un holder (contacto). Orden de preferencia:
+  //   1) holderId explícito (caso "crear acceso desde un contacto existente").
+  //   2) holder activo de la unidad cuyo email coincide → se linkea (no duplica).
+  //   3) no hay contacto previo → se crea un holder mínimo con el vínculo legal
+  //      provisto (holderKind). No se asume propietario; si faltara, 'otro'.
+  if (input.holderId) {
+    await setUnitHolderProfileIdInPostgres({ holderId: input.holderId, profileId })
+  } else {
+    const matched = await findActiveUnitHolderByEmailInPostgres({
+      unitId: scope.unitId,
+      email: normalizedEmail,
+    })
+    if (matched) {
+      if (matched.profile_id !== profileId) {
+        await setUnitHolderProfileIdInPostgres({ holderId: matched.id, profileId })
+      }
+    } else {
+      const { id: newHolderId } = await insertUnitHolderFromCrudInPostgres({
+        unitId: scope.unitId,
+        fullName: input.fullName,
+        holderKind: input.holderKind ?? 'otro',
+        taxId: null,
+        email: normalizedEmail,
+        phone: input.phone,
+        startDate: null,
+      })
+      await setUnitHolderProfileIdInPostgres({ holderId: newHolderId, profileId })
+    }
+  }
 
   await insertIAdminAuditLogInPostgres({
     administrationId: scope.administrationId,
