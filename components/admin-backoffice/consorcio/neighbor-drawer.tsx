@@ -430,6 +430,18 @@ function MonthRow({ month }: { month: IAdminUnitAccountMonth }) {
         </div>
       ) : hasData ? (
         <>
+          {month.previousBalance > 0.009 ? (
+            <div className="mt-1.5 flex items-center justify-between gap-2 rounded bg-muted/30 border border-border/40 px-1.5 py-1 text-[10px] tabular-nums">
+              <span className="text-muted-foreground">
+                expensas del mes{' '}
+                <b className="text-foreground">$ {formatARS(month.ordinary + month.extraordinary)}</b>
+              </span>
+              <span className="inline-flex items-center gap-1 text-sky-800">
+                <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+                arrastrado <b className="tabular-nums">$ {formatARS(month.previousBalance)}</b>
+              </span>
+            </div>
+          ) : null}
           <div className="mt-1.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
             <div
               className={`h-full rounded-full transition-[width] duration-500 ${
