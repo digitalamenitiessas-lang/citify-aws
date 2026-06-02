@@ -33,10 +33,14 @@ const TARGET_OPTIONS: Array<{ value: ImportTargetField; label: string }> = [
   { value: 'holder_tax_id', label: 'CUIT / DNI' },
   { value: 'holder_email', label: 'Email' },
   { value: 'holder_phone', label: 'Teléfono' },
-  { value: 'owner_name', label: 'Nombre propietario (si no vive ahí)' },
+  { value: 'owner_name', label: 'Nombre propietario' },
   { value: 'owner_tax_id', label: 'CUIT / DNI propietario' },
   { value: 'owner_email', label: 'Email propietario' },
   { value: 'owner_phone', label: 'Teléfono propietario' },
+  { value: 'tenant_name', label: 'Nombre inquilino' },
+  { value: 'tenant_tax_id', label: 'CUIT / DNI inquilino' },
+  { value: 'tenant_email', label: 'Email inquilino' },
+  { value: 'tenant_phone', label: 'Teléfono inquilino' },
 ]
 
 export function UnitsImportWizard({ administrationId, propertyId, propertyName }: Props) {
@@ -69,38 +73,36 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
   function downloadTemplate() {
     const templateRows = [
       {
+        // Unidad habitada por su dueño: sólo se completa el propietario.
         'Unidad': '1A',
         'Tipo': 'departamento',
         'Piso': '1',
         'Superficie (m²)': 65,
         'Alícuota (%)': 4.5,
-        'Titular': 'Juan Pérez',
-        'Tipo titular': 'propietario',
-        'CUIT/DNI': '20-12345678-9',
-        'Email': 'juan@ejemplo.com',
-        'Teléfono': '+54 9 11 1234-5678',
-        'Propietario (si no vive)': '',
-        'CUIT/DNI propietario': '',
-        'Email propietario': '',
-        'Teléfono propietario': '',
+        'Propietario': 'Juan Pérez',
+        'CUIT/DNI propietario': '20-12345678-9',
+        'Email propietario': 'juan@ejemplo.com',
+        'Teléfono propietario': '+54 9 11 1234-5678',
+        'Inquilino': '',
+        'CUIT/DNI inquilino': '',
+        'Email inquilino': '',
+        'Teléfono inquilino': '',
       },
       {
+        // Unidad alquilada: dueño + inquilino se cargan como dos titulares.
         'Unidad': 'PB-B',
         'Tipo': 'local',
         'Piso': 'PB',
         'Superficie (m²)': 40,
         'Alícuota (%)': 3.2,
-        'Titular': 'Comercio SA',
-        'Tipo titular': 'inquilino',
-        'CUIT/DNI': '30-12345678-9',
-        'Email': '',
-        'Teléfono': '',
-        // Ejemplo: el local lo alquila Comercio SA pero el dueño es otra persona,
-        // se carga sólo como contacto.
-        'Propietario (si no vive)': 'María González',
+        'Propietario': 'María González',
         'CUIT/DNI propietario': '27-87654321-3',
         'Email propietario': 'maria.g@ejemplo.com',
         'Teléfono propietario': '+54 9 11 9876-5432',
+        'Inquilino': 'Comercio SA',
+        'CUIT/DNI inquilino': '30-12345678-9',
+        'Email inquilino': 'contacto@comercio.com',
+        'Teléfono inquilino': '+54 9 11 5555-1234',
       },
     ]
     const ws = XLSX.utils.json_to_sheet(templateRows)
@@ -209,11 +211,12 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
             </p>
           </div>
         </div>
-        <dl className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+        <dl className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
           <Stat label="Unidades nuevas" value={result.unitsCreated} tone="ok" />
           <Stat label="Unidades actualizadas" value={result.unitsUpdated} />
-          <Stat label="Titulares nuevos" value={result.holdersCreated} tone="ok" />
           <Stat label="Propietarios cargados" value={result.ownersCreated} tone="ok" />
+          <Stat label="Inquilinos cargados" value={result.tenantsCreated} tone="ok" />
+          <Stat label="Titulares (genérico)" value={result.holdersCreated} />
           <Stat label="Filas salteadas" value={result.skippedRows.length} tone={result.skippedRows.length > 0 ? 'warning' : 'ok'} />
         </dl>
         {result.skippedRows.length > 0 ? (
@@ -310,22 +313,21 @@ export function UnitsImportWizard({ administrationId, propertyId, propertyName }
               <span>• Piso</span>
               <span>• Superficie (m²)</span>
               <span>• Alícuota (% o decimal)</span>
-              <span>• Nombre del titular</span>
-              <span>• Tipo titular (propietario/inquilino)</span>
-              <span>• CUIT / DNI</span>
-              <span>• Email</span>
-              <span>• Teléfono</span>
-              <span>• Propietario (cuando no vive ahí)</span>
+              <span>• Propietario (nombre)</span>
               <span>• CUIT/Email/Tel. propietario</span>
+              <span>• Inquilino (nombre)</span>
+              <span>• CUIT/Email/Tel. inquilino</span>
+              <span>• Titular genérico (planilla simple)</span>
+              <span>• CUIT / Email / Teléfono</span>
             </div>
             <p className="mt-2 text-[10px] text-muted-foreground italic">
               Las columnas que no matchean se marcan como "ignorar" — podés cambiar el mapeo
               antes de confirmar. Lo que no esté en tu Excel queda en blanco para que lo completes después.
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground italic">
-              Si la unidad la usa un inquilino y querés guardar el contacto del dueño, completá
-              las columnas <strong>"Propietario"</strong>: se carga como contacto adicional sin
-              afectar la liquidación.
+              Si tu planilla separa <strong>"Propietario"</strong> e <strong>"Inquilino"</strong> en
+              columnas distintas, se crean los dos titulares (dueño + inquilino) en la unidad. Para
+              planillas con una sola persona por unidad usá las columnas de "Titular genérico".
             </p>
           </div>
         </div>
@@ -528,6 +530,10 @@ function PreviewTable({
     { field: 'owner_tax_id', label: 'CUIT prop.' },
     { field: 'owner_email', label: 'Email prop.' },
     { field: 'owner_phone', label: 'Tel. prop.' },
+    { field: 'tenant_name', label: 'Inquilino' },
+    { field: 'tenant_tax_id', label: 'CUIT inq.' },
+    { field: 'tenant_email', label: 'Email inq.' },
+    { field: 'tenant_phone', label: 'Tel. inq.' },
   ]
   const cols = previewCols.filter((c) => targetToSource[c.field])
 

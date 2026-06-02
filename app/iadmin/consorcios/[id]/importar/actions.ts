@@ -17,17 +17,25 @@ const targetFields = [
   'floor',
   'surface_m2',
   'prorata_percent',
+  // Titular genérico: para planillas simples con UNA columna de persona + una
+  // columna de tipo (propietario/inquilino/...). holder_kind define el vínculo.
   'holder_name',
   'holder_kind',
   'holder_tax_id',
   'holder_email',
   'holder_phone',
-  // Propietario (sólo a fines de control y contacto cuando NO vive en la unidad).
-  // Se mapea a un holder adicional con holder_kind='propietario'.
+  // Propietario (dueño). Siempre se crea como holder con kind='propietario'.
+  // Para planillas con columnas separadas Propietario + Inquilino.
   'owner_name',
   'owner_tax_id',
   'owner_email',
   'owner_phone',
+  // Inquilino. Siempre se crea como holder con kind='inquilino'.
+  'tenant_name',
+  'tenant_tax_id',
+  'tenant_email',
+  'tenant_phone',
+  // Estado de ocupación (Propietario/Alquilado) y otras columnas sin destino.
   'ignore',
 ] as const
 
@@ -44,10 +52,14 @@ const TARGET_LABELS: Record<ImportTargetField, string> = {
   holder_tax_id: 'CUIT / DNI',
   holder_email: 'Email titular',
   holder_phone: 'Teléfono titular',
-  owner_name: 'Nombre propietario (si no vive en la unidad)',
+  owner_name: 'Nombre propietario',
   owner_tax_id: 'CUIT / DNI propietario',
   owner_email: 'Email propietario',
   owner_phone: 'Teléfono propietario',
+  tenant_name: 'Nombre inquilino',
+  tenant_tax_id: 'CUIT / DNI inquilino',
+  tenant_email: 'Email inquilino',
+  tenant_phone: 'Teléfono inquilino',
   ignore: 'Ignorar columna',
 }
 
@@ -76,11 +88,15 @@ El sistema necesita estos campos posibles:
 - holder_tax_id: CUIT o DNI del titular principal
 - holder_email: email del titular principal
 - holder_phone: telefono del titular principal
-- owner_name: nombre del PROPIETARIO cuando NO vive en la unidad (ej. dueño que alquila). Se carga como contacto adicional.
-- owner_tax_id: CUIT o DNI del propietario (cuando no es el titular principal)
-- owner_email: email del propietario (cuando no es el titular principal)
-- owner_phone: telefono del propietario (cuando no es el titular principal)
-- ignore: columna que no matchea con ninguno de los anteriores
+- owner_name: nombre del PROPIETARIO (dueño de la unidad). Se crea como titular con vínculo "propietario".
+- owner_tax_id: CUIT o DNI del propietario
+- owner_email: email del propietario
+- owner_phone: telefono del propietario
+- tenant_name: nombre del INQUILINO (quien alquila / ocupa la unidad sin ser dueño). Se crea como titular con vínculo "inquilino".
+- tenant_tax_id: CUIT o DNI del inquilino
+- tenant_email: email del inquilino
+- tenant_phone: telefono del inquilino
+- ignore: columna que no matchea con ninguno de los anteriores (ej. "Estado Ocupación", "Vencimiento de contrato")
 
 Recibis los headers y muestras de filas del Excel del admin. Tu trabajo es devolver un JSON EXACTO que mapee cada header original al campo target correspondiente:
 
@@ -96,8 +112,11 @@ Reglas:
 - Si una columna tiene numeros entre 0 y 1 tipo 0.125, 0.15 es prorata_percent (decimal).
 - Si una columna tiene numeros tipo 12.5, 20.00, 100 es prorata_percent (porcentaje).
 - Si una columna tiene nombres tipo "Departamento", "Casa" es unit_kind.
-- Si el header menciona "propietario", "dueño", "owner" Y es distinto al titular principal (suele aparecer junto a un "Titular" o "Inquilino"), mapealo a owner_name/owner_email/owner_tax_id/owner_phone segun el dato.
-- Si en el Excel hay columnas tipo "Titular" + "Propietario" o "Inquilino" + "Dueño", el primero va a holder_* y el segundo a owner_*.
+- IMPORTANTE: si la planilla tiene columnas SEPARADAS para el dueño y para quien alquila (ej. "Propietario" + "Inquilino", o "Dueño" + "Locatario"), mapeá las del dueño a owner_* y las del inquilino a tenant_*. NO uses holder_* en ese caso.
+- Las columnas que mencionan "propietario", "dueño", "owner", "titular dominial" van a owner_name/owner_tax_id/owner_email/owner_phone.
+- Las columnas que mencionan "inquilino", "locatario", "tenant", "arrendatario" van a tenant_name/tenant_tax_id/tenant_email/tenant_phone.
+- Usá holder_* SOLO cuando hay UNA sola persona por unidad sin distinción de rol (planilla simple con una columna "Titular"/"Responsable" y opcionalmente una columna de tipo).
+- "Estado Ocupación" / "Ocupación" / "Vto. Contrato" / "Vencimiento" van a ignore.
 - Si no matchea con ninguno, devolver "ignore".
 - Devolvé SOLO el JSON, sin texto adicional.`
 
@@ -231,9 +250,12 @@ const importSchema = z.object({
 export type ImportResult = {
   unitsCreated: number
   unitsUpdated: number
+  /** Titulares genéricos creados desde columnas holder_* (planillas de una sola persona). */
   holdersCreated: number
-  /** Propietarios cargados como contacto adicional cuando vienen las columnas owner_*. */
+  /** Propietarios creados como titular con vínculo 'propietario' desde columnas owner_*. */
   ownersCreated: number
+  /** Inquilinos creados como titular con vínculo 'inquilino' desde columnas tenant_*. */
+  tenantsCreated: number
   holdersSkipped: number
   skippedRows: Array<{ index: number; reason: string }>
 }
@@ -263,8 +285,38 @@ export async function importUnitsAndHolders(
     unitsUpdated: 0,
     holdersCreated: 0,
     ownersCreated: 0,
+    tenantsCreated: 0,
     holdersSkipped: 0,
     skippedRows: [],
+  }
+
+  // Crea un holder (titular) de un vínculo dado, reemplazando los activos del
+  // mismo kind si replaceActiveHolders está habilitado. Devuelve true si insertó.
+  const createHolder = async (input: {
+    unitId: string
+    fullName: string
+    holderKind: string
+    taxId: string
+    email: string
+    phone: string
+  }): Promise<boolean> => {
+    if (parsed.replaceActiveHolders) {
+      await closeActiveHoldersOfKindInPostgres({ unitId: input.unitId, holderKind: input.holderKind })
+    }
+    try {
+      await insertUnitHolderInPostgres({
+        unitId: input.unitId,
+        fullName: input.fullName,
+        holderKind: input.holderKind,
+        taxId: input.taxId || null,
+        email: input.email || null,
+        phone: input.phone || null,
+      })
+      return true
+    } catch {
+      result.holdersSkipped += 1
+      return false
+    }
   }
 
   const existingUnitsRaw = await listUnitsByPropertyMinimalFromPostgres(parsed.propertyId)
@@ -315,63 +367,57 @@ export async function importUnitsAndHolders(
       continue
     }
 
-    const holderName = cleanCell(readField(row, 'holder_name'))
-    const holderKind = normalizeHolderKind(readField(row, 'holder_kind'))
-    const holderTaxId = cleanCell(readField(row, 'holder_tax_id'))
-    const holderEmail = cleanCell(readField(row, 'holder_email'))
-    const holderPhone = cleanCell(readField(row, 'holder_phone'))
-
-    if (holderName) {
-      if (parsed.replaceActiveHolders) {
-        await closeActiveHoldersOfKindInPostgres({ unitId, holderKind })
-      }
-      try {
-        await insertUnitHolderInPostgres({
-          unitId,
-          fullName: holderName,
-          holderKind,
-          taxId: holderTaxId || null,
-          email: holderEmail || null,
-          phone: holderPhone || null,
-        })
-        result.holdersCreated += 1
-      } catch {
-        result.holdersSkipped += 1
-      }
+    // --- Propietario (columnas owner_*) → titular con vínculo 'propietario' ---
+    const ownerName = cleanCell(readField(row, 'owner_name'))
+    if (ownerName) {
+      const created = await createHolder({
+        unitId,
+        fullName: ownerName,
+        holderKind: 'propietario',
+        taxId: cleanCell(readField(row, 'owner_tax_id')),
+        email: cleanCell(readField(row, 'owner_email')),
+        phone: cleanCell(readField(row, 'owner_phone')),
+      })
+      if (created) result.ownersCreated += 1
     }
 
-    // --- Propietario adicional (solo a fines de control y contacto) ---
-    // Sólo lo creamos si vino owner_name, es distinto del titular principal
-    // y el titular principal NO es ya un propietario (para no duplicar).
-    const ownerName = cleanCell(readField(row, 'owner_name'))
-    const sameAsHolder =
-      ownerName !== '' &&
-      holderName !== '' &&
-      ownerName.toLowerCase() === holderName.toLowerCase()
-    const holderIsAlreadyOwner = holderName !== '' && holderKind === 'propietario'
+    // --- Inquilino (columnas tenant_*) → titular con vínculo 'inquilino' ---
+    // Se crea de forma independiente del propietario: en una unidad alquilada
+    // conviven ambos (dueño + inquilino).
+    const tenantName = cleanCell(readField(row, 'tenant_name'))
+    if (tenantName) {
+      const created = await createHolder({
+        unitId,
+        fullName: tenantName,
+        holderKind: 'inquilino',
+        taxId: cleanCell(readField(row, 'tenant_tax_id')),
+        email: cleanCell(readField(row, 'tenant_email')),
+        phone: cleanCell(readField(row, 'tenant_phone')),
+      })
+      if (created) result.tenantsCreated += 1
+    }
 
-    if (ownerName && !sameAsHolder && !holderIsAlreadyOwner) {
-      const ownerTaxId = cleanCell(readField(row, 'owner_tax_id'))
-      const ownerEmail = cleanCell(readField(row, 'owner_email'))
-      const ownerPhone = cleanCell(readField(row, 'owner_phone'))
+    // --- Titular genérico (columnas holder_*) ---
+    // Sólo para planillas simples con UNA persona por unidad sin distinción de
+    // rol. Si la planilla trae owner_*/tenant_* separados, la IA no debería
+    // mapear holder_*, así que esto no se ejecuta. Evitamos duplicar si el
+    // nombre coincide con el propietario o el inquilino ya creados.
+    const holderName = cleanCell(readField(row, 'holder_name'))
+    const holderDuplicatesOwner =
+      holderName !== '' && holderName.toLowerCase() === ownerName.toLowerCase()
+    const holderDuplicatesTenant =
+      holderName !== '' && holderName.toLowerCase() === tenantName.toLowerCase()
 
-      if (parsed.replaceActiveHolders) {
-        await closeActiveHoldersOfKindInPostgres({ unitId, holderKind: 'propietario' })
-      }
-
-      try {
-        await insertUnitHolderInPostgres({
-          unitId,
-          fullName: ownerName,
-          holderKind: 'propietario',
-          taxId: ownerTaxId || null,
-          email: ownerEmail || null,
-          phone: ownerPhone || null,
-        })
-        result.ownersCreated += 1
-      } catch {
-        result.holdersSkipped += 1
-      }
+    if (holderName && !holderDuplicatesOwner && !holderDuplicatesTenant) {
+      const created = await createHolder({
+        unitId,
+        fullName: holderName,
+        holderKind: normalizeHolderKind(readField(row, 'holder_kind')),
+        taxId: cleanCell(readField(row, 'holder_tax_id')),
+        email: cleanCell(readField(row, 'holder_email')),
+        phone: cleanCell(readField(row, 'holder_phone')),
+      })
+      if (created) result.holdersCreated += 1
     }
   }
 
@@ -386,6 +432,7 @@ export async function importUnitsAndHolders(
       units_updated: result.unitsUpdated,
       holders_created: result.holdersCreated,
       owners_created: result.ownersCreated,
+      tenants_created: result.tenantsCreated,
       holders_skipped: result.holdersSkipped,
       skipped_rows: result.skippedRows.length,
     },
