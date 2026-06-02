@@ -70,6 +70,7 @@ import type {
   IAdminPeriodCollections,
   IAdminAccountPayable,
   IAdminOverdueBucket,
+  IAdminMonthlyTrendPoint,
   IAdminPortfolio,
   IAdminPortfolioOverview,
   IAdminPortfolioPropertyRow,
@@ -167,7 +168,6 @@ import {
   sumImputedExpensesByPeriodsFromPostgres,
   sumImputedTotalsForPeriodFromPostgres,
   sumLivePaymentsByUnitForItemsFromPostgres,
-  sumLivePaymentsForRunFromPostgres,
   sumOpenLateFeesByUnitForRunFromPostgres,
   sumOpenLateFeesByUnitPriorPeriodsFromPostgres,
   type RunForMesaItemRow,
@@ -2450,6 +2450,27 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
   const accountsPayable = Array.from(payableMap.values()).sort((a, b) => b.amount - a.amount)
   const totalPayable = accountsPayable.reduce((sum, p) => sum + p.amount, 0)
 
+  // ---- Items + pagos de TODOS los runs con período (una sola lectura) ----
+  // Se reusa para cobranzas del mes, deudas históricas y la tendencia mensual.
+  const runsWithPeriod = runs.filter((r) => r.period_year && r.period_month)
+  const allItems =
+    runsWithPeriod.length > 0
+      ? await listDashboardItemsByRunsFromPostgres(runsWithPeriod.map((r) => r.id))
+      : []
+  const paidByItem = await sumLivePaymentsByItemIdsFromPostgres(allItems.map((it) => it.id))
+
+  const itemsByRun = new Map<string, typeof allItems>()
+  for (const it of allItems) {
+    const arr = itemsByRun.get(it.liquidation_run_id) ?? []
+    arr.push(it)
+    itemsByRun.set(it.liquidation_run_id, arr)
+  }
+  const collectedByRun = new Map<string, number>()
+  for (const it of allItems) {
+    const paid = paidByItem.get(it.id) ?? 0
+    collectedByRun.set(it.liquidation_run_id, (collectedByRun.get(it.liquidation_run_id) ?? 0) + paid)
+  }
+
   // ---- Liquidados / Cobranzas del periodo actual ----
   const currentRun = runs.find(
     (r) => r.period_year === currentYear && r.period_month === currentMonth,
@@ -2458,7 +2479,7 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
   const liquidatedExtraordinary = currentRun ? Number(currentRun.extraordinary_total ?? 0) : 0
   const liquidatedTotal = liquidatedOrdinary + liquidatedExtraordinary
 
-  let collectedTotal = currentRun ? await sumLivePaymentsForRunFromPostgres(currentRun.id) : 0
+  let collectedTotal = currentRun ? collectedByRun.get(currentRun.id) ?? 0 : 0
   collectedTotal = Math.round(collectedTotal * 100) / 100
   const collectedOrdinary = collectedTotal
   const collectedExtraordinary = 0
@@ -2480,59 +2501,67 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
     placeholder: false,
   }
 
+  // ---- Tendencia mensual: liquidado vs cobrado (orden cronológico ascendente) ----
+  const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+  const monthlyTrend: IAdminMonthlyTrendPoint[] = runsWithPeriod
+    .filter((r) => r.status !== 'calculated')
+    .map((r) => {
+      const year = r.period_year as number
+      const month = r.period_month as number
+      const liquidated =
+        Math.round((Number(r.ordinary_total ?? 0) + Number(r.extraordinary_total ?? 0)) * 100) / 100
+      const collected = Math.round((collectedByRun.get(r.id) ?? 0) * 100) / 100
+      return {
+        year,
+        month,
+        periodLabel: `${monthNamesShort[month - 1] ?? ''} ${String(year).slice(-2)}`,
+        liquidated,
+        collected,
+        collectionRatePct: liquidated > 0 ? Math.round((collected / liquidated) * 100) : null,
+        isCurrent: year === currentYear && month === currentMonth,
+      }
+    })
+    .sort((a, b) => (a.year - b.year) || (a.month - b.month))
+
   // ---- Deudas históricas ----
-  const historicalRuns = runs.filter(
+  const historicalRuns = runsWithPeriod.filter(
     (r) =>
       r.status !== 'calculated' &&
       !(r.period_year === currentYear && r.period_month === currentMonth),
   )
 
   const overdueBuckets: IAdminOverdueBucket[] = []
-  if (historicalRuns.length > 0) {
-    const runIds = historicalRuns.map((r) => r.id)
-    const items = await listDashboardItemsByRunsFromPostgres(runIds)
-    const itemIds = items.map((it) => it.id)
-    const paidByItem = await sumLivePaymentsByItemIdsFromPostgres(itemIds)
-
-    const itemsByRun = new Map<string, typeof items>()
-    for (const it of items) {
-      const arr = itemsByRun.get(it.liquidation_run_id) ?? []
-      arr.push(it)
-      itemsByRun.set(it.liquidation_run_id, arr)
-    }
-
-    for (const run of historicalRuns) {
-      if (!run.period_year || !run.period_month) continue
-      const runItems = itemsByRun.get(run.id) ?? []
-      let runDebt = 0
-      let unitsOwing = 0
-      for (const it of runItems) {
-        const subtotal =
-          Number(it.ordinary_amount ?? 0) +
-          Number(it.extraordinary_amount ?? 0) +
-          Number(it.previous_balance ?? 0)
-        const paid = paidByItem.get(it.id) ?? 0
-        const debt = Math.max(0, subtotal - paid)
-        if (debt > 0) {
-          runDebt += debt
-          unitsOwing += 1
-        }
+  for (const run of historicalRuns) {
+    if (!run.period_year || !run.period_month) continue
+    const runItems = itemsByRun.get(run.id) ?? []
+    let runDebt = 0
+    let unitsOwing = 0
+    for (const it of runItems) {
+      const subtotal =
+        Number(it.ordinary_amount ?? 0) +
+        Number(it.extraordinary_amount ?? 0) +
+        Number(it.previous_balance ?? 0)
+      const paid = paidByItem.get(it.id) ?? 0
+      const debt = Math.max(0, subtotal - paid)
+      if (debt > 0) {
+        runDebt += debt
+        unitsOwing += 1
       }
-      if (runDebt <= 0) continue
-      const periodDate = new Date(run.period_year, run.period_month - 1, 1)
-      const today = new Date(currentYear, currentMonth - 1, 1)
-      const periodsOld = Math.max(
-        1,
-        (today.getFullYear() - periodDate.getFullYear()) * 12 +
-          (today.getMonth() - periodDate.getMonth()),
-      )
-      overdueBuckets.push({
-        periodLabel: periodLabelFromDate(run.period_year, run.period_month),
-        periodsOld,
-        unitsCount: unitsOwing,
-        totalAmount: Math.round(runDebt * 100) / 100,
-      })
     }
+    if (runDebt <= 0) continue
+    const periodDate = new Date(run.period_year, run.period_month - 1, 1)
+    const today = new Date(currentYear, currentMonth - 1, 1)
+    const periodsOld = Math.max(
+      1,
+      (today.getFullYear() - periodDate.getFullYear()) * 12 +
+        (today.getMonth() - periodDate.getMonth()),
+    )
+    overdueBuckets.push({
+      periodLabel: periodLabelFromDate(run.period_year, run.period_month),
+      periodsOld,
+      unitsCount: unitsOwing,
+      totalAmount: Math.round(runDebt * 100) / 100,
+    })
   }
   overdueBuckets.sort((a, b) => b.periodsOld - a.periodsOld)
   const totalOverdueAmount = overdueBuckets.reduce((s, b) => s + b.totalAmount, 0)
@@ -2558,6 +2587,7 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
     overdueBuckets,
     totalOverdueAmount,
     totalOverdueUnits,
+    monthlyTrend,
     pendingExpenses,
     pendingDocuments,
     activeUnitsCount,

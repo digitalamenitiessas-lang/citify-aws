@@ -976,6 +976,16 @@ export interface IAdminOverdueBucket {
   totalAmount: number
 }
 
+export interface IAdminMonthlyTrendPoint {
+  year: number
+  month: number
+  periodLabel: string          // ej. "Ene 26"
+  liquidated: number           // ordinarias + extraordinarias liquidadas del mes
+  collected: number            // cobrado vivo de ese run
+  collectionRatePct: number | null
+  isCurrent: boolean
+}
+
 export interface IAdminMonthlyGridRow {
   providerId: string
   providerName: string
@@ -1181,6 +1191,7 @@ export interface IAdminConsorcioDashboard {
   overdueBuckets: IAdminOverdueBucket[]
   totalOverdueAmount: number
   totalOverdueUnits: number
+  monthlyTrend: IAdminMonthlyTrendPoint[]   // últimos meses: liquidado vs cobrado
   pendingExpenses: number       // gastos pending_review + needs_doc
   pendingDocuments: number      // extracciones pending/suggested
   activeUnitsCount: number
