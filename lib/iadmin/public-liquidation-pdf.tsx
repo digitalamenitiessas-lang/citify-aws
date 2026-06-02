@@ -169,10 +169,9 @@ export function PublicLiquidationPdf({ view }: { view: PublicLiquidationView }) 
   const monthLabel = MONTH_NAMES[view.periodMonth - 1] ?? ''
   const isPaid = view.balanceRemaining < 0.01 && view.subtotal > 0
   const bank = view.legalInfo.bank
-  // El tipo declara `aliasí` (sic, typo legacy del schema). Lo aceptamos
-  // como esta para no romper otros consumers.
-  const aliasValue = (bank as unknown as { aliasí?: string; alias?: string } | undefined)?.aliasí
-    ?? (bank as unknown as { alias?: string } | undefined)?.alias
+  const aliasValue = bank?.alias
+  const hasBreakdown =
+    view.expenseBreakdown.ordinary.length > 0 || view.expenseBreakdown.extraordinary.length > 0
 
   return (
     <Document
@@ -246,6 +245,39 @@ export function PublicLiquidationPdf({ view }: { view: PublicLiquidationView }) 
             </View>
           ) : null}
         </View>
+
+        {/* En qué se gastó (composición por rubro, prorrateada a la unidad) */}
+        {hasBreakdown ? (
+          <>
+            <Text style={styles.sectionTitle}>¿En qué se gastó?</Text>
+            {view.expenseBreakdown.ordinary.length > 0 ? (
+              <>
+                <Text style={{ fontSize: 8, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>
+                  Ordinarias
+                </Text>
+                {view.expenseBreakdown.ordinary.map((r, idx) => (
+                  <View key={`ord-${idx}`} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{r.category}</Text>
+                    <Text style={styles.detailValue}>{formatARS(r.amount)}</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+            {view.expenseBreakdown.extraordinary.length > 0 ? (
+              <>
+                <Text style={{ fontSize: 8, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3, marginTop: 6 }}>
+                  Extraordinarias
+                </Text>
+                {view.expenseBreakdown.extraordinary.map((r, idx) => (
+                  <View key={`ext-${idx}`} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{r.category}</Text>
+                    <Text style={styles.detailValue}>{formatARS(r.amount)}</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+          </>
+        ) : null}
 
         {/* Vencimientos */}
         {view.dueDates.length > 0 ? (
