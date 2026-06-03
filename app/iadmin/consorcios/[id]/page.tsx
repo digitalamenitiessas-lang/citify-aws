@@ -51,6 +51,9 @@ export default async function PlanillaPage({
   const canRegisterPayments = can(context, 'collections.register', {
     administrationId: grid.administrationId,
   })
+  const liquidationCaps = (
+    ['liquidations.view', 'liquidations.create', 'liquidations.close'] as const
+  ).filter((cap) => can(context, cap, { administrationId: grid.administrationId }))
 
   return (
     <MonthlyPlanilla
@@ -61,6 +64,7 @@ export default async function PlanillaPage({
       canEmit={canEmit}
       canManageRubros={canManageRubros}
       canRegisterPayments={canRegisterPayments}
+      liquidationCaps={liquidationCaps}
     />
   )
 }

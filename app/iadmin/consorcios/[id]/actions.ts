@@ -8,9 +8,7 @@ import { findProfileById } from '@/lib/db/profiles'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import { ensureUnitUserWithCredentials } from '@/lib/iadmin/unit-users'
 import { sendWelcomeEmail } from '@/lib/email/notifications/welcome'
-import { getRunIdAndStatusForPeriodFromPostgres } from '@/lib/db/iadmin-reads'
 import {
-  changeAccountingPeriodStatusInPostgres,
   closeActiveHoldersOfKindInPostgres,
   deactivateActivePrincipalMembershipsInPostgres,
   deactivateBuildingInformationInPostgres,
@@ -18,7 +16,6 @@ import {
   deactivateUnitInPostgres,
   endHolderInPostgres,
   findUnitProfileMembershipFromPostgres,
-  getAccountingPeriodWithAdminFromPostgres,
   getBuildingIdForPropertyFromPostgres,
   getHolderForAccessFromPostgres,
   getHolderWithAdminFromPostgres,
@@ -738,45 +735,3 @@ export async function openAccountingPeriod(input: z.input<typeof openPeriodSchem
   return { id }
 }
 
-const changePeriodStatusSchema = z.object({
-  periodId: z.string().uuid(),
-  nextStatus: z.enum(['open', 'locked', 'closed']),
-})
-
-export async function changePeriodStatus(input: z.input<typeof changePeriodStatusSchema>) {
-  const parsed = changePeriodStatusSchema.parse(input)
-
-  const period = await getAccountingPeriodWithAdminFromPostgres(parsed.periodId)
-  if (!period) throw new Error('Periodo no encontrado')
-
-  const { profile } = await requireIAdmin({
-    capability: parsed.nextStatus === 'closed' ? 'liquidations.close' : 'liquidations.create',
-    administrationId: period.administration_id,
-  })
-
-  if (parsed.nextStatus === 'closed') {
-    const run = await getRunIdAndStatusForPeriodFromPostgres({
-      managedPropertyId: period.managed_property_id,
-      accountingPeriodId: parsed.periodId,
-    })
-    if (!run || (run.status !== 'issued' && run.status !== 'closed')) {
-      throw new Error('Solo se puede cerrar el periodo si la liquidacion ya fue emitida.')
-    }
-  }
-
-  await changeAccountingPeriodStatusInPostgres({
-    periodId: parsed.periodId,
-    nextStatus: parsed.nextStatus,
-    closedByProfileId: parsed.nextStatus === 'closed' ? profile.id : null,
-  })
-
-  await insertIAdminAuditLogInPostgres({
-    administrationId: period.administration_id,
-    actorProfileId: profile.id,
-    entityType: 'iadmin_accounting_periods',
-    entityId: parsed.periodId,
-    action: `period.${parsed.nextStatus}`,
-  })
-
-  revalidatePath(`/iadmin/consorcios/${period.managed_property_id}`)
-}

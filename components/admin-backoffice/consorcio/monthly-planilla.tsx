@@ -6,6 +6,7 @@ import { AlertTriangle, Check, ChevronRight, FileSpreadsheet, Info, Loader2, Loc
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import type {
+  IAdminCapability,
   IAdminCashAccountWithBalance,
   IAdminMesaState,
   IAdminMonthlyGrid,
@@ -50,6 +51,7 @@ import { HistoryIndicator } from '@/components/admin-backoffice/shared/history-i
 import { detectCellAnomaly, type CellAnomaly } from '@/components/admin-backoffice/shared/anomaly'
 import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
 import { RepeatPreviousMonthButton } from '@/components/admin-backoffice/gastos/repeat-previous-month-button'
+import { LiquidationStateButton } from '@/components/admin-backoffice/consorcio/liquidation-state-button'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -59,6 +61,8 @@ type Props = {
   canEmit: boolean
   canManageRubros: boolean
   canRegisterPayments: boolean
+  /** Capabilities de liquidación del usuario, para gestionar estados (Cerrar/Reabrir). */
+  liquidationCaps: IAdminCapability[]
 }
 
 type VisibleRange = 3 | 6 | 12
@@ -111,6 +115,7 @@ export function MonthlyPlanilla({
   canEmit,
   canManageRubros,
   canRegisterPayments,
+  liquidationCaps,
 }: Props) {
   const router = useRouter()
 
@@ -1135,14 +1140,6 @@ export function MonthlyPlanilla({
                     </p>
                   </div>
                 </div>
-                {state.runId ? (
-                  <Button asChild size="sm" variant="outline">
-                    <a href={`/iadmin/liquidaciones/${state.runId}`}>
-                      Abrir liquidación
-                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                    </a>
-                  </Button>
-                ) : null}
               </div>
             </section>
           )
@@ -1165,14 +1162,6 @@ export function MonthlyPlanilla({
                     </p>
                   </div>
                 </div>
-                {state.runId ? (
-                  <Button asChild size="sm" variant="outline">
-                    <a href={`/iadmin/liquidaciones/${state.runId}`}>
-                      Ver liquidación
-                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                    </a>
-                  </Button>
-                ) : null}
               </div>
             </section>
           )
@@ -1256,6 +1245,28 @@ export function MonthlyPlanilla({
           </section>
         )
       })()}
+
+      {state.runId && (state.runStatus === 'issued' || state.runStatus === 'closed') ? (
+        <section className="mesa-card p-5 flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="font-serif text-lg font-semibold text-foreground">
+              Estado de la liquidación
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {state.runStatus === 'closed'
+                ? `La liquidación de ${currentMonth.label} está cerrada. Podés reabrirla si necesitás corregirla.`
+                : `La liquidación de ${currentMonth.label} está emitida. Cerrala para asentar el período definitivamente.`}
+            </p>
+          </div>
+          <LiquidationStateButton
+            runId={state.runId}
+            propertyId={grid.propertyId}
+            currentStatus={state.runStatus}
+            periodLabel={currentMonth.label}
+            userCapabilities={liquidationCaps}
+          />
+        </section>
+      ) : null}
 
       <AlertDialog open={reissueDialogOpen} onOpenChange={setReissueDialogOpen}>
         <AlertDialogContent>
