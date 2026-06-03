@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Check, ChevronRight, FileSpreadsheet, Info, Loader2, Lock, RefreshCw, Send, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, FileSpreadsheet, Info, Loader2, Lock, RefreshCw, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import type {
@@ -18,10 +18,6 @@ import {
   type EmitAndNotifyResult,
   upsertMonthlyCell,
 } from '@/app/iadmin/consorcios/[id]/planilla/actions'
-import {
-  acceptPredictionsAndEmit,
-  type MonthPrediction,
-} from '@/app/iadmin/consorcios/[id]/planilla/predict-actions'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -131,13 +127,6 @@ export function MonthlyPlanilla({
 
   const [publishResult, setPublishResult] = useState<EmitAndNotifyResult | null>(null)
   const [publishing, setPublishing] = useState(false)
-
-  // Predictions: la generación se disparaba desde el Asistente, que fue
-  // removido. El estado se mantiene porque varios handlers (acceptPrediction,
-  // dismissPrediction, handleAcceptAllAndEmit) lo leen/escriben. Sin
-  // Asistente, `predictions` siempre va a estar vacío y `hasPredictions`
-  // siempre será false.
-  const [predictions, setPredictions] = useState<Map<string, MonthPrediction>>(new Map())
 
   // Rango visible persistido (3 / 6 / 12)
   const [visibleRange, setVisibleRange] = useLocalPref<VisibleRange>('mesa.visibleRange', 3)
@@ -297,65 +286,6 @@ export function MonthlyPlanilla({
     }
   }
 
-  function acceptPrediction(providerId: string) {
-    const pred = predictions.get(providerId)
-    if (!pred) return
-    const row = grid.rows.find((r) => r.providerId === providerId)
-    if (!row) return
-    void commitCell(row, currentMonth.year, currentMonth.month, pred.suggestedAmount)
-    setPredictions((prev) => {
-      const next = new Map(prev)
-      next.delete(providerId)
-      return next
-    })
-  }
-
-  function dismissPrediction(providerId: string) {
-    setPredictions((prev) => {
-      const next = new Map(prev)
-      next.delete(providerId)
-      return next
-    })
-  }
-
-  async function handleAcceptAllAndEmit(opts?: { acknowledgeReissueImpact?: boolean }) {
-    const toAccept: Array<{ providerId: string; amount: number }> = []
-    for (const [providerId, pred] of predictions) {
-      const row = grid.rows.find((r) => r.providerId === providerId)
-      if (!row) continue
-      const key = cellKey(providerId, currentMonth.year, currentMonth.month)
-      const displayed = key in localValues
-        ? localValues[key]
-        : row.cells.find((c) => c.year === currentMonth.year && c.month === currentMonth.month)?.amount ?? null
-      if (displayed !== null) continue
-      toAccept.push({ providerId, amount: pred.suggestedAmount })
-    }
-
-    if (toAccept.length === 0) {
-      if (grid.readyToEmit) await handleEmit(opts)
-      return
-    }
-
-    setPublishing(true)
-    try {
-      const result = await acceptPredictionsAndEmit({
-        propertyId: grid.propertyId,
-        year: currentMonth.year,
-        month: currentMonth.month,
-        acceptedPredictions: toAccept,
-        acknowledgeReissueImpact: opts?.acknowledgeReissueImpact ?? false,
-      })
-      setPublishResult(result.emit)
-      setPredictions(new Map())
-      setReissueDialogOpen(false)
-      toast.success(`${result.applied} sugerencias aceptadas y liquidación emitida`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error')
-    } finally {
-      setPublishing(false)
-    }
-  }
-
   async function handleQuickPay({ unitId, amount }: { unitId: string; amount: number }) {
     const result = await quickPayFromMesa({
       propertyId: grid.propertyId,
@@ -368,7 +298,6 @@ export function MonthlyPlanilla({
   }
 
   const allRows = grid.freeRow ? [...grid.rows, grid.freeRow] : grid.rows
-  const hasPredictions = predictions.size > 0
 
   // La grilla es de solo lectura: no hay edición de celdas, atajos de
   // deshacer/rehacer/copiar ni selección múltiple. Los gastos se cargan y
@@ -922,7 +851,6 @@ export function MonthlyPlanilla({
                             </div>
                           </td>
                           {visibleMonths.map((m, monthIdx) => {
-                            const prediction = m.isCurrent && row.providerId ? predictions.get(row.providerId) : undefined
                             const displayedAmount = getDisplayAmount(row, m.year, m.month)
                             const cellData = row.cells.find((c) => c.year === m.year && c.month === m.month)
                             // Anomaly sólo si NO estamos editando esa celda (para no distraer)
@@ -945,7 +873,6 @@ export function MonthlyPlanilla({
                                 saved={savedCells.has(cellKey(row.providerId, m.year, m.month))}
                                 anomaly={anomaly}
                                 amount={displayedAmount}
-                                prediction={displayedAmount === null ? prediction : undefined}
                                 isCurrent={m.isCurrent}
                                 isEditable={false}
                                 isSelected={isSelected}
@@ -1040,8 +967,6 @@ export function MonthlyPlanilla({
                                   setSelectionAnchor(null)
                                   moveFocus(r, c, edit)
                                 }}
-                                onAcceptPrediction={() => acceptPrediction(row.providerId)}
-                                onDismissPrediction={() => dismissPrediction(row.providerId)}
                               />
                             )
                           })}
@@ -1063,10 +988,6 @@ export function MonthlyPlanilla({
                   for (const row of filteredRows) {
                     const val = getDisplayAmount(row, m.year, m.month)
                     if (val !== null) total += val
-                    else if (m.isCurrent && row.providerId) {
-                      const pred = predictions.get(row.providerId)
-                      if (pred) total += pred.suggestedAmount
-                    }
                   }
                   return (
                     <td
@@ -1111,18 +1032,18 @@ export function MonthlyPlanilla({
         const hasChanges =
           state.hasRun &&
           (runTotal === null || Math.abs(currentTotal - runTotal) > 0.01)
-        const upToDate = isReissue && !hasChanges && !hasPredictions
+        const upToDate = isReissue && !hasChanges
         const needsReissueConfirm =
           isReissue && (isClosed || state.runLivePaymentsCount > 0)
 
         const baseDisabled =
           !canEmit ||
-          (!grid.readyToEmit && !hasPredictions) ||
+          !grid.readyToEmit ||
           publishing ||
           grid.activeUnitsCount === 0
 
         // --- Variante 4: período cerrado, no permitimos re-emitir desde acá ---
-        if (isClosed && !hasPredictions) {
+        if (isClosed) {
           return (
             <section className="mesa-card p-5 border-l-4 border-l-slate-400">
               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1169,15 +1090,13 @@ export function MonthlyPlanilla({
 
         // --- Variantes 1 y 3: emitir / re-emitir ---
         const isReissueAction = isReissue
-        const title = hasPredictions
-          ? 'Aceptar sugerencias y emitir'
-          : isReissueAction
-            ? 'Re-emitir con los cambios'
-            : 'Emitir y avisar a los vecinos'
+        const title = isReissueAction
+          ? 'Re-emitir con los cambios'
+          : 'Emitir y avisar a los vecinos'
 
         const subtitle = !canEmit
           ? 'Tu rol no puede emitir liquidaciones.'
-          : !grid.readyToEmit && !hasPredictions
+          : !grid.readyToEmit
             ? 'Cargá al menos un gasto del mes para poder emitir.'
             : isReissueAction
               ? `Se reemplaza la liquidación de ${currentMonth.label} y se reenvían los mensajes a los ${grid.activeUnitsCount} vecinos.`
@@ -1188,8 +1107,7 @@ export function MonthlyPlanilla({
             setReissueDialogOpen(true)
             return
           }
-          if (hasPredictions) void handleAcceptAllAndEmit()
-          else void handleEmit()
+          void handleEmit()
         }
 
         return (
@@ -1306,11 +1224,7 @@ export function MonthlyPlanilla({
               disabled={publishing}
               onClick={(e) => {
                 e.preventDefault()
-                if (hasPredictions) {
-                  void handleAcceptAllAndEmit({ acknowledgeReissueImpact: true })
-                } else {
-                  void handleEmit({ acknowledgeReissueImpact: true })
-                }
+                void handleEmit({ acknowledgeReissueImpact: true })
               }}
             >
               {publishing ? (
@@ -1380,7 +1294,6 @@ type EditableCellProps = {
   saved: boolean
   anomaly: CellAnomaly | null
   amount: number | null
-  prediction?: MonthPrediction
   isCurrent: boolean
   isEditable: boolean
   editSeed?: string | null
@@ -1401,8 +1314,6 @@ type EditableCellProps = {
     edit?: boolean,
     opts?: { extendSelection?: boolean },
   ) => void
-  onAcceptPrediction?: () => void
-  onDismissPrediction?: () => void
 }
 
 function parseNumericString(s: string): number | null {
@@ -1423,7 +1334,6 @@ function EditableCell({
   saved,
   anomaly,
   amount,
-  prediction,
   isCurrent,
   isEditable,
   editSeed,
@@ -1439,8 +1349,6 @@ function EditableCell({
   onSelectRange,
   onToggleSelect,
   onMove,
-  onAcceptPrediction,
-  onDismissPrediction,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(
     editSeed !== null && editSeed !== undefined ? editSeed : amount !== null ? String(amount) : '',
@@ -1488,50 +1396,6 @@ function EditableCell({
     )
   }
 
-  if (prediction && amount === null && isEditable) {
-    return (
-      <td
-        className={`px-2 py-2 ${isCurrent ? 'th-current-month' : ''}`}
-        ref={(el) => registerRef(rowIdx, monthIdx, el)}
-        tabIndex={0}
-        onKeyDown={(e) =>
-          handleNavKeys(e, { rowIdx, monthIdx, onMove, onStartEdit, onClear })
-        }
-      >
-        <div className="flex flex-col items-end gap-1 mesa-fade-in">
-          <span className="text-muted-foreground italic tabular-nums text-xs">
-            ~ {formatARSShort(prediction.suggestedAmount)}
-          </span>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              onClick={onAcceptPrediction}
-              className="rounded-md bg-foreground text-background px-1.5 py-0.5 text-[10px] hover:opacity-90 transition-opacity"
-              title={prediction.reason}
-            >
-              <Check className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onStartEdit()}
-              className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] hover:border-primary/40 transition-colors"
-              title="Editar"
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              onClick={onDismissPrediction}
-              className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              title="Descartar"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      </td>
-    )
-  }
 
   const hasHistory = Boolean(cellData?.expenseId)
   const anomalyColor =

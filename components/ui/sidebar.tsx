@@ -552,7 +552,7 @@ function SidebarMenuAction({
   ...props
 }: React.ComponentProps<'button'> & {
   asChild?: boolean
-  showOnHoverá: boolean
+  showOnHover?: boolean
 }) {
   const Comp = asChild ? Slot : 'button'
 
