@@ -1387,7 +1387,8 @@ export async function getIAdminPortfolioOverviewRowsFromPostgres(
           r.property_id,
           coalesce(sum(greatest(
             0,
-            coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0) + coalesce(li.previous_balance, 0)
+            coalesce(li.ordinary_amount, 0) + coalesce(li.extraordinary_amount, 0)
+              + coalesce(li.particular_amount, 0) + coalesce(li.previous_balance, 0)
             - coalesce(ip.paid, 0)
           )), 0) as overdue_amount
         from runs r

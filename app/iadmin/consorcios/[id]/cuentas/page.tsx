@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { CashAccountsManager } from '@/components/admin-backoffice/consorcio/cash-accounts-manager'
 import { can, requireIAdmin } from '@/lib/auth'
-import { getIAdminCashAccounts, getIAdminConsorcioDetail } from '@/lib/data'
+import { getIAdminCashAccounts, getIAdminCashMovements, getIAdminConsorcioDetail } from '@/lib/data'
 
 export default async function ConsorcioCuentasPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -12,7 +12,10 @@ export default async function ConsorcioCuentasPage({ params }: { params: Promise
     notFound()
   }
 
-  const accounts = await getIAdminCashAccounts(id)
+  const [accounts, movements] = await Promise.all([
+    getIAdminCashAccounts(id),
+    getIAdminCashMovements(id, { limit: 100 }),
+  ])
 
   const canManage = can(context, 'cash_accounts.manage', {
     administrationId: detail.property.administrationId,
@@ -22,6 +25,7 @@ export default async function ConsorcioCuentasPage({ params }: { params: Promise
     <CashAccountsManager
       propertyId={id}
       accounts={accounts}
+      movements={movements}
       canManage={canManage}
     />
   )

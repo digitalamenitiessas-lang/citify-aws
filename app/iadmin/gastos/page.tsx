@@ -5,7 +5,7 @@ import { NewExpenseForm } from '@/components/admin-backoffice/gastos/new-expense
 import { PropertyFilterBanner } from '@/components/admin-backoffice/shell/property-filter-banner'
 import { Button } from '@/components/ui/button'
 import { can, requireIAdmin } from '@/lib/auth'
-import { getIAdminExpensesInbox, getIAdminPortfolio, getIAdminProviders } from '@/lib/data'
+import { getIAdminCashAccounts, getIAdminExpensesInbox, getIAdminPortfolio, getIAdminProviders, getIAdminUnitsWithHolders } from '@/lib/data'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
 
 export default async function GastosPage() {
@@ -36,6 +36,29 @@ export default async function GastosPage() {
     : null
 
   const canCreate = can(context, 'expenses.create', { administrationId })
+
+  // Unidades activas por consorcio, para el alta de "gasto particular" (cargo
+  // asignado a una sola unidad, no prorrateado).
+  const unitsByProperty: Record<string, { id: string; code: string; kind: string }[]> = {}
+  // Cuentas (banco/caja) por consorcio, para poder pagar el gasto desde una
+  // cuenta al cargarlo y mantener la caja al día.
+  const accountsByProperty: Record<string, { id: string; name: string; isActive: boolean }[]> = {}
+  if (canCreate && portfolio) {
+    const [unitLists, accountLists] = await Promise.all([
+      Promise.all(portfolio.properties.map((p) => getIAdminUnitsWithHolders(p.id))),
+      Promise.all(portfolio.properties.map((p) => getIAdminCashAccounts(p.id))),
+    ])
+    portfolio.properties.forEach((p, i) => {
+      unitsByProperty[p.id] = unitLists[i]
+        .filter((u) => u.isActive)
+        .map((u) => ({ id: u.id, code: u.code, kind: u.kind }))
+      accountsByProperty[p.id] = accountLists[i].map((a) => ({
+        id: a.id,
+        name: a.name,
+        isActive: a.isActive,
+      }))
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -79,6 +102,8 @@ export default async function GastosPage() {
             defaultCategory: p.defaultCategory,
             defaultDescription: p.defaultDescription,
           }))}
+          unitsByProperty={unitsByProperty}
+          accountsByProperty={accountsByProperty}
         />
       ) : null}
 

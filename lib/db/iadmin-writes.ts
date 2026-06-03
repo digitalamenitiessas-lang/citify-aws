@@ -462,6 +462,12 @@ export async function insertExpenseInPostgres(input: {
   dueAt: string | null
   status: string
   expenseKind: string
+  // Si se setea, el gasto es "particular" de esa unidad: no se prorratea, va
+  // entero a la unidad. null = gasto común prorrateado entre todas las unidades.
+  unitId?: string | null
+  // Comprobante (tipo + número) para el detalle de egresos de la caja.
+  documentType?: string | null
+  documentNumber?: string | null
   createdBy: string
   approvedBy: string | null
 }): Promise<{ id: string }> {
@@ -470,12 +476,14 @@ export async function insertExpenseInPostgres(input: {
       insert into public.iadmin_expenses (
         administration_id, managed_property_id, accounting_period_id, provider_id,
         category, description, amount, currency, issued_at, due_at,
-        status, expense_kind, created_by, approved_by, approved_at
+        status, expense_kind, unit_id, document_type, document_number,
+        created_by, approved_by, approved_at
       )
       values (
         $1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::date,
-        $11::iadmin_expense_status, $12::iadmin_expense_kind, $13, $14,
-        case when $14::uuid is null then null else now() end
+        $11::iadmin_expense_status, $12::iadmin_expense_kind, $13::uuid, $14, $15,
+        $16, $17,
+        case when $17::uuid is null then null else now() end
       )
       returning id
     `,
@@ -492,6 +500,9 @@ export async function insertExpenseInPostgres(input: {
       input.dueAt,
       input.status,
       input.expenseKind,
+      input.unitId ?? null,
+      input.documentType ?? null,
+      input.documentNumber ?? null,
       input.createdBy,
       input.approvedBy,
     ],
@@ -623,6 +634,10 @@ export async function updateExpenseInPostgres(input: {
 /**
  * Lista los gastos cargados en un período (para repetirlos en otro mes).
  * Devuelve sólo los campos que se copian; el estado/fechas se regeneran.
+ *
+ * Excluye los gastos particulares (unit_id no nulo): suelen ser cargos
+ * únicos/eventuales de una unidad, así que no se arrastran al repetir; se
+ * cargan a mano cada mes desde la sección Gastos.
  */
 export async function listExpensesForPeriodFromPostgres(input: {
   managedPropertyId: string
@@ -650,6 +665,7 @@ export async function listExpensesForPeriodFromPostgres(input: {
        from public.iadmin_expenses
       where managed_property_id = $1
         and accounting_period_id = $2
+        and unit_id is null
       order by created_at asc`,
     [input.managedPropertyId, input.accountingPeriodId],
   )
@@ -1573,9 +1589,9 @@ export async function getManagedPropertyForEmitFromPostgres(propertyId: string):
 export async function listImputedExpensesAmountsByPeriodFromPostgres(input: {
   managedPropertyId: string
   accountingPeriodId: string
-}): Promise<Array<{ amount: string; expense_kind: string | null }>> {
-  const result = await pgQuery<{ amount: string; expense_kind: string | null }>(
-    `select amount::text as amount, expense_kind::text as expense_kind from public.iadmin_expenses where managed_property_id = $1 and accounting_period_id = $2 and status = 'imputed'`,
+}): Promise<Array<{ amount: string; expense_kind: string | null; unit_id: string | null }>> {
+  const result = await pgQuery<{ amount: string; expense_kind: string | null; unit_id: string | null }>(
+    `select amount::text as amount, expense_kind::text as expense_kind, unit_id from public.iadmin_expenses where managed_property_id = $1 and accounting_period_id = $2 and status = 'imputed'`,
     [input.managedPropertyId, input.accountingPeriodId],
   )
   return result.rows
@@ -2010,10 +2026,10 @@ export async function getExistingLiquidationRunForPeriodFromPostgres(input: {
 export async function listImputedExpensesByPeriodFromPostgres(input: {
   managedPropertyId: string
   accountingPeriodId: string
-}): Promise<Array<{ id: string; amount: string; expense_kind: string | null }>> {
-  const result = await pgQuery<{ id: string; amount: string; expense_kind: string | null }>(
+}): Promise<Array<{ id: string; amount: string; expense_kind: string | null; unit_id: string | null }>> {
+  const result = await pgQuery<{ id: string; amount: string; expense_kind: string | null; unit_id: string | null }>(
     `
-      select id, amount::text as amount, expense_kind::text as expense_kind
+      select id, amount::text as amount, expense_kind::text as expense_kind, unit_id
       from public.iadmin_expenses
       where managed_property_id = $1
         and accounting_period_id = $2
@@ -2247,6 +2263,7 @@ export async function bulkInsertLiquidationItemsInPostgres(
     ordinary_amount: number
     extraordinary_amount: number
     previous_balance: number
+    particular_amount: number
   }>,
 ): Promise<void> {
   if (items.length === 0) return
@@ -2262,14 +2279,17 @@ export async function bulkInsertLiquidationItemsInPostgres(
       item.ordinary_amount,
       item.extraordinary_amount,
       item.previous_balance,
+      item.particular_amount,
     )
-    placeholders.push(`($${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5}, $${idx + 6}, $${idx + 7})`)
+    placeholders.push(
+      `($${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5}, $${idx + 6}, $${idx + 7}, $${idx + 8})`,
+    )
   }
   await pgQuery(
     `
       insert into public.iadmin_liquidation_items (
         liquidation_run_id, unit_id, prorata_coefficient, amount,
-        ordinary_amount, extraordinary_amount, previous_balance
+        ordinary_amount, extraordinary_amount, previous_balance, particular_amount
       )
       values ${placeholders.join(', ')}
     `,
@@ -3308,6 +3328,7 @@ export async function createLedgerEntriesForIssuedRunInPostgres(input: {
     unit_id: string
     ordinary_amount: string | null
     extraordinary_amount: string | null
+    particular_amount: string | null
   }>(
     `
       select
@@ -3319,7 +3340,8 @@ export async function createLedgerEntriesForIssuedRunInPostgres(input: {
         li.id as item_id,
         li.unit_id,
         li.ordinary_amount::text as ordinary_amount,
-        li.extraordinary_amount::text as extraordinary_amount
+        li.extraordinary_amount::text as extraordinary_amount,
+        li.particular_amount::text as particular_amount
       from public.iadmin_liquidation_runs r
       inner join public.iadmin_liquidation_items li on li.liquidation_run_id = r.id
       where r.id = $1
@@ -3383,6 +3405,26 @@ export async function createLedgerEntriesForIssuedRunInPostgres(input: {
         dueDate: firstDueDate,
         amount: extraordinaryAmount,
         balanceOpen: extraordinaryAmount,
+        status: 'open',
+        createdBy: input.actorProfileId,
+      })
+    }
+    const particularAmount = Number(row.particular_amount ?? 0)
+    if (particularAmount > 0.009) {
+      await insertLedgerEntryInPostgres({
+        administrationId: row.administration_id,
+        managedPropertyId: row.managed_property_id,
+        unitId: row.unit_id,
+        accountingPeriodId: row.accounting_period_id,
+        liquidationRunId: row.run_id,
+        liquidationItemId: row.item_id,
+        entryType: 'cargo_particular',
+        originType: 'liquidation_item',
+        originId: row.item_id,
+        description: 'Cargo particular',
+        dueDate: firstDueDate,
+        amount: particularAmount,
+        balanceOpen: particularAmount,
         status: 'open',
         createdBy: input.actorProfileId,
       })

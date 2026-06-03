@@ -1449,8 +1449,9 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
     const activeHolder = holders.find((holder) => holder?.is_active) ?? null
     const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
     const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
+    const particularAmount = Number((item as { particular_amount?: number | string | null }).particular_amount ?? 0)
     const previousBalance = Number(item.previous_balance ?? 0)
-    const subtotal = round2(ordinaryAmount + extraordinaryAmount + previousBalance)
+    const subtotal = round2(ordinaryAmount + extraordinaryAmount + particularAmount + previousBalance)
 
     latestByUnit.set(item.unit_id, {
       id: item.id,
@@ -1462,6 +1463,7 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
       prorataCoefficient: Number(item.prorata_coefficient ?? 0),
       ordinaryAmount,
       extraordinaryAmount,
+      particularAmount,
       previousBalance,
       amount: ordinaryAmount,
       subtotal,
@@ -2190,8 +2192,9 @@ function computeDueAmountsForItem(
   extraordinary: number,
   previousBalance: number,
   dueDates: IAdminDueDate[],
+  particular = 0,
 ): IAdminLiquidationItemDueAmount[] {
-  const subtotal = ordinary + extraordinary + previousBalance
+  const subtotal = ordinary + extraordinary + particular + previousBalance
   return dueDates.map((due) => ({
     label: due.label,
     date: due.date,
@@ -2254,8 +2257,9 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     .map((item): IAdminLiquidationItem => {
       const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
       const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
+      const particularAmount = Number(item.particular_amount ?? 0)
       const previousBalance = Number(item.previous_balance ?? 0)
-      const subtotal = round2(ordinaryAmount + extraordinaryAmount + previousBalance)
+      const subtotal = round2(ordinaryAmount + extraordinaryAmount + particularAmount + previousBalance)
       const itemPayments = paymentsByItem.get(item.id) ?? []
       const collectedAmount = round2(itemPayments.reduce((s, p) => s + p.amount, 0))
       const balanceRemaining = round2(Math.max(0, subtotal - collectedAmount))
@@ -2269,10 +2273,11 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
         prorataCoefficient: Number(item.prorata_coefficient),
         ordinaryAmount,
         extraordinaryAmount,
+        particularAmount,
         previousBalance,
         amount: ordinaryAmount,
         subtotal,
-        dueAmounts: computeDueAmountsForItem(ordinaryAmount, extraordinaryAmount, previousBalance, dueDates),
+        dueAmounts: computeDueAmountsForItem(ordinaryAmount, extraordinaryAmount, previousBalance, dueDates, particularAmount),
         collectedAmount,
         balanceRemaining,
         payments: itemPayments,
@@ -2288,6 +2293,8 @@ export async function getIAdminLiquidationRunDetail(runId: string): Promise<IAdm
     category: e.category,
     amount: Number(e.amount),
     kind: (e.expense_kind ?? 'ordinaria') as 'ordinaria' | 'extraordinaria',
+    documentType: e.document_type,
+    documentNumber: e.document_number,
   }))
 
   const ordinaryExpenses = round2(

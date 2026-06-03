@@ -17,9 +17,17 @@ type Props = {
   administrationId: string
   properties: Pick<IAdminManagedProperty, 'id' | 'displayName' | 'buildingName'>[]
   providers: Pick<IAdminProvider, 'id' | 'name' | 'isActive' | 'defaultCategory' | 'defaultDescription'>[]
+  // Unidades activas por consorcio, para cargar un "gasto particular" (cargo
+  // asignado a una sola unidad, no prorrateado).
+  unitsByProperty?: Record<string, { id: string; code: string; kind: string }[]>
+  // Cuentas (banco/caja) por consorcio, para registrar desde dónde se paga el
+  // gasto y mantener la caja al día.
+  accountsByProperty?: Record<string, { id: string; name: string; isActive: boolean }[]>
 }
 
-export function NewExpenseForm({ administrationId, properties, providers }: Props) {
+const DOCUMENT_TYPES = ['Factura A', 'Factura B', 'Factura C', 'Recibo', 'Ticket', 'Nota de crédito', 'Otro']
+
+export function NewExpenseForm({ administrationId, properties, providers, unitsByProperty = {}, accountsByProperty = {} }: Props) {
   const [open, setOpen] = useState(false)
   const [pending, startTransition] = useTransition()
 
@@ -29,6 +37,20 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
   const [issuedAt, setIssuedAt] = useState(() => new Date().toISOString().slice(0, 10))
   const [category, setCategory] = useState('')
   const [expenseKind, setExpenseKind] = useState<IAdminExpenseKind>('ordinaria')
+
+  // Gasto particular: si se activa, el gasto va entero a una unidad (no se
+  // prorratea). Por defecto es un gasto común del edificio.
+  const [isParticular, setIsParticular] = useState(false)
+  const [unitId, setUnitId] = useState('')
+
+  // Comprobante (tipo + número), para el detalle de egresos de la caja.
+  const [documentType, setDocumentType] = useState('')
+  const [documentNumber, setDocumentNumber] = useState('')
+
+  // Pago: si se elige una cuenta, registramos el egreso en esa cuenta y la caja
+  // queda al día. Por defecto vacío = gasto cargado pero "no pagado" todavía.
+  const [cashAccountId, setCashAccountId] = useState('')
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10))
 
   // Período al que se imputa el gasto. Por defecto el mes en curso, pero el
   // admin puede elegir otro (ej: cargar gastos de mayo cuando ya estamos en junio
@@ -61,6 +83,9 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
 
   const activeProviders = useMemo(() => providers.filter((p) => p.isActive), [providers])
 
+  const units = unitsByProperty[managedPropertyId] ?? []
+  const accounts = accountsByProperty[managedPropertyId] ?? []
+
   const providerMatches = useMemo(() => {
     const query = providerInput.trim().toLowerCase()
     if (!query) return activeProviders.slice(0, 8)
@@ -84,6 +109,12 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
     setPeriodMonth(now.getMonth() + 1)
     setCategory('')
     setExpenseKind('ordinaria')
+    setIsParticular(false)
+    setUnitId('')
+    setDocumentType('')
+    setDocumentNumber('')
+    setCashAccountId('')
+    setPaidAt(new Date().toISOString().slice(0, 10))
     setProviderInput('')
     setSelectedProvider(null)
     setProviderOpen(false)
@@ -195,6 +226,10 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
       toast.error('Descripcion obligatoria')
       return
     }
+    if (isParticular && !unitId) {
+      toast.error('Elegí la unidad del gasto particular')
+      return
+    }
 
     const providerPayload = selectedProvider
       ? { providerId: selectedProvider.id, providerName: undefined }
@@ -227,6 +262,11 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
           issuedAt: issuedAt || null,
           category: category.trim() || null,
           expenseKind,
+          unitId: isParticular && unitId ? unitId : null,
+          documentType: documentType.trim() || null,
+          documentNumber: documentNumber.trim() || null,
+          cashAccountId: cashAccountId || null,
+          paidAt: cashAccountId ? paidAt || null : null,
           draftDocument,
           ...providerPayload,
         })
@@ -435,7 +475,14 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
               id="property"
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={managedPropertyId}
-              onChange={(e) => setManagedPropertyId(e.target.value)}
+              onChange={(e) => {
+                setManagedPropertyId(e.target.value)
+                // La lista de unidades y cuentas cambia por consorcio: limpiamos
+                // las selecciones para no apuntar a otra unidad/cuenta.
+                setIsParticular(false)
+                setUnitId('')
+                setCashAccountId('')
+              }}
             >
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -547,6 +594,33 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
           <Input id="issuedAt" type="date" value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
         </div>
 
+        {/* Comprobante: tipo + número, para el detalle de egresos de la caja. */}
+        <div className="space-y-1.5">
+          <Label htmlFor="documentType">Tipo de comprobante</Label>
+          <select
+            id="documentType"
+            value={documentType}
+            onChange={(e) => setDocumentType(e.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Sin comprobante</option>
+            {DOCUMENT_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="documentNumber">Nº de comprobante</Label>
+          <Input
+            id="documentNumber"
+            value={documentNumber}
+            onChange={(e) => setDocumentNumber(e.target.value)}
+            placeholder="0001-00001234"
+            maxLength={40}
+          />
+        </div>
+
         <div className="space-y-1.5">
           <Label>Período de imputación</Label>
           <div className="flex gap-2">
@@ -601,6 +675,84 @@ export function NewExpenseForm({ administrationId, properties, providers }: Prop
             </button>
           </div>
         </div>
+
+        {/* Gasto particular: cargo asignado a una sola unidad (no prorrateado).
+            Default off = gasto común del edificio. */}
+        {units.length > 0 ? (
+          <div className="space-y-2 md:col-span-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={isParticular}
+                onChange={(e) => {
+                  setIsParticular(e.target.checked)
+                  if (!e.target.checked) setUnitId('')
+                }}
+              />
+              <span className="text-sm">
+                <span className="font-medium text-foreground">Es un gasto de una unidad particular</span>
+                <span className="block text-[11px] text-muted-foreground">
+                  En vez de repartirse entre todos, este gasto se le cobra entero a la unidad que
+                  elijas (aparece en &quot;Otros&quot; del boletín de esa unidad).
+                </span>
+              </span>
+            </label>
+            {isParticular ? (
+              <select
+                value={unitId}
+                onChange={(e) => setUnitId(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Elegí la unidad…</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.code}
+                    {u.kind ? ` · ${u.kind}` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Pago desde una cuenta: registra el egreso en la caja para mantener el
+            saldo al día. Opcional — si lo dejás vacío, el gasto queda sin pagar. */}
+        {accounts.length > 0 ? (
+          <div className="space-y-2 md:col-span-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+            <Label htmlFor="cashAccount" className="text-sm font-medium text-foreground">
+              Pagar desde una cuenta <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Si elegís una cuenta, descontamos el gasto de su saldo y queda registrado en la caja.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                id="cashAccount"
+                value={cashAccountId}
+                onChange={(e) => setCashAccountId(e.target.value)}
+                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">No pagar ahora</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                    {a.isActive ? ' · activa' : ''}
+                  </option>
+                ))}
+              </select>
+              {cashAccountId ? (
+                <Input
+                  type="date"
+                  value={paidAt}
+                  onChange={(e) => setPaidAt(e.target.value)}
+                  className="sm:w-44"
+                  aria-label="Fecha de pago"
+                />
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-end gap-2">

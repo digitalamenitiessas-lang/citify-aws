@@ -1314,9 +1314,10 @@ export interface IAdminLiquidationItem {
   prorataCoefficient: number
   ordinaryAmount: number
   extraordinaryAmount: number
+  particularAmount: number             // cargos particulares de esta unidad (no prorrateado)
   previousBalance: number
   amount: number                       // compat: ordinary_amount (legacy)
-  subtotal: number                     // ordinary + extraordinary + previousBalance
+  subtotal: number                     // ordinary + extraordinary + particular + previousBalance
   dueAmounts: IAdminLiquidationItemDueAmount[]
   collectedAmount: number              // total cobrado (sin void)
   balanceRemaining: number             // subtotal - collectedAmount (clamp >= 0)
@@ -1409,6 +1410,9 @@ export interface IAdminExpenseLineInRun {
   category: string | null
   amount: number
   kind: IAdminExpenseKind
+  // Comprobante (tipo + número) para el detalle de egresos de la caja.
+  documentType: string | null
+  documentNumber: string | null
 }
 
 export interface IAdminCashStatement {

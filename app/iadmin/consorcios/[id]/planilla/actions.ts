@@ -454,13 +454,28 @@ export async function emitAndNotify(
     throw new Error('No hay gastos imputados este mes. Cargá al menos uno en la planilla.')
   }
 
-  const ordinaryTotal = imputedExpenses
+  // Gastos particulares (unit_id seteado) NO se prorratean: van enteros a su
+  // unidad. Los separamos de la base prorrateable.
+  const commonExpenses = imputedExpenses.filter((e) => !e.unit_id)
+  const particularExpenses = imputedExpenses.filter((e) => e.unit_id)
+
+  const ordinaryTotal = commonExpenses
     .filter((e) => (e.expense_kind ?? 'ordinaria') !== 'extraordinaria')
     .reduce((s, e) => s + Number(e.amount), 0)
-  const extraordinaryTotal = imputedExpenses
+  const extraordinaryTotal = commonExpenses
     .filter((e) => e.expense_kind === 'extraordinaria')
     .reduce((s, e) => s + Number(e.amount), 0)
-  const totalExpenses = Math.round((ordinaryTotal + extraordinaryTotal) * 100) / 100
+
+  // Suma de cargos particulares por unidad.
+  const particularByUnit = new Map<string, number>()
+  for (const e of particularExpenses) {
+    const uid = e.unit_id as string
+    particularByUnit.set(uid, (particularByUnit.get(uid) ?? 0) + Number(e.amount))
+  }
+  const particularTotal = Array.from(particularByUnit.values()).reduce((s, v) => s + v, 0)
+
+  const totalExpenses =
+    Math.round((ordinaryTotal + extraordinaryTotal + particularTotal) * 100) / 100
 
   const units = await listActiveUnitsWithHoldersForEmitFromPostgres(parsed.propertyId)
   const eligibleUnits = units.filter((u) => u.prorata_coefficient !== null)
@@ -528,6 +543,7 @@ export async function emitAndNotify(
     const prorata = Number(u.prorata_coefficient)
     const ordinary = Math.round(ordinaryTotal * prorata * 100) / 100
     const extra = Math.round(extraordinaryTotal * prorata * 100) / 100
+    const particular = Math.round((particularByUnit.get(u.id) ?? 0) * 100) / 100
     const prev = previousBalanceByUnit.get(u.id) ?? 0
     return {
       liquidation_run_id: run.id,
@@ -537,6 +553,7 @@ export async function emitAndNotify(
       ordinary_amount: ordinary,
       extraordinary_amount: extra,
       previous_balance: prev,
+      particular_amount: particular,
     }
   })
   await bulkInsertLiquidationItemsInPostgres(itemsToInsert)
@@ -584,7 +601,8 @@ export async function emitAndNotify(
     const subtotal =
       Number(item?.ordinary_amount ?? 0) +
       Number(item?.extraordinary_amount ?? 0) +
-      Number(item?.previous_balance ?? 0)
+      Number(item?.previous_balance ?? 0) +
+      (particularByUnit.get(u.id) ?? 0)
     const token = tokenByItem.get(itemId) ?? null
     const shareUrl = token ? `${base}/l/${token}` : null
 

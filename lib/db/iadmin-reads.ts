@@ -1262,6 +1262,7 @@ export type LiquidationItemDetailRow = {
   ordinary_amount: string | null
   extraordinary_amount: string | null
   previous_balance: string | null
+  particular_amount: string | null
   unit_code: string | null
   unit_kind: string | null
   active_holder_full_name: string | null
@@ -1287,6 +1288,7 @@ export async function listLiquidationItemsDetailedFromPostgres(
         i.ordinary_amount::text as ordinary_amount,
         i.extraordinary_amount::text as extraordinary_amount,
         i.previous_balance::text as previous_balance,
+        i.particular_amount::text as particular_amount,
         u.code as unit_code,
         u.kind::text as unit_kind,
         ch.full_name as active_holder_full_name,
@@ -1359,6 +1361,8 @@ export type ExpenseLineForRunRow = {
   issued_at: string | null
   expense_kind: string | null
   provider_name: string | null
+  document_type: string | null
+  document_number: string | null
 }
 
 export async function listImputedExpenseLinesByPeriodFromPostgres(
@@ -1369,6 +1373,7 @@ export async function listImputedExpenseLinesByPeriodFromPostgres(
       select
         e.id, e.description, e.amount::text as amount, e.category,
         e.issued_at::text as issued_at, e.expense_kind::text as expense_kind,
+        e.document_type, e.document_number,
         p.name as provider_name
       from public.iadmin_expenses e
       left join public.iadmin_providers p on p.id = e.provider_id

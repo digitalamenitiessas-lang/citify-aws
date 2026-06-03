@@ -2778,6 +2778,18 @@ alter table public.iadmin_expenses
 
 create index if not exists iadmin_expenses_kind_idx on public.iadmin_expenses (expense_kind);
 
+-- gasto particular: si unit_id no es null, va entero a esa unidad (no se prorratea)
+alter table public.iadmin_expenses
+  add column if not exists unit_id uuid references public.iadmin_units(id) on delete set null;
+
+create index if not exists iadmin_expenses_unit_idx
+  on public.iadmin_expenses (unit_id) where unit_id is not null;
+
+-- comprobante del gasto (tipo + número) para el detalle de egresos
+alter table public.iadmin_expenses
+  add column if not exists document_type text,
+  add column if not exists document_number text;
+
 -- ----------------------------------------------------------------------------
 -- 2. legal_info JSONB en administracion y en managed_property
 --    Estructura sugerida (no forzada):
@@ -2813,7 +2825,9 @@ alter table public.iadmin_liquidation_runs
 alter table public.iadmin_liquidation_items
   add column if not exists ordinary_amount numeric(14,2) not null default 0,
   add column if not exists extraordinary_amount numeric(14,2) not null default 0,
-  add column if not exists previous_balance numeric(14,2) not null default 0;
+  add column if not exists previous_balance numeric(14,2) not null default 0,
+  -- cargos particulares: gasto asignado solo a esta unidad (no prorrateado)
+  add column if not exists particular_amount numeric(14,2) not null default 0;
 
 -- Backfill: si ya hay items con amount pero sin ordinary_amount, los copiamos
 update public.iadmin_liquidation_items

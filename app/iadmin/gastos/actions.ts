@@ -18,7 +18,10 @@ import {
   deleteExpenseFromPostgres,
   deleteExpensesForPeriodFromPostgres,
   ensureAccountingPeriodInPostgres,
+  existingExpensePaymentMovementInPostgres,
   findProviderByNameInPostgres,
+  getCashAccountWithAdminFromPostgres,
+  insertBankMovementInPostgres,
   getAccountingPeriodIdAndStatusFromPostgres,
   getAIExtractionWithAdminFromPostgres,
   getExpenseDocumentWithAdminFromPostgres,
@@ -54,6 +57,17 @@ const createExpenseSchema = z.object({
   issuedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   dueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   expenseKind: z.enum(['ordinaria', 'extraordinaria']).optional().default('ordinaria'),
+  // Gasto particular: si se manda, el gasto va entero a esta unidad (no se
+  // prorratea). null/ausente = gasto común prorrateado.
+  unitId: z.string().uuid().nullable().optional(),
+  // Comprobante (tipo + número) para el detalle de egresos de la caja.
+  documentType: z.string().trim().max(40).nullable().optional(),
+  documentNumber: z.string().trim().max(40).nullable().optional(),
+  // Pago del gasto: si se elige una cuenta, registramos el egreso en esa cuenta
+  // (movimiento expense_payment) para que la caja quede al día. Opcional: un
+  // gasto puede cargarse sin pagar todavía.
+  cashAccountId: z.string().uuid().nullable().optional(),
+  paidAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   autoImpute: z.boolean().optional().default(true),
   draftDocument: z.object({
     fileBase64: z.string().min(100),
@@ -107,6 +121,17 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   }
 
   await assertProrataNotOver100(parsed.managedPropertyId)
+
+  // Gasto particular: validamos que la unidad pertenezca al consorcio.
+  if (parsed.unitId) {
+    const unitRes = await pgQuery<{ id: string }>(
+      `select id from public.iadmin_units where id = $1 and managed_property_id = $2 limit 1`,
+      [parsed.unitId, parsed.managedPropertyId],
+    )
+    if (!unitRes.rows[0]) {
+      throw new Error('La unidad indicada no pertenece a este consorcio')
+    }
+  }
 
   let providerId = parsed.providerId ?? null
   if (!providerId && parsed.providerName && parsed.providerName.trim().length > 0) {
@@ -226,9 +251,48 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
     dueAt: parsed.dueAt ?? null,
     status: initialStatus,
     expenseKind: parsed.expenseKind ?? 'ordinaria',
+    unitId: parsed.unitId ?? null,
+    documentType: parsed.documentType ?? null,
+    documentNumber: parsed.documentNumber ?? null,
     createdBy: profile.id,
     approvedBy: initialStatus === 'imputed' ? profile.id : null,
   })
+
+  // Pago desde una cuenta: registramos el egreso en la caja (movimiento
+  // expense_payment) para que el saldo de la cuenta quede al día. Es opcional;
+  // si falla, no abortamos la carga del gasto (queda como "no pagado").
+  if (parsed.cashAccountId) {
+    try {
+      const account = await getCashAccountWithAdminFromPostgres(parsed.cashAccountId)
+      if (!account || account.managed_property_id !== parsed.managedPropertyId) {
+        throw new Error('La cuenta de pago no pertenece a este consorcio')
+      }
+      if (await existingExpensePaymentMovementInPostgres(created.id)) {
+        throw new Error('Este gasto ya tiene un pago registrado')
+      }
+      await insertBankMovementInPostgres({
+        administrationId: parsed.administrationId,
+        managedPropertyId: parsed.managedPropertyId,
+        cashAccountId: parsed.cashAccountId,
+        movementDate: parsed.paidAt ?? new Date().toISOString().slice(0, 10),
+        description: `Pago: ${parsed.description}`,
+        amount: -parsed.amount,
+        externalRef: parsed.documentNumber ?? null,
+        movementKind: 'expense_payment',
+        expenseId: created.id,
+        createdBy: profile.id,
+      })
+    } catch (payErr) {
+      await insertIAdminAuditLogInPostgres({
+        administrationId: parsed.administrationId,
+        actorProfileId: profile.id,
+        entityType: 'iadmin_expenses',
+        entityId: created.id,
+        action: 'expense.payment_failed',
+        metadata: { error: payErr instanceof Error ? payErr.message : String(payErr) },
+      })
+    }
+  }
 
   if (parsed.draftDocument) {
     try {
@@ -295,6 +359,9 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   revalidatePath('/iadmin/gastos')
   revalidatePath('/iadmin/cartera')
   revalidatePath(`/iadmin/consorcios/${parsed.managedPropertyId}`)
+  if (parsed.cashAccountId) {
+    revalidatePath(`/iadmin/consorcios/${parsed.managedPropertyId}/cuentas`)
+  }
   return { id: created.id, status: initialStatus }
 }
 

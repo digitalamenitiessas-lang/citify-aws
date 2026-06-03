@@ -18,6 +18,7 @@ export type PublicLiquidationView = {
   runStatus: string
   ordinaryAmount: number
   extraordinaryAmount: number
+  particularAmount: number
   previousBalance: number
   subtotal: number
   collectedAmount: number
@@ -59,6 +60,7 @@ export async function getPublicLiquidationByToken(token: string): Promise<Public
     item_id: string
     ordinary_amount: string | null
     extraordinary_amount: string | null
+    particular_amount: string | null
     previous_balance: string | null
     run_status: string
     accounting_period_id: string | null
@@ -86,6 +88,7 @@ export async function getPublicLiquidationByToken(token: string): Promise<Public
         i.id as item_id,
         i.ordinary_amount::text as ordinary_amount,
         i.extraordinary_amount::text as extraordinary_amount,
+        i.particular_amount::text as particular_amount,
         i.previous_balance::text as previous_balance,
         r.status::text as run_status,
         r.accounting_period_id as accounting_period_id,
@@ -138,8 +141,9 @@ export async function getPublicLiquidationByToken(token: string): Promise<Public
 
   const ordinary = Number(row.ordinary_amount ?? 0)
   const extra = Number(row.extraordinary_amount ?? 0)
+  const particular = Number(row.particular_amount ?? 0)
   const prev = Number(row.previous_balance ?? 0)
-  const subtotal = Math.round((ordinary + extra + prev) * 100) / 100
+  const subtotal = Math.round((ordinary + extra + particular + prev) * 100) / 100
   const balance = Math.max(0, Math.round((subtotal - collectedAmount) * 100) / 100)
 
   const rawDueDates = Array.isArray(row.run_due_dates) ? row.run_due_dates : []
@@ -186,6 +190,7 @@ export async function getPublicLiquidationByToken(token: string): Promise<Public
     runStatus: row.run_status ?? 'draft',
     ordinaryAmount: ordinary,
     extraordinaryAmount: extra,
+    particularAmount: particular,
     previousBalance: prev,
     subtotal,
     collectedAmount: Math.round(collectedAmount * 100) / 100,

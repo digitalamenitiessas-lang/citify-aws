@@ -110,11 +110,16 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
     accountingPeriodId: parsed.accountingPeriodId,
   })
 
+  // Gastos particulares (unit_id seteado) no se prorratean: van enteros a su
+  // unidad. Los separamos de la base prorrateable.
   let ordinaryTotal = 0
   let extraordinaryTotal = 0
+  const particularByUnit = new Map<string, number>()
   for (const e of expenses) {
     const amt = Number(e.amount)
-    if ((e.expense_kind ?? 'ordinaria') === 'extraordinaria') {
+    if (e.unit_id) {
+      particularByUnit.set(e.unit_id, (particularByUnit.get(e.unit_id) ?? 0) + amt)
+    } else if ((e.expense_kind ?? 'ordinaria') === 'extraordinaria') {
       extraordinaryTotal += amt
     } else {
       ordinaryTotal += amt
@@ -122,7 +127,10 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
   }
   ordinaryTotal = round2(ordinaryTotal)
   extraordinaryTotal = round2(extraordinaryTotal)
-  const totalExpenses = round2(ordinaryTotal + extraordinaryTotal)
+  const particularTotal = round2(
+    Array.from(particularByUnit.values()).reduce((s, v) => s + v, 0),
+  )
+  const totalExpenses = round2(ordinaryTotal + extraordinaryTotal + particularTotal)
 
   const units = await listActiveUnitsWithProrataFromPostgres(parsed.propertyId)
   const eligibleUnits = units.filter((u) => u.prorata_coefficient !== null)
@@ -174,6 +182,7 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
     const prorata = Number(u.prorata_coefficient)
     const ordinary = round2(ordinaryTotal * prorata)
     const extraordinary = round2(extraordinaryTotal * prorata)
+    const particular = round2(particularByUnit.get(u.id) ?? 0)
     const prev = round2(previousBalanceByUnit.get(u.id) ?? 0)
     return {
       liquidation_run_id: run.id,
@@ -183,6 +192,7 @@ export async function generateLiquidationRun(input: z.input<typeof generateSchem
       ordinary_amount: ordinary,
       extraordinary_amount: extraordinary,
       previous_balance: prev,
+      particular_amount: particular,
     }
   })
 
