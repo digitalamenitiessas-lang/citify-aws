@@ -1,15 +1,23 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Banknote, CheckCircle2, Pencil, Plus, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Banknote, CheckCircle2, Clock, Pencil, Plus, Receipt, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { IAdminCashAccountKind, IAdminCashAccountWithBalance, IAdminCashMovement, IAdminMovementKind } from '@/lib/types'
+import type {
+  IAdminCashAccountKind,
+  IAdminCashAccountWithBalance,
+  IAdminCashMovement,
+  IAdminMovementKind,
+  IAdminPayableExpense,
+  IAdminPayableProviderGroup,
+} from '@/lib/types'
 import {
   addManualMovement,
   createCashAccount,
+  payExpense,
   setCashAccountActive,
   updateCashAccount,
 } from '@/app/iadmin/consorcios/[id]/cuentas/actions'
@@ -45,6 +53,8 @@ type Props = {
   propertyId: string
   accounts: IAdminCashAccountWithBalance[]
   movements: IAdminCashMovement[]
+  payableGroups: IAdminPayableProviderGroup[]
+  totalPayable: number
   canManage: boolean
 }
 
@@ -77,11 +87,58 @@ function accountToDraft(a: IAdminCashAccountWithBalance): AccountDraft {
   }
 }
 
-export function CashAccountsManager({ propertyId, accounts, movements, canManage }: Props) {
+export function CashAccountsManager({ propertyId, accounts, movements, payableGroups, totalPayable, canManage }: Props) {
   const [pending, startTransition] = useTransition()
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<AccountDraft>(emptyDraft)
+
+  // Pago de una deuda a proveedor desde la sección "Proveedores a pagar".
+  // Guardamos cuál gasto se está pagando + el form (cuenta/fecha/override).
+  const defaultPayAccountId = accounts.find((a) => a.isActive)?.id ?? accounts[0]?.id ?? ''
+  const [payingExpenseId, setPayingExpenseId] = useState<string | null>(null)
+  const [payAccountId, setPayAccountId] = useState<string>(defaultPayAccountId)
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [payOverdraftWarning, setPayOverdraftWarning] = useState<string | null>(null)
+  const [payAllowOverdraft, setPayAllowOverdraft] = useState(false)
+
+  function openPay(expenseId: string) {
+    setPayingExpenseId(expenseId)
+    setPayAccountId(defaultPayAccountId)
+    setPayOverdraftWarning(null)
+    setPayAllowOverdraft(false)
+  }
+
+  function closePay() {
+    setPayingExpenseId(null)
+    setPayOverdraftWarning(null)
+    setPayAllowOverdraft(false)
+  }
+
+  function submitPay(expense: IAdminPayableExpense) {
+    if (!payAccountId) {
+      toast.error('Elegí una cuenta de pago')
+      return
+    }
+    startTransition(async () => {
+      const result = await payExpense({
+        expenseId: expense.id,
+        cashAccountId: payAccountId,
+        movementDate: payDate,
+        allowOverdraft: payAllowOverdraft,
+      })
+      if (result.ok) {
+        toast.success('Pago registrado y deuda saldada')
+        closePay()
+        return
+      }
+      if (result.code === 'INSUFFICIENT_FUNDS') {
+        setPayOverdraftWarning(result.error)
+        return
+      }
+      toast.error(result.error)
+    })
+  }
 
   // Filtro del libro de movimientos por cuenta.
   const [ledgerAccountId, setLedgerAccountId] = useState<string>('')
@@ -92,6 +149,9 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
   const [moveDate, setMoveDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [moveDesc, setMoveDesc] = useState('')
   const [moveAmount, setMoveAmount] = useState('')
+  // Override de saldo para egresos manuales que dejarían la cuenta en negativo.
+  const [moveOverdraftWarning, setMoveOverdraftWarning] = useState<string | null>(null)
+  const [moveAllowOverdraft, setMoveAllowOverdraft] = useState(false)
 
   const totalBalance = useMemo(
     () => accounts.reduce((s, a) => s + a.currentBalance, 0),
@@ -121,20 +181,27 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
     }
     const signed = moveSign === 'out' ? -Math.abs(raw) : Math.abs(raw)
     startTransition(async () => {
-      try {
-        await addManualMovement({
-          cashAccountId: accountId,
-          movementDate: moveDate,
-          description: moveDesc.trim(),
-          amount: signed,
-          movementKind: 'manual',
-        })
+      const result = await addManualMovement({
+        cashAccountId: accountId,
+        movementDate: moveDate,
+        description: moveDesc.trim(),
+        amount: signed,
+        movementKind: 'manual',
+        allowOverdraft: moveAllowOverdraft,
+      })
+      if (result.ok) {
         toast.success('Movimiento registrado')
         setMoveDesc('')
         setMoveAmount('')
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Error')
+        setMoveOverdraftWarning(null)
+        setMoveAllowOverdraft(false)
+        return
       }
+      if (result.code === 'INSUFFICIENT_FUNDS') {
+        setMoveOverdraftWarning(result.error)
+        return
+      }
+      toast.error(result.error)
     })
   }
 
@@ -367,6 +434,153 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
         )}
       </div>
 
+      {/* Proveedores a pagar: deuda pendiente agrupada por proveedor. */}
+      <div className="glass-card rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+              <Receipt className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <h3 className="font-medium text-foreground">Proveedores a pagar</h3>
+              <p className="text-xs text-muted-foreground">
+                Gastos aprobados o imputados que todavía no se pagaron.
+              </p>
+            </div>
+          </div>
+          {totalPayable > 0 ? (
+            <div className="text-right">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Deuda total</div>
+              <div className="text-xl font-bold text-amber-700">{formatARS(totalPayable)}</div>
+            </div>
+          ) : null}
+        </div>
+
+        {payableGroups.length === 0 ? (
+          <div className="text-center text-sm text-muted-foreground py-8">
+            No hay deuda pendiente con proveedores. Todo al día 🎉
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {payableGroups.map((group) => (
+              <div
+                key={group.providerId ?? 'no-provider'}
+                className="rounded-lg border border-border/50 bg-muted/10 overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-muted/30 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="font-medium text-foreground truncate">{group.providerName}</div>
+                    {group.oldestDate ? (
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3 h-3" /> Más antiguo: {group.oldestDate}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      {group.expenses.length} {group.expenses.length === 1 ? 'gasto' : 'gastos'}
+                    </div>
+                    <div className="text-base font-bold text-foreground">{formatARS(group.totalAmount)}</div>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-border/30">
+                  {group.expenses.map((expense) => (
+                    <div key={expense.id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="text-sm text-foreground truncate">{expense.description}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {expense.issuedAt ? expense.issuedAt : 'Sin fecha'}
+                            {expense.category ? ` · ${expense.category}` : ''}
+                            {expense.documentNumber ? ` · ${expense.documentType ?? 'Comp.'} ${expense.documentNumber}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm font-semibold text-foreground">{formatARS(expense.amount)}</span>
+                          {canManage && payingExpenseId !== expense.id ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={pending || accounts.length === 0}
+                              onClick={() => openPay(expense.id)}
+                            >
+                              Registrar pago
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {canManage && payingExpenseId === expense.id ? (
+                        <div className="mt-3 rounded-lg border border-border/50 bg-background p-3 space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                            <div className="sm:col-span-6 space-y-1">
+                              <Label className="text-[11px]">Pagar desde</Label>
+                              <select
+                                value={payAccountId}
+                                onChange={(e) => {
+                                  setPayAccountId(e.target.value)
+                                  setPayOverdraftWarning(null)
+                                  setPayAllowOverdraft(false)
+                                }}
+                                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                              >
+                                {accounts.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name} · {formatARS(a.currentBalance)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="sm:col-span-4 space-y-1">
+                              <Label className="text-[11px]">Fecha</Label>
+                              <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-9" />
+                            </div>
+                            <div className="sm:col-span-2 flex sm:justify-end">
+                              <button
+                                type="button"
+                                className="text-xs text-muted-foreground hover:text-foreground"
+                                onClick={closePay}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+
+                          {payOverdraftWarning ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-2">
+                              <p className="text-sm text-amber-900">{payOverdraftWarning}</p>
+                              <label className="flex items-center gap-2 text-sm text-amber-900 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={payAllowOverdraft}
+                                  onChange={(e) => setPayAllowOverdraft(e.target.checked)}
+                                />
+                                Permitir saldo negativo y registrar el pago igual
+                              </label>
+                            </div>
+                          ) : null}
+
+                          <div className="flex justify-end">
+                            <Button
+                              size="sm"
+                              disabled={pending || (payOverdraftWarning !== null && !payAllowOverdraft)}
+                              onClick={() => submitPay(expense)}
+                            >
+                              {pending ? 'Registrando…' : payOverdraftWarning ? 'Forzar pago' : 'Confirmar pago'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Libro de movimientos: caja dinámica con ingresos/egresos de las cuentas. */}
       {accounts.length > 0 ? (
         <div className="glass-card rounded-2xl p-5 space-y-4">
@@ -393,7 +607,11 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
                 <Label className="text-[11px]">Cuenta</Label>
                 <select
                   value={movingAccountId}
-                  onChange={(e) => setMovingAccountId(e.target.value)}
+                  onChange={(e) => {
+                    setMovingAccountId(e.target.value)
+                    setMoveOverdraftWarning(null)
+                    setMoveAllowOverdraft(false)
+                  }}
                   className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                 >
                   {accounts.map((a) => (
@@ -413,7 +631,11 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
                   </button>
                   <button
                     type="button"
-                    onClick={() => setMoveSign('in')}
+                    onClick={() => {
+                      setMoveSign('in')
+                      setMoveOverdraftWarning(null)
+                      setMoveAllowOverdraft(false)
+                    }}
                     className={`flex-1 px-2 py-1.5 text-xs ${moveSign === 'in' ? 'bg-emerald-100 text-emerald-800 font-medium' : 'text-muted-foreground'}`}
                   >
                     Ingreso
@@ -432,9 +654,26 @@ export function CashAccountsManager({ propertyId, accounts, movements, canManage
                 <Label className="text-[11px]">Monto</Label>
                 <Input inputMode="decimal" value={moveAmount} onChange={(e) => setMoveAmount(e.target.value)} placeholder="0.00" className="h-9" />
               </div>
+              {moveOverdraftWarning ? (
+                <div className="sm:col-span-12 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-2">
+                  <p className="text-sm text-amber-900">{moveOverdraftWarning}</p>
+                  <label className="flex items-center gap-2 text-sm text-amber-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={moveAllowOverdraft}
+                      onChange={(e) => setMoveAllowOverdraft(e.target.checked)}
+                    />
+                    Permitir saldo negativo y registrar el egreso igual
+                  </label>
+                </div>
+              ) : null}
               <div className="sm:col-span-12 flex justify-end">
-                <Button type="submit" size="sm" disabled={pending}>
-                  {pending ? 'Guardando…' : 'Registrar movimiento'}
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={pending || (moveOverdraftWarning !== null && !moveAllowOverdraft)}
+                >
+                  {pending ? 'Guardando…' : moveOverdraftWarning ? 'Forzar egreso' : 'Registrar movimiento'}
                 </Button>
               </div>
             </form>

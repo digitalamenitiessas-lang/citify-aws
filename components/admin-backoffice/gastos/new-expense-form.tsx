@@ -51,6 +51,9 @@ export function NewExpenseForm({ administrationId, properties, providers, unitsB
   // queda al día. Por defecto vacío = gasto cargado pero "no pagado" todavía.
   const [cashAccountId, setCashAccountId] = useState('')
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10))
+  // Override de saldo: se activa cuando el server devuelve INSUFFICIENT_FUNDS.
+  const [overdraftWarning, setOverdraftWarning] = useState<string | null>(null)
+  const [allowOverdraft, setAllowOverdraft] = useState(false)
 
   // Período al que se imputa el gasto. Por defecto el mes en curso, pero el
   // admin puede elegir otro (ej: cargar gastos de mayo cuando ya estamos en junio
@@ -115,6 +118,8 @@ export function NewExpenseForm({ administrationId, properties, providers, unitsB
     setDocumentNumber('')
     setCashAccountId('')
     setPaidAt(new Date().toISOString().slice(0, 10))
+    setOverdraftWarning(null)
+    setAllowOverdraft(false)
     setProviderInput('')
     setSelectedProvider(null)
     setProviderOpen(false)
@@ -267,10 +272,17 @@ export function NewExpenseForm({ administrationId, properties, providers, unitsB
           documentNumber: documentNumber.trim() || null,
           cashAccountId: cashAccountId || null,
           paidAt: cashAccountId ? paidAt || null : null,
+          allowOverdraft,
           draftDocument,
           ...providerPayload,
         })
         if (!result.ok) {
+          // Saldo insuficiente: en vez del banner de error, ofrecemos forzar el
+          // egreso marcando "permitir saldo negativo".
+          if (result.code === 'INSUFFICIENT_FUNDS') {
+            setOverdraftWarning(result.error)
+            return
+          }
           setServerError(result.error)
           toast.error('No se pudo cargar el gasto', {
             description: result.error,
@@ -730,7 +742,11 @@ export function NewExpenseForm({ administrationId, properties, providers, unitsB
               <select
                 id="cashAccount"
                 value={cashAccountId}
-                onChange={(e) => setCashAccountId(e.target.value)}
+                onChange={(e) => {
+                  setCashAccountId(e.target.value)
+                  setOverdraftWarning(null)
+                  setAllowOverdraft(false)
+                }}
                 className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="">No pagar ahora</option>
@@ -751,13 +767,26 @@ export function NewExpenseForm({ administrationId, properties, providers, unitsB
                 />
               ) : null}
             </div>
+            {overdraftWarning ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-2">
+                <p className="text-sm text-amber-900">{overdraftWarning}</p>
+                <label className="flex items-center gap-2 text-sm text-amber-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allowOverdraft}
+                    onChange={(e) => setAllowOverdraft(e.target.checked)}
+                  />
+                  Permitir saldo negativo y registrar el pago igual
+                </label>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
 
       <div className="flex items-center justify-end gap-2">
-        <Button type="submit" disabled={pending}>
-          {pending ? 'Guardando…' : 'Guardar gasto'}
+        <Button type="submit" disabled={pending || (overdraftWarning !== null && !allowOverdraft)}>
+          {pending ? 'Guardando…' : overdraftWarning ? 'Forzar gasto' : 'Guardar gasto'}
         </Button>
       </div>
     </form>

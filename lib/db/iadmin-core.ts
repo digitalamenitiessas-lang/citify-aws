@@ -258,6 +258,7 @@ export interface OwnerLiquidationItemRow {
   amount: string | null
   ordinary_amount: string | null
   extraordinary_amount: string | null
+  particular_amount: string | null
   previous_balance: string | null
   iadmin_units: {
     id: string
@@ -710,6 +711,7 @@ export async function getOwnerLiquidationItemsByUnitIdsFromPostgres(
         li.amount::text as amount,
         li.ordinary_amount::text as ordinary_amount,
         li.extraordinary_amount::text as extraordinary_amount,
+        li.particular_amount::text as particular_amount,
         li.previous_balance::text as previous_balance,
         json_build_object(
           'id', u.id,

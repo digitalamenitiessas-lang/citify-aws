@@ -68,7 +68,8 @@ import type {
   IAdminReminder,
   IAdminReminderStatus,
   IAdminPeriodCollections,
-  IAdminAccountPayable,
+  IAdminPayableExpense,
+  IAdminPayableProviderGroup,
   IAdminOverdueBucket,
   IAdminMonthlyTrendPoint,
   IAdminPortfolio,
@@ -123,6 +124,7 @@ import {
   getExpensePaymentInfoFromPostgres,
   listCashAccountsWithBalanceFromPostgres,
   listCashMovementsFromPostgres,
+  listUnpaidPayableExpensesForPropertyFromPostgres,
   listPaymentsByAdminFromPostgres,
   listOpenLiquidationItemsByAdminFromPostgres,
   computeCollectionsKpisFromPostgres,
@@ -160,7 +162,6 @@ import {
   listMembershipsWithProfileByUnitsFromPostgres,
   listUnitAppliedPaymentsByChargePeriodFromPostgres,
   listUnitLedgerEntriesFromPostgres,
-  listPaidExpenseIdsFromPostgres,
   listRemindersWithContextFromPostgres,
   listRunsWithUnitItemFromPostgres,
   listUnitPaymentsInWindowFromPostgres,
@@ -1449,7 +1450,7 @@ export async function getOwnerDashboardData(profileId: string): Promise<OwnerDas
     const activeHolder = holders.find((holder) => holder?.is_active) ?? null
     const ordinaryAmount = Number(item.ordinary_amount ?? item.amount ?? 0)
     const extraordinaryAmount = Number(item.extraordinary_amount ?? 0)
-    const particularAmount = Number((item as { particular_amount?: number | string | null }).particular_amount ?? 0)
+    const particularAmount = Number(item.particular_amount ?? 0)
     const previousBalance = Number(item.previous_balance ?? 0)
     const subtotal = round2(ordinaryAmount + extraordinaryAmount + particularAmount + previousBalance)
 
@@ -2403,11 +2404,12 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  const [expenses, activeUnitsCount, runs, cashAccounts] = await Promise.all([
+  const [expenses, activeUnitsCount, runs, cashAccounts, payable] = await Promise.all([
     listExpensesForDashboardFromPostgres(propertyId),
     countActiveUnitsByPropertyFromPostgres(propertyId),
     listDashboardRunsFromPostgres({ managedPropertyId: propertyId, limit: 12 }),
     getIAdminCashAccounts(propertyId),
+    getIAdminAccountsPayable(propertyId),
   ])
 
   // ---- Saldos ----
@@ -2428,34 +2430,11 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
   const totalBalance = balances.reduce((sum, b) => sum + b.amount, 0)
 
   // ---- Cuentas por pagar a proveedores ----
-  const candidateExpenseIds = expenses
-    .filter((e) => e.status === 'approved' || e.status === 'imputed')
-    .map((e) => e.id)
-  const paidExpenseIds = await listPaidExpenseIdsFromPostgres(candidateExpenseIds)
-
-  const payableMap = new Map<string, IAdminAccountPayable>()
-  for (const e of expenses) {
-    if (e.status !== 'approved' && e.status !== 'imputed') continue
-    if (paidExpenseIds.has(e.id)) continue
-    const providerId = e.provider_id ?? null
-    const providerName = e.provider_name ?? 'Sin proveedor'
-    const key = providerId ?? 'no-provider'
-    const current = payableMap.get(key) ?? {
-      providerId,
-      providerName,
-      amount: 0,
-      expensesCount: 0,
-      oldestDate: null,
-    }
-    current.amount += Number(e.amount)
-    current.expensesCount += 1
-    if (!current.oldestDate || (e.issued_at && e.issued_at < current.oldestDate)) {
-      current.oldestDate = e.issued_at ?? current.oldestDate
-    }
-    payableMap.set(key, current)
-  }
-  const accountsPayable = Array.from(payableMap.values()).sort((a, b) => b.amount - a.amount)
-  const totalPayable = accountsPayable.reduce((sum, p) => sum + p.amount, 0)
+  // Misma fuente de verdad que la sección "Proveedores a pagar" de Cuentas:
+  // gastos aprobados/imputados sin un movimiento de pago real en caja,
+  // agrupados por proveedor y con el detalle de cada gasto impago.
+  const accountsPayable = payable.groups
+  const totalPayable = payable.total
 
   // ---- Items + pagos de TODOS los runs con período (una sola lectura) ----
   // Se reusa para cobranzas del mes, deudas históricas y la tendencia mensual.
@@ -2547,6 +2526,7 @@ export async function getIAdminConsorcioDashboard(propertyId: string): Promise<I
       const subtotal =
         Number(it.ordinary_amount ?? 0) +
         Number(it.extraordinary_amount ?? 0) +
+        Number(it.particular_amount ?? 0) +
         Number(it.previous_balance ?? 0)
       const paid = paidByItem.get(it.id) ?? 0
       const debt = Math.max(0, subtotal - paid)
@@ -2823,6 +2803,51 @@ export async function getIAdminCashMovements(
 }
 
 /**
+ * Gastos por pagar de un consorcio agrupados por proveedor. Alimenta la sección
+ * "Proveedores a pagar" de Cuentas: cada grupo trae la deuda total y los gastos
+ * impagos individuales para poder marcarlos pagados uno por uno.
+ */
+export async function getIAdminAccountsPayable(
+  propertyId: string,
+): Promise<{ groups: IAdminPayableProviderGroup[]; total: number }> {
+  const rows = await listUnpaidPayableExpensesForPropertyFromPostgres(propertyId)
+
+  const groupMap = new Map<string, IAdminPayableProviderGroup>()
+  for (const row of rows) {
+    const key = row.provider_id ?? 'no-provider'
+    const expense: IAdminPayableExpense = {
+      id: row.id,
+      providerId: row.provider_id,
+      providerName: row.provider_name ?? 'Sin proveedor',
+      description: row.description,
+      category: row.category,
+      status: row.status,
+      amount: Number(row.amount),
+      issuedAt: row.issued_at,
+      documentType: row.document_type,
+      documentNumber: row.document_number,
+    }
+    const group = groupMap.get(key) ?? {
+      providerId: row.provider_id,
+      providerName: row.provider_name ?? 'Sin proveedor',
+      totalAmount: 0,
+      oldestDate: null,
+      expenses: [],
+    }
+    group.totalAmount = Math.round((group.totalAmount + expense.amount) * 100) / 100
+    group.expenses.push(expense)
+    if (expense.issuedAt && (!group.oldestDate || expense.issuedAt < group.oldestDate)) {
+      group.oldestDate = expense.issuedAt
+    }
+    groupMap.set(key, group)
+  }
+
+  const groups = Array.from(groupMap.values()).sort((a, b) => b.totalAmount - a.totalAmount)
+  const total = Math.round(groups.reduce((s, g) => s + g.totalAmount, 0) * 100) / 100
+  return { groups, total }
+}
+
+/**
  * Calcula el estado de la mesa del mes (distribucion + pagos) incluso si
  * todavia no se genero la liquidation_run. Esto permite mostrar la
  * distribucion en vivo a medida que el admin carga celdas.
@@ -2907,6 +2932,7 @@ export async function getIAdminMesaState(
         const sub =
           Number(it.ordinary_amount ?? 0) +
           Number(it.extraordinary_amount ?? 0) +
+          Number(it.particular_amount ?? 0) +
           Number(it.previous_balance ?? 0)
         const paid = paidByItem.get(it.id) ?? 0
         const debt = Math.max(0, Math.round((sub - paid) * 100) / 100)

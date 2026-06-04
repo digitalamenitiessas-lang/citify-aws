@@ -4,6 +4,7 @@ import Link from 'next/link'
 import {
   CollectionTrendChart,
   OverdueChart,
+  ProvidersPayableWidget,
 } from '@/components/admin-backoffice/consorcio/dashboard-charts'
 import {
   DashboardQuickStats,
@@ -43,6 +44,12 @@ export default async function ConsorcioInicioPage({ params }: { params: Promise<
           totalUnits={dashboard.totalOverdueUnits}
         />
       </div>
+
+      <ProvidersPayableWidget
+        propertyId={id}
+        groups={dashboard.accountsPayable}
+        total={dashboard.totalPayable}
+      />
 
       {canViewReports ? <ProjectionCard propertyId={id} /> : null}
 

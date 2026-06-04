@@ -386,6 +386,50 @@ export async function listExpensesForDashboardFromPostgres(
   return result.rows
 }
 
+export type UnpaidPayableExpenseRow = {
+  id: string
+  amount: string
+  description: string
+  category: string | null
+  status: string
+  issued_at: string | null
+  document_type: string | null
+  document_number: string | null
+  provider_id: string | null
+  provider_name: string | null
+}
+
+/**
+ * Gastos por pagar de un consorcio: aprobados o imputados que todavía NO tienen
+ * un movimiento de pago (expense_payment) en la caja. Es la fuente de la
+ * sección "Proveedores a pagar" de Cuentas. No incluye borradores/rechazados ni
+ * los que ya se pagaron.
+ */
+export async function listUnpaidPayableExpensesForPropertyFromPostgres(
+  propertyId: string,
+): Promise<UnpaidPayableExpenseRow[]> {
+  const result = await pgQuery<UnpaidPayableExpenseRow>(
+    `
+      select
+        e.id, e.amount::text as amount, e.description,
+        e.category, e.status::text as status, e.issued_at::text as issued_at,
+        e.document_type, e.document_number,
+        e.provider_id, p.name as provider_name
+      from public.iadmin_expenses e
+      left join public.iadmin_providers p on p.id = e.provider_id
+      where e.managed_property_id = $1
+        and e.status in ('approved', 'imputed')
+        and not exists (
+          select 1 from public.iadmin_bank_movements m
+          where m.expense_id = e.id and m.movement_kind = 'expense_payment'
+        )
+      order by e.issued_at asc nulls last, e.created_at asc
+    `,
+    [propertyId],
+  )
+  return result.rows
+}
+
 export async function countActiveUnitsByPropertyFromPostgres(
   propertyId: string,
 ): Promise<number> {
@@ -436,6 +480,7 @@ export type DashboardItemRow = {
   liquidation_run_id: string
   ordinary_amount: string | null
   extraordinary_amount: string | null
+  particular_amount: string | null
   previous_balance: string | null
 }
 
@@ -447,6 +492,7 @@ export async function listDashboardItemsByRunsFromPostgres(
     `
       select id, liquidation_run_id, ordinary_amount::text as ordinary_amount,
              extraordinary_amount::text as extraordinary_amount,
+             particular_amount::text as particular_amount,
              previous_balance::text as previous_balance
       from public.iadmin_liquidation_items
       where liquidation_run_id = any($1::uuid[])
@@ -554,6 +600,7 @@ export type RunForMesaItemRow = {
   unit_id: string
   ordinary_amount: string | null
   extraordinary_amount: string | null
+  particular_amount: string | null
   previous_balance: string | null
 }
 
@@ -585,6 +632,7 @@ export async function listLiquidationItemsByRunBasicFromPostgres(
       select id, unit_id,
              ordinary_amount::text as ordinary_amount,
              extraordinary_amount::text as extraordinary_amount,
+             particular_amount::text as particular_amount,
              previous_balance::text as previous_balance
       from public.iadmin_liquidation_items
       where liquidation_run_id = $1
@@ -676,6 +724,7 @@ export async function getMostRecentIssuedPriorRunItemsFromPostgres(input: {
       select i.id, i.unit_id,
              i.ordinary_amount::text as ordinary_amount,
              i.extraordinary_amount::text as extraordinary_amount,
+             i.particular_amount::text as particular_amount,
              i.previous_balance::text as previous_balance
       from public.iadmin_liquidation_items i
       where i.liquidation_run_id in (select id from prior_run)

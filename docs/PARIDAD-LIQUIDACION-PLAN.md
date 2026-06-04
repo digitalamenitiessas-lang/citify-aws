@@ -199,3 +199,27 @@ Anotar acá cada sesión qué se cerró y qué quedó pendiente.
   `20260603_iadmin_expense_comprobante.sql`) + prueba manual. Próximos bloques a
   confirmar con el dueño: D (presupuesto con torta), E (estados legales de
   morosidad), F (recibos + saldos fechados), G (branding).
+- **2026-06-03** — **Tres correcciones/funciones pedidas por el dueño.**
+  1. **Bug particulares en la liquidación de la unidad:** el cálculo/escritura/
+     ledger estaban OK; el subtotal por unidad se sumaba SIN `particular_amount`
+     en cuatro lectores. Arreglado el decisivo (`getOwnerLiquidationItemsByUnitIds`
+     del dashboard del vecino/propietario) más los buckets de morosidad del admin,
+     el saldo anterior del preview de Mesa y los recordatorios de pago. Se agregó
+     `particular_amount` a los tipos/SELECT de `iadmin-core`, `iadmin-reads`,
+     `iadmin-writes` y al `reminder-generator`.
+  2. **Validación de saldo al pagar/descontar:** decisión del dueño = bloquear
+     salvo confirmación de saldo negativo. Helper `assertSufficientFunds` +
+     `InsufficientFundsError` (`lib/iadmin/cash-guards.ts`), aplicado en
+     `createExpense` (pago desde cuenta), `addManualMovement` y `payExpense`.
+     Las tres acciones devuelven `{ ok, error, code }` para que el mensaje y el
+     override (checkbox "permitir saldo negativo") sobrevivan al saneo de errores
+     en producción. UI con aviso ámbar + checkbox + botón "Forzar…" en los tres
+     formularios.
+  3. **Sección "Proveedores a pagar"** (decisión del dueño: en la pestaña Cuentas/
+     Caja). Nuevo lector `listUnpaidPayableExpensesForProperty` (gastos `approved`/
+     `imputed` sin movimiento `expense_payment`) + `getIAdminAccountsPayable` que
+     agrupa por proveedor con total y fecha más antigua. La pantalla de Caja lista
+     la deuda por proveedor y permite registrar el pago por gasto (elige cuenta +
+     fecha, descuenta del saldo y salda la deuda vía `payExpense`, respetando el
+     override de saldo). `tsc` = 10 errores baseline, ninguno en archivos tocados.
+     **Pendiente:** correr las dos migraciones + prueba manual end-to-end.

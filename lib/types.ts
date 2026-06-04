@@ -956,6 +956,29 @@ export interface IAdminAccountPayable {
   oldestDate: string | null
 }
 
+/** Un gasto puntual por pagar (sin movimiento de pago todavía). */
+export interface IAdminPayableExpense {
+  id: string
+  providerId: string | null
+  providerName: string
+  description: string
+  category: string | null
+  status: string
+  amount: number
+  issuedAt: string | null
+  documentType: string | null
+  documentNumber: string | null
+}
+
+/** Deuda a un proveedor agrupando sus gastos impagos. */
+export interface IAdminPayableProviderGroup {
+  providerId: string | null
+  providerName: string
+  totalAmount: number
+  oldestDate: string | null
+  expenses: IAdminPayableExpense[]
+}
+
 export interface IAdminPeriodCollections {
   liquidatedOrdinary: number
   liquidatedExtraordinary: number
@@ -1185,7 +1208,7 @@ export interface IAdminConsorcioDashboard {
   property: IAdminManagedProperty
   balances: IAdminDashboardCashSnapshot[]
   totalBalance: number
-  accountsPayable: IAdminAccountPayable[]
+  accountsPayable: IAdminPayableProviderGroup[]   // proveedores a pagar (gastos impagos)
   totalPayable: number
   periodCollections: IAdminPeriodCollections
   overdueBuckets: IAdminOverdueBucket[]

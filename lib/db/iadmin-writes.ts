@@ -2354,6 +2354,7 @@ export type ReminderItemRow = {
   item_id: string
   ordinary_amount: string | null
   extraordinary_amount: string | null
+  particular_amount: string | null
   previous_balance: string | null
   unit_code: string | null
   holder_full_name: string | null
@@ -2382,6 +2383,7 @@ export async function listReminderRunsWithItemsFromPostgres(input: {
         i.id as item_id,
         i.ordinary_amount::text as ordinary_amount,
         i.extraordinary_amount::text as extraordinary_amount,
+        i.particular_amount::text as particular_amount,
         i.previous_balance::text as previous_balance,
         u.code as unit_code,
         ch.full_name as holder_full_name,

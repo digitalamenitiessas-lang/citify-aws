@@ -67,6 +67,7 @@ export async function generateRemindersForAdmin(
       id: string
       ordinary_amount: string | null
       extraordinary_amount: string | null
+      particular_amount: string | null
       previous_balance: string | null
       unit_code: string | null
       holder_name: string | null
@@ -89,6 +90,7 @@ export async function generateRemindersForAdmin(
       id: row.item_id,
       ordinary_amount: row.ordinary_amount,
       extraordinary_amount: row.extraordinary_amount,
+      particular_amount: row.particular_amount,
       previous_balance: row.previous_balance,
       unit_code: row.unit_code,
       holder_name: row.holder_full_name,
@@ -125,6 +127,7 @@ export async function generateRemindersForAdmin(
       const subtotal =
         Number(it.ordinary_amount ?? 0) +
         Number(it.extraordinary_amount ?? 0) +
+        Number(it.particular_amount ?? 0) +
         Number(it.previous_balance ?? 0)
       const paid = paidByItem.get(it.id) ?? 0
       const balance = subtotal - paid

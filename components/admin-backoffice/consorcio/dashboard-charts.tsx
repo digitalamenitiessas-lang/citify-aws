@@ -1,7 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { IAdminMonthlyTrendPoint, IAdminOverdueBucket } from '@/lib/types'
+import Link from 'next/link'
+import { ArrowRight, ChevronDown, ChevronRight, Receipt } from 'lucide-react'
+import type {
+  IAdminMonthlyTrendPoint,
+  IAdminOverdueBucket,
+  IAdminPayableProviderGroup,
+} from '@/lib/types'
 
 function formatARS(n: number): string {
   return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n)
@@ -215,6 +221,122 @@ export function OverdueChart({
             <span className="font-serif text-xl font-bold tabular-nums text-rose-800">$ {formatARS(totalAmount)}</span>
           </div>
         </div>
+      )}
+    </section>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Proveedores a pagar — integrado con gastos (mismos datos que Cuentas)
+// ----------------------------------------------------------------------------
+
+export function ProvidersPayableWidget({
+  propertyId,
+  groups,
+  total,
+}: {
+  propertyId: string
+  groups: IAdminPayableProviderGroup[]
+  total: number
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const expensesCount = useMemo(
+    () => groups.reduce((s, g) => s + g.expenses.length, 0),
+    [groups],
+  )
+
+  return (
+    <section className="glass-card rounded-2xl overflow-hidden">
+      <Header
+        title="Proveedores a pagar"
+        subtitle="Gastos aprobados/imputados sin pago registrado en caja"
+        legend={
+          <Link
+            href={`/iadmin/consorcios/${propertyId}/cuentas`}
+            className="rounded-full border border-primary/30 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 flex items-center gap-1 shrink-0"
+          >
+            Ir a pagar <ArrowRight className="w-3 h-3" />
+          </Link>
+        }
+      />
+
+      {groups.length === 0 ? (
+        <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+          No hay gastos pendientes de pago. Todo conciliado con caja 👍
+        </div>
+      ) : (
+        <ul className="divide-y divide-border/30">
+          {groups.map((g) => {
+            const key = g.providerId ?? g.providerName
+            const isOpen = openKey === key
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  onClick={() => setOpenKey((cur) => (cur === key ? null : key))}
+                  className="w-full px-5 py-3 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors text-left"
+                  aria-expanded={isOpen}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isOpen ? (
+                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm text-foreground truncate">{g.providerName}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {g.expenses.length} gasto{g.expenses.length === 1 ? '' : 's'}
+                        {g.oldestDate ? ` · desde ${g.oldestDate}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="font-medium tabular-nums text-foreground shrink-0">
+                    $ {formatARS(g.totalAmount)}
+                  </span>
+                </button>
+
+                {isOpen ? (
+                  <ul className="bg-muted/20 px-5 pb-2">
+                    {g.expenses.map((e) => (
+                      <li
+                        key={e.id}
+                        className="flex items-center justify-between gap-3 py-1.5 text-xs border-t border-border/20 first:border-0"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-foreground truncate flex items-center gap-1.5">
+                            <Receipt className="w-3 h-3 text-muted-foreground shrink-0" />
+                            {e.description || 'Gasto sin descripción'}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground pl-[18px]">
+                            {[
+                              e.category,
+                              e.documentNumber ? `${e.documentType ?? 'comp.'} ${e.documentNumber}` : null,
+                              e.issuedAt,
+                              e.status,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </div>
+                        </div>
+                        <span className="tabular-nums text-foreground shrink-0">$ {formatARS(e.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            )
+          })}
+          <li className="flex items-center justify-between px-5 py-3 text-sm bg-muted/40">
+            <span className="font-semibold text-foreground">
+              Total a pagar
+              <span className="text-muted-foreground font-normal">
+                {' '}· {groups.length} proveedor{groups.length === 1 ? '' : 'es'} · {expensesCount} gasto{expensesCount === 1 ? '' : 's'}
+              </span>
+            </span>
+            <span className="font-serif text-xl font-bold tabular-nums text-foreground">$ {formatARS(total)}</span>
+          </li>
+        </ul>
       )}
     </section>
   )

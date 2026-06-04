@@ -10,6 +10,7 @@ import {
   uploadBufferToS3,
 } from '@/lib/aws/s3'
 import { canTransition } from '@/lib/iadmin/expense-status'
+import { assertSufficientFunds } from '@/lib/iadmin/cash-guards'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
 import { pgQuery } from '@/lib/db/postgres'
 import {
@@ -68,6 +69,9 @@ const createExpenseSchema = z.object({
   // gasto puede cargarse sin pagar todavía.
   cashAccountId: z.string().uuid().nullable().optional(),
   paidAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  // Si el pago dejaría la cuenta en negativo, por defecto se bloquea. El usuario
+  // puede forzar el egreso marcando "permitir saldo negativo" en el formulario.
+  allowOverdraft: z.boolean().optional().default(false),
   autoImpute: z.boolean().optional().default(true),
   draftDocument: z.object({
     fileBase64: z.string().min(100),
@@ -121,6 +125,22 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   }
 
   await assertProrataNotOver100(parsed.managedPropertyId)
+
+  // Pago desde una cuenta: validamos ANTES de insertar el gasto que la cuenta
+  // exista, pertenezca al consorcio y tenga saldo suficiente. Si quedaría en
+  // negativo y no se pidió override, abortamos toda la carga (el form muestra
+  // el error con código INSUFFICIENT_FUNDS y ofrece "permitir saldo negativo").
+  if (parsed.cashAccountId) {
+    const account = await getCashAccountWithAdminFromPostgres(parsed.cashAccountId)
+    if (!account || account.managed_property_id !== parsed.managedPropertyId) {
+      throw new Error('La cuenta de pago no pertenece a este consorcio')
+    }
+    await assertSufficientFunds({
+      cashAccountId: parsed.cashAccountId,
+      outgoingAmount: parsed.amount,
+      allowOverdraft: parsed.allowOverdraft,
+    })
+  }
 
   // Gasto particular: validamos que la unidad pertenezca al consorcio.
   if (parsed.unitId) {
