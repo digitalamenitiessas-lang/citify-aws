@@ -166,14 +166,37 @@ function recomputeImportPreview(preview: InitialOccupancyImportPreview): Initial
 }
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, icon: Icon }: { label: string; value: number; sub: string; icon: typeof Shield }) {
+const STAT_TONES = {
+  primary: { disc: 'linear-gradient(135deg, #F04E23, #C73E15)', tint: 'rgba(240,78,35,0.06)' },
+  accent: { disc: 'linear-gradient(135deg, #F5A55D, #E07B39)', tint: 'rgba(245,165,93,0.08)' },
+  terra: { disc: 'linear-gradient(135deg, #C4733D, #9c4f24)', tint: 'rgba(196,115,61,0.07)' },
+  green: { disc: 'linear-gradient(135deg, #16a34a, #047857)', tint: 'rgba(16,163,74,0.07)' },
+  amber: { disc: 'linear-gradient(135deg, #f59e0b, #b45309)', tint: 'rgba(245,158,11,0.08)' },
+} as const
+
+type StatTone = keyof typeof STAT_TONES
+
+function StatCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  value: number | string
+  sub: string
+  icon: typeof Shield
+  tone?: StatTone
+}) {
+  const t = tone ? STAT_TONES[tone] : null
   return (
-    <div className="glass-card rounded-xl p-5">
+    <div className="glass-card rounded-xl p-5" style={t ? { background: t.tint } : undefined}>
       <div
         className="w-10 h-10 rounded-lg flex items-center justify-center mb-4"
-        style={{ background: 'rgba(156,156,156,0.15)', border: '1px solid rgba(0,0,0,0.06)' }}
+        style={t ? { background: t.disc } : { background: 'rgba(156,156,156,0.15)', border: '1px solid rgba(0,0,0,0.06)' }}
       >
-        <Icon className="w-5 h-5 text-primary" />
+        <Icon className={`w-5 h-5 ${t ? 'text-white' : 'text-primary'}`} />
       </div>
       <div className="text-2xl font-bold text-foreground">{value}</div>
       <div className="text-sm text-foreground mt-0.5">{label}</div>
@@ -1192,10 +1215,10 @@ function computeDashboardStats(data: SuperAdminDashboardData): DashboardStats {
 function PlatformHealthRow({ stats }: { stats: DashboardStats }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard label="Ocupación promedio" value={stats.avgOccupancy} sub="% promedio plataforma" icon={TrendingUp} />
-      <StatCard label="Promociones activas" value={stats.activePromotions} sub={`${stats.expiredPromotions} vencidas`} icon={Tag} />
-      <StatCard label="Canjes totales" value={stats.totalRedemptions} sub="registros acumulados" icon={CheckCircle} />
-      <StatCard label="Sin administrador" value={stats.buildingsWithoutAdmin} sub="consorcios sin encargado" icon={AlertTriangle} />
+      <StatCard label="Ocupación promedio" value={stats.avgOccupancy} sub="% promedio plataforma" icon={TrendingUp} tone="accent" />
+      <StatCard label="Promociones activas" value={stats.activePromotions} sub={`${stats.expiredPromotions} vencidas`} icon={Tag} tone="terra" />
+      <StatCard label="Canjes totales" value={stats.totalRedemptions} sub="registros acumulados" icon={CheckCircle} tone="green" />
+      <StatCard label="Sin administrador" value={stats.buildingsWithoutAdmin} sub="consorcios sin encargado" icon={AlertTriangle} tone="amber" />
     </div>
   )
 }
@@ -1791,58 +1814,162 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
-      {/* Header */}
-      <div className="glass-card rounded-2xl p-6 mb-8">
-        <div className="flex items-center gap-2 mb-1">
-          <Shield className="w-4 h-4 text-primary" />
-          <p className="text-xs text-primary font-medium tracking-wider uppercase">Panel de super administrador</p>
-        </div>
-        <h1 className="font-serif text-2xl font-bold text-foreground">Resumen operativo de la plataforma</h1>
-        <p className="text-muted-foreground text-sm mt-1">Datos en tiempo real.</p>
-      </div>
+    <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-6">
+      <div className="flex gap-6">
+        {/* Sidebar (desktop) */}
+        <aside className="hidden lg:block w-56 shrink-0">
+          <div className="sticky top-6 flex flex-col gap-1">
+            <div className="px-3 pb-3 mb-1 flex items-center gap-2">
+              <div
+                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
+              >
+                <Shield className="w-3.5 h-3.5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">Super administrador</div>
+                <div className="text-sm font-semibold text-foreground truncate leading-tight">CITIFY</div>
+              </div>
+            </div>
+            <nav className="flex flex-col gap-px">
+              {tabs.map((tab) => {
+                const active = activeTab === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => handleTabChange(tab.key)}
+                    className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
+                      active ? 'bg-primary/10 text-foreground font-medium' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                )
+              })}
+            </nav>
+            <div className="mt-4 px-3 flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Comunicaciones</div>
+            </div>
+            <nav className="flex flex-col gap-px mt-0.5">
+              <Link
+                href="/superadmin/email-health"
+                className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <Activity className="w-4 h-4 shrink-0" />
+                <span className="truncate">Email health</span>
+              </Link>
+              <Link
+                href="/superadmin/onboarding"
+                className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <Mail className="w-4 h-4 shrink-0" />
+                <span className="truncate">Onboarding</span>
+              </Link>
+            </nav>
+          </div>
+        </aside>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-3 mb-8 flex-wrap">
-        <div className="flex gap-1 p-1 rounded-xl w-fit flex-wrap" style={{ background: 'rgba(0,0,0,0.03)' }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => handleTabChange(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.key ? 'text-white' : 'text-muted-foreground hover:text-foreground'
-              }`}
-              style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #F04E23, #C73E15)' } : {}}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <Link
-          href="/superadmin/email-health"
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-border/60 transition-colors"
-        >
-          <Activity className="w-4 h-4" />
-          Email health
-        </Link>
-        <Link
-          href="/superadmin/onboarding"
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-border/60 transition-colors"
-        >
-          <Mail className="w-4 h-4" />
-          Onboarding
-        </Link>
-      </div>
+        {/* Main */}
+        <main className="min-w-0 flex-1">
+          {/* Nav móvil */}
+          <div className="lg:hidden -mx-4 mb-4 overflow-x-auto border-b border-border/40 px-4">
+            <nav className="flex w-max gap-1 pb-2">
+              {tabs.map((tab) => {
+                const active = activeTab === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => handleTabChange(tab.key)}
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors ${
+                      active ? 'bg-primary/10 text-foreground font-medium' : 'text-muted-foreground hover:bg-muted/60'
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4 shrink-0" />
+                    {tab.label}
+                  </button>
+                )
+              })}
+              <Link
+                href="/superadmin/email-health"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60"
+              >
+                <Activity className="w-4 h-4" />
+                Email
+              </Link>
+              <Link
+                href="/superadmin/onboarding"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60"
+              >
+                <Mail className="w-4 h-4" />
+                Onboarding
+              </Link>
+            </nav>
+          </div>
+
+          {/* Header */}
+          <div className="glass-card rounded-2xl p-6 mb-8">
+            <div className="flex items-center gap-2 mb-1">
+              <Shield className="w-4 h-4 text-primary" />
+              <p className="text-xs text-primary font-medium tracking-wider uppercase">Panel de super administrador</p>
+            </div>
+            <h1 className="font-serif text-2xl font-bold text-foreground">Resumen operativo de la plataforma</h1>
+            <p className="text-muted-foreground text-sm mt-1">Datos en tiempo real.</p>
+          </div>
 
       {/* OVERVIEW */}
       {activeTab === 'overview' && (
         <div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} />
-            <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} />
-            <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} />
-            <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} />
+            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} tone="primary" />
+            <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} tone="accent" />
+            <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} tone="terra" />
+            <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} tone="green" />
+          </div>
+
+          {/* Usuarios por consorcio */}
+          <div className="glass-card rounded-xl overflow-hidden mb-8">
+            <div className="px-5 py-4 border-b border-border/40 flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-sm text-foreground">Usuarios por consorcio</h3>
+            </div>
+            {data.buildings.length === 0 ? (
+              <div className="px-5 py-8 text-center text-muted-foreground text-sm">No hay consorcios registrados.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/50">
+                      {['Consorcio', 'Vecinos', 'Residentes', 'Admins', 'Ocupación'].map((h) => (
+                        <th key={h} className="text-left px-5 py-3 text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...data.buildings]
+                      .map((building) => ({
+                        building,
+                        vecinos: data.users.filter((u) => u.buildingId === building.id && u.role === 'vecino').length,
+                      }))
+                      .sort((a, b) => b.vecinos - a.vecinos)
+                      .map(({ building, vecinos }) => (
+                        <tr key={building.id} className="border-b border-border/30 last:border-0 hover:bg-secondary/30">
+                          <td className="px-5 py-3.5 font-medium text-foreground">{building.name}</td>
+                          <td className="px-5 py-3.5 text-muted-foreground">{vecinos}</td>
+                          <td className="px-5 py-3.5 text-muted-foreground">{building.registeredNeighbors}</td>
+                          <td className="px-5 py-3.5 text-muted-foreground">{building.admins.length}</td>
+                          <td className="px-5 py-3.5 w-48">
+                            <OccupancyBar rate={building.occupancyRate} />
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2824,7 +2951,9 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         </div>
       )}
 
-      <ChatWidget />
+          <ChatWidget />
+        </main>
+      </div>
     </div>
   )
 }
