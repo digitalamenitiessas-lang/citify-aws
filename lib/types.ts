@@ -439,7 +439,15 @@ export interface SuperAdminCreateManagedPropertyInput {
     managementFeePct?: number | null
     notes?: string | null
   }
-  adminProfileId: string
+  // Se asigna un admin existente (adminProfileId) o se crea uno nuevo inline
+  // (newAdmin). Debe venir exactamente uno de los dos.
+  adminProfileId?: string | null
+  newAdmin?: {
+    fullName: string
+    email: string
+    phone?: string | null
+    password: string
+  } | null
 }
 
 export interface SuperAdminCreateManagedPropertyResult {

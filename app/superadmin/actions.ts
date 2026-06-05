@@ -567,8 +567,21 @@ const createManagedPropertySchema = z.object({
     managementFeePct: z.number().min(0).max(100).nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
   }),
-  adminProfileId: z.string().uuid(),
+  adminProfileId: z.string().uuid().nullable().optional(),
+  newAdmin: z
+    .object({
+      fullName: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().max(160),
+      phone: z.string().trim().max(40).nullable().optional(),
+      password: z.string().min(8).max(72),
+    })
+    .nullable()
+    .optional(),
 })
+  .refine((value) => Boolean(value.adminProfileId) !== Boolean(value.newAdmin), {
+    message: 'Indica un admin existente o crea uno nuevo, no ambos.',
+    path: ['adminProfileId'],
+  })
 
 const createManagedPropertyResultSchema = z.object({
   building_id: z.string().uuid(),
@@ -581,6 +594,36 @@ export async function createManagedProperty(
 ): Promise<SuperAdminCreateManagedPropertyResult> {
   const parsed = createManagedPropertySchema.parse(input)
   const { profile } = await requireProfile(['super_admin'])
+
+  // Resolver el admin inicial: o ya existe (adminProfileId) o lo creamos
+  // inline acá mismo (newAdmin), para que el superadmin no tenga que salir
+  // del wizard a la pestaña de usuarios primero.
+  let adminProfileId = parsed.adminProfileId ?? null
+  let createdAdmin: { profileId: string; email: string; fullName: string; password: string } | null = null
+
+  if (parsed.newAdmin) {
+    const { profileId, created } = await findOrCreatePlatformProfile({
+      fullName: parsed.newAdmin.fullName,
+      email: parsed.newAdmin.email,
+      phone: parsed.newAdmin.phone ?? null,
+      password: parsed.newAdmin.password,
+      role: 'consorcio_admin',
+      buildingId: null,
+    })
+    adminProfileId = profileId
+    if (created) {
+      createdAdmin = {
+        profileId,
+        email: parsed.newAdmin.email,
+        fullName: parsed.newAdmin.fullName,
+        password: parsed.newAdmin.password,
+      }
+    }
+  }
+
+  if (!adminProfileId) {
+    throw new Error('Debes indicar un administrador inicial.')
+  }
 
   const data = await callSuperadminCreateConsorcioInPostgres({
     buildingName: parsed.building.name,
@@ -599,11 +642,25 @@ export async function createManagedProperty(
     propertyManagedSince: parsed.managedProperty.managedSince ?? null,
     propertyManagementFeePct: parsed.managedProperty.managementFeePct ?? null,
     propertyNotes: parsed.managedProperty.notes ?? null,
-    adminProfileId: parsed.adminProfileId,
+    adminProfileId,
     creatorProfileId: profile.id,
   })
 
   const result = createManagedPropertyResultSchema.parse(data)
+
+  // Si creamos el admin inline, recién ahora tenemos el building para el
+  // welcome. La función SQL ya lo dejó asignado como admin del consorcio.
+  if (createdAdmin) {
+    await sendWelcomeEmail({
+      profileId: createdAdmin.profileId,
+      email: createdAdmin.email,
+      fullName: createdAdmin.fullName,
+      role: 'consorcio_admin',
+      buildingId: result.building_id,
+      temporaryPassword: createdAdmin.password,
+      reason: 'platform_user_created',
+    })
+  }
 
   revalidatePath('/superadmin')
   revalidatePath('/iadmin')
@@ -1090,4 +1147,31 @@ export async function createBusinessWithAdmin(input: z.input<typeof createBusine
 
   revalidatePath('/superadmin')
   return { businessId: business.id, profileId }
+}
+
+const assignConsorcioAdminToBuildingSchema = z.object({
+  buildingId: z.string().uuid(),
+  profileId: z.string().uuid(),
+})
+
+// Asigna un consorcio_admin ya existente a un edificio: lo agrega a
+// building_admin_assignments y, si el edificio tiene administración, le da el
+// grant IAdmin como titular. Reusa la misma lógica de promoción a primary que
+// usa createPlatformUser para el alta directa.
+export async function assignConsorcioAdminToBuilding(
+  input: z.input<typeof assignConsorcioAdminToBuildingSchema>,
+) {
+  const parsed = assignConsorcioAdminToBuildingSchema.parse(input)
+  await requireProfile(['super_admin'])
+
+  await assignBuildingAdminInPostgres(parsed.profileId, parsed.buildingId)
+
+  const administrationId = await getAdministrationIdByBuildingFromPostgres(parsed.buildingId)
+  if (administrationId) {
+    await assignIAdminRoleGrantInPostgres(parsed.profileId, administrationId, 'titular')
+  }
+
+  revalidatePath('/superadmin')
+  revalidatePath('/iadmin')
+  return { ok: true }
 }

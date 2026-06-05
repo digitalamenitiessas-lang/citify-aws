@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Building2,
   CheckCircle,
+  ChevronDown,
   ChevronRight,
   Home,
   Mail,
@@ -30,6 +31,7 @@ import DynamicMap from '@/components/map/map-view-dynamic'
 import {
   addNeighborToBuilding,
   analyzeInitialOccupancyFile,
+  assignConsorcioAdminToBuilding,
   confirmInitialOccupancyImport,
   createBusinessWithAdmin,
   createManagedProperty,
@@ -61,7 +63,7 @@ const PROPERTY_KIND_OPTIONS: Array<{ value: IAdminPropertyKind; label: string }>
   { value: 'mixto', label: 'Mixto' },
 ]
 
-type ConsorcioWizardStepId = 'building' | 'administration' | 'property' | 'admin' | 'summary'
+type ConsorcioWizardStepId = 'building' | 'admin' | 'summary'
 
 const CONSORCIO_WIZARD_STEPS: Array<{
   id: ConsorcioWizardStepId
@@ -69,16 +71,9 @@ const CONSORCIO_WIZARD_STEPS: Array<{
   description: string
   optional?: boolean
 }> = [
-  { id: 'building', label: 'Edificio', description: 'Datos base del edificio o consorcio.' },
-  {
-    id: 'administration',
-    label: 'Quién administra',
-    description: 'Datos de la administración del consorcio. Puedes dejarlo para después.',
-    optional: true,
-  },
-  { id: 'property', label: 'Datos en CITIFY', description: 'Como queda configurado el consorcio dentro del sistema.' },
-  { id: 'admin', label: 'Administrador inicial', description: 'Cuenta que operara este consorcio.' },
-  { id: 'summary', label: 'Resumen', description: 'Verificacion final antes de crear.' },
+  { id: 'building', label: 'Edificio', description: 'Datos del edificio. La administración y la config interna son opcionales.' },
+  { id: 'admin', label: 'Administrador', description: 'Cuenta que operará este consorcio.' },
+  { id: 'summary', label: 'Resumen', description: 'Verificación final antes de crear.' },
 ]
 const PIE_COLORS = ['#F04E23', '#C4733D', '#666666', '#F5A55D'] as const
 
@@ -95,6 +90,10 @@ const IMPORT_RELATIONSHIP_OPTIONS: Array<{ value: UnitProfileRelationship; label
   { value: 'vecino_principal', label: 'Vecino principal' },
   { value: 'vecino_adicional', label: 'Vecino adicional' },
 ]
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
 
 function normalizeImportText(value: string) {
   return value
@@ -394,12 +393,78 @@ function BuildingsList({
 }
 
 // ─── CONSORCIO DETAIL ─────────────────────────────────────────────────────────
-function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDetail; onBack: () => void }) {
+function BuildingDetail({
+  building,
+  consorcioAdmins,
+  onBack,
+}: {
+  building: SuperAdminBuildingDetail
+  consorcioAdmins: SuperAdminConsorcioAdminOption[]
+  onBack: () => void
+}) {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [addNeighborOpen, setAddNeighborOpen] = useState(false)
+  const [addAdminOpen, setAddAdminOpen] = useState(false)
   const [editPending, startEditTransition] = useTransition()
   const [neighborPending, startNeighborTransition] = useTransition()
+  const [adminPending, startAdminTransition] = useTransition()
+  // 'existing' = asignar un admin ya creado · 'new' = crearlo en el momento.
+  const [adminMode, setAdminMode] = useState<'existing' | 'new'>('existing')
+  const [adminForm, setAdminForm] = useState({
+    profileId: '',
+    fullName: '',
+    email: '',
+    phone: '',
+    password: 'Citify2026!',
+  })
+  // Admins que todavía no están asignados a este edificio.
+  const assignedAdminIds = new Set(building.admins.map((admin) => admin.profileId))
+  const availableAdmins = consorcioAdmins.filter((admin) => !assignedAdminIds.has(admin.profileId))
+
+  function submitAddAdmin() {
+    if (adminMode === 'existing') {
+      if (!adminForm.profileId) {
+        toast.error('Selecciona un admin para asignar.')
+        return
+      }
+      startAdminTransition(async () => {
+        try {
+          await assignConsorcioAdminToBuilding({ buildingId: building.id, profileId: adminForm.profileId })
+          toast.success('Admin asignado al consorcio.')
+          setAddAdminOpen(false)
+          setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: 'Citify2026!' })
+          router.refresh()
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : 'No se pudo asignar el admin.')
+        }
+      })
+      return
+    }
+
+    if (!adminForm.fullName.trim() || !adminForm.email.trim() || adminForm.password.trim().length < 8) {
+      toast.error('Completá nombre, email y una contraseña de al menos 8 caracteres.')
+      return
+    }
+    startAdminTransition(async () => {
+      try {
+        await createPlatformUser({
+          fullName: adminForm.fullName.trim(),
+          email: adminForm.email.trim(),
+          phone: adminForm.phone.trim() || null,
+          password: adminForm.password,
+          role: 'consorcio_admin',
+          buildingId: building.id,
+        })
+        toast.success('Admin creado y asignado al consorcio.')
+        setAddAdminOpen(false)
+        setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        router.refresh()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'No se pudo crear el admin.')
+      }
+    })
+  }
   const [editForm, setEditForm] = useState({
     name: building.name,
     address: building.address,
@@ -538,6 +603,16 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
         <Button size="sm" onClick={() => setAddNeighborOpen(true)}>
           Agregar vecino
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setAdminMode(availableAdmins.length === 0 ? 'new' : 'existing')
+            setAddAdminOpen(true)
+          }}
+        >
+          Agregar admin
+        </Button>
       </div>
 
       {editOpen && (
@@ -671,6 +746,84 @@ function BuildingDetail({ building, onBack }: { building: SuperAdminBuildingDeta
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setAddNeighborOpen(false)} disabled={neighborPending}>Cancelar</Button>
               <Button onClick={submitAddNeighbor} disabled={neighborPending}>{neighborPending ? 'Creando…' : 'Crear vecino'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addAdminOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAddAdminOpen(false)}>
+          <div className="glass-card w-full max-w-md rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-xl font-bold text-foreground mb-4">Agregar admin al consorcio</h2>
+
+            <div className="mb-4 inline-flex rounded-lg border border-border/50 bg-background/60 p-1">
+              <button
+                type="button"
+                onClick={() => setAdminMode('existing')}
+                disabled={availableAdmins.length === 0}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                  adminMode === 'existing' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                Asignar existente
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminMode('new')}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  adminMode === 'new' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                Crear nuevo
+              </button>
+            </div>
+
+            {adminMode === 'existing' ? (
+              <div className="space-y-2">
+                <Label>Admin consorcio</Label>
+                <select
+                  value={adminForm.profileId}
+                  onChange={(e) => setAdminForm({ ...adminForm, profileId: e.target.value })}
+                  className="w-full rounded-lg border border-border/50 bg-input/50 px-3 py-2 text-sm text-foreground"
+                >
+                  <option value="">Seleccionar admin</option>
+                  {availableAdmins.map((admin) => (
+                    <option key={admin.profileId} value={admin.profileId}>
+                      {admin.fullName} · {admin.email}
+                    </option>
+                  ))}
+                </select>
+                {availableAdmins.length === 0 && (
+                  <p className="text-[11px] text-amber-600">No hay otros admins disponibles. Crea uno nuevo.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label>Nombre completo</Label>
+                  <Input value={adminForm.fullName} onChange={(e) => setAdminForm({ ...adminForm, fullName: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Email</Label>
+                  <Input type="email" value={adminForm.email} onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Teléfono (opcional)</Label>
+                  <Input value={adminForm.phone} onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Password inicial</Label>
+                  <Input type="text" value={adminForm.password} onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })} />
+                  <p className="text-[11px] text-muted-foreground">El admin la podrá cambiar después de su primer ingreso.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAddAdminOpen(false)} disabled={adminPending}>Cancelar</Button>
+              <Button onClick={submitAddAdmin} disabled={adminPending}>
+                {adminPending ? 'Guardando…' : adminMode === 'existing' ? 'Asignar admin' : 'Crear admin'}
+              </Button>
             </div>
           </div>
         </div>
@@ -1346,7 +1499,15 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     managementFeePct: '',
     notes: '',
     adminProfileId: '',
+    newAdminFullName: '',
+    newAdminEmail: '',
+    newAdminPhone: '',
+    newAdminPassword: 'Citify2026!',
   })
+  // 'existing' = elegir un admin ya creado · 'new' = crearlo en este mismo paso.
+  const [consorcioAdminMode, setConsorcioAdminMode] = useState<'existing' | 'new'>('existing')
+  // Sección opcional (administración + config CITIFY) plegada dentro del paso Edificio.
+  const [consorcioAdvancedOpen, setConsorcioAdvancedOpen] = useState(false)
   const [consorcioStepIndex, setConsorcioStepIndex] = useState(0)
   const [administrationNameTouched, setAdministrationNameTouched] = useState(false)
   const [consorcioLocationSearching, setConsorcioLocationSearching] = useState(false)
@@ -1361,6 +1522,14 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
 
   const totalUsage = data.promotions.reduce((sum, p) => sum + p.usageCount, 0)
   const consorcioAdmins = data.consorcioAdminOptions
+
+  // Si no hay ningún admin consorcio cargado, forzamos el modo "crear nuevo"
+  // para que el wizard no quede bloqueado en el paso del administrador.
+  useEffect(() => {
+    if (consorcioAdmins.length === 0) {
+      setConsorcioAdminMode('new')
+    }
+  }, [consorcioAdmins.length])
   const activeTabParam = searchParams.get('tab')
   // Si la URL no trae ?tab=..., caemos al último tab guardado en localStorage.
   const fallbackTab: TabType = (() => {
@@ -1455,8 +1624,13 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       managementFeePct: '',
       notes: '',
       adminProfileId: '',
+      newAdminFullName: '',
+      newAdminEmail: '',
+      newAdminPhone: '',
+      newAdminPassword: 'Citify2026!',
     })
     setAdministrationNameTouched(false)
+    setConsorcioAdminMode(consorcioAdmins.length === 0 ? 'new' : 'existing')
     setConsorcioStepIndex(0)
   }
 
@@ -1523,10 +1697,6 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       if (consorcioDraft.longitude && !Number.isFinite(Number(consorcioDraft.longitude.replace(',', '.')))) {
         return 'La longitud es invalida.'
       }
-    }
-
-    if (step.id === 'property') {
-      if (!consorcioDraft.propertyKind) return 'Selecciona el tipo de consorcio.'
 
       if (consorcioDraft.managementFeePct) {
         const fee = Number(consorcioDraft.managementFeePct.replace(',', '.'))
@@ -1537,8 +1707,16 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     }
 
     if (step.id === 'admin') {
-      if (consorcioAdmins.length === 0) return 'Primero debes crear al menos un usuario admin consorcio.'
-      if (!consorcioDraft.adminProfileId) return 'Selecciona el administrador inicial.'
+      if (consorcioAdminMode === 'new') {
+        if (!consorcioDraft.newAdminFullName.trim()) return 'Completa el nombre del nuevo admin.'
+        if (!isValidEmail(consorcioDraft.newAdminEmail)) return 'Completa un email valido para el nuevo admin.'
+        if (consorcioDraft.newAdminPassword.trim().length < 8) {
+          return 'La contrasena del admin debe tener al menos 8 caracteres.'
+        }
+      } else {
+        if (consorcioAdmins.length === 0) return 'No hay admins existentes. Crea uno nuevo en este paso.'
+        if (!consorcioDraft.adminProfileId) return 'Selecciona el administrador inicial.'
+      }
     }
 
     return null
@@ -1800,7 +1978,16 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
             managementFeePct,
             notes: consorcioDraft.notes || null,
           },
-          adminProfileId: consorcioDraft.adminProfileId,
+          ...(consorcioAdminMode === 'new'
+            ? {
+                newAdmin: {
+                  fullName: consorcioDraft.newAdminFullName.trim(),
+                  email: consorcioDraft.newAdminEmail.trim(),
+                  phone: consorcioDraft.newAdminPhone.trim() || null,
+                  password: consorcioDraft.newAdminPassword,
+                },
+              }
+            : { adminProfileId: consorcioDraft.adminProfileId }),
         })
 
         toast.success('Consorcio creado y listo para IAdmin')
@@ -2046,7 +2233,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
               </div>
             </div>
 
-            <div className="mt-5 grid gap-2 md:grid-cols-5">
+            <div className="mt-5 grid gap-2 md:grid-cols-3">
               {CONSORCIO_WIZARD_STEPS.map((step, index) => {
                 const isActive = index === consorcioStepIndex
                 const isCompleted = index < consorcioStepIndex
@@ -2168,154 +2355,222 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
-              {currentConsorcioStep.id === 'administration' && (
-                <div className="space-y-5">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                        Quién administra
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Si no completas este paso, CITIFY creará una administración mínima usando el nombre del edificio.
-                        Luego podrás editarla desde el detalle del consorcio.
-                      </p>
-                    </div>
-                    <Badge color="default">Opcional</Badge>
-                  </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Input
-                      placeholder="Nombre de la administración"
-                      value={consorcioDraft.administrationName}
-                      onChange={(event) => {
-                        setAdministrationNameTouched(true)
-                        setConsorcioDraft({ ...consorcioDraft, administrationName: event.target.value })
-                      }}
-                    />
-                    <Input
-                      placeholder="Razón social"
-                      value={consorcioDraft.administrationLegalName}
-                      onChange={(event) =>
-                        setConsorcioDraft({ ...consorcioDraft, administrationLegalName: event.target.value })
-                      }
-                    />
-                    <Input
-                      placeholder="CUIT"
-                      value={consorcioDraft.administrationTaxId}
-                      onChange={(event) =>
-                        setConsorcioDraft({ ...consorcioDraft, administrationTaxId: event.target.value })
-                      }
-                    />
-                    <Input
-                      placeholder="Email"
-                      type="email"
-                      value={consorcioDraft.administrationContactEmail}
-                      onChange={(event) =>
-                        setConsorcioDraft({ ...consorcioDraft, administrationContactEmail: event.target.value })
-                      }
-                    />
-                    <Input
-                      placeholder="Teléfono"
-                      value={consorcioDraft.administrationContactPhone}
-                      onChange={(event) =>
-                        setConsorcioDraft({ ...consorcioDraft, administrationContactPhone: event.target.value })
-                      }
-                    />
+                  <div className="rounded-2xl border border-border/50 bg-background/40">
+                    <button
+                      type="button"
+                      onClick={() => setConsorcioAdvancedOpen((open) => !open)}
+                      className="flex w-full items-center justify-between px-4 py-3 text-left"
+                    >
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Avanzado (opcional)
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Datos de la administración y configuración del consorcio. Si los dejas vacíos, CITIFY usa el nombre del edificio.
+                        </p>
+                      </div>
+                      <ChevronDown
+                        className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                          consorcioAdvancedOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {consorcioAdvancedOpen && (
+                      <div className="space-y-5 border-t border-border/50 px-4 py-4">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                            Quién administra
+                          </p>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <Input
+                              placeholder="Nombre de la administración"
+                              value={consorcioDraft.administrationName}
+                              onChange={(event) => {
+                                setAdministrationNameTouched(true)
+                                setConsorcioDraft({ ...consorcioDraft, administrationName: event.target.value })
+                              }}
+                            />
+                            <Input
+                              placeholder="Razón social"
+                              value={consorcioDraft.administrationLegalName}
+                              onChange={(event) =>
+                                setConsorcioDraft({ ...consorcioDraft, administrationLegalName: event.target.value })
+                              }
+                            />
+                            <Input
+                              placeholder="CUIT"
+                              value={consorcioDraft.administrationTaxId}
+                              onChange={(event) =>
+                                setConsorcioDraft({ ...consorcioDraft, administrationTaxId: event.target.value })
+                              }
+                            />
+                            <Input
+                              placeholder="Email"
+                              type="email"
+                              value={consorcioDraft.administrationContactEmail}
+                              onChange={(event) =>
+                                setConsorcioDraft({ ...consorcioDraft, administrationContactEmail: event.target.value })
+                              }
+                            />
+                            <Input
+                              placeholder="Teléfono"
+                              value={consorcioDraft.administrationContactPhone}
+                              onChange={(event) =>
+                                setConsorcioDraft({ ...consorcioDraft, administrationContactPhone: event.target.value })
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                            Configuración del consorcio
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <input
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                              placeholder="Nombre a mostrar (opcional)"
+                              value={consorcioDraft.displayName}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, displayName: e.target.value })}
+                            />
+                            <select
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                              value={consorcioDraft.propertyKind}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, propertyKind: e.target.value as IAdminPropertyKind })}
+                            >
+                              {PROPERTY_KIND_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                            <input
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                              placeholder="CUIT del consorcio"
+                              value={consorcioDraft.propertyTaxId}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, propertyTaxId: e.target.value })}
+                            />
+                            <input
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                              placeholder="Inicio de gestión"
+                              type="date"
+                              value={consorcioDraft.managedSince}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, managedSince: e.target.value })}
+                            />
+                            <input
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                              placeholder="Fee administración (%)"
+                              inputMode="decimal"
+                              value={consorcioDraft.managementFeePct}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, managementFeePct: e.target.value })}
+                            />
+                            <textarea
+                              className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm outline-none md:col-span-3"
+                              rows={2}
+                              placeholder="Notas iniciales"
+                              value={consorcioDraft.notes}
+                              onChange={(e) => setConsorcioDraft({ ...consorcioDraft, notes: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
-              {currentConsorcioStep.id === 'property' && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Configuración del consorcio</p>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <input
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    placeholder="Nombre a mostrar (opcional)"
-                    value={consorcioDraft.displayName}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, displayName: e.target.value })}
-                  />
-                  <select
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    value={consorcioDraft.propertyKind}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, propertyKind: e.target.value as IAdminPropertyKind })}
-                  >
-                    {PROPERTY_KIND_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    placeholder="CUIT del consorcio"
-                    value={consorcioDraft.propertyTaxId}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, propertyTaxId: e.target.value })}
-                  />
-                  <input
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    placeholder="Inicio de gestión"
-                    type="date"
-                    value={consorcioDraft.managedSince}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, managedSince: e.target.value })}
-                  />
-                  <input
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    placeholder="Fee administración (%)"
-                    inputMode="decimal"
-                    value={consorcioDraft.managementFeePct}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, managementFeePct: e.target.value })}
-                  />
-                  <textarea
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm outline-none md:col-span-3"
-                    rows={2}
-                    placeholder="Notas iniciales"
-                    value={consorcioDraft.notes}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, notes: e.target.value })}
-                  />
-                </div>
-              </div>
               )}
 
               {currentConsorcioStep.id === 'admin' && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Administrador inicial</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
-                  <select
-                    className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                    value={consorcioDraft.adminProfileId}
-                    onChange={(e) => setConsorcioDraft({ ...consorcioDraft, adminProfileId: e.target.value })}
-                    required
+
+                <div className="mb-4 inline-flex rounded-lg border border-border/50 bg-background/60 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setConsorcioAdminMode('existing')}
+                    disabled={consorcioAdmins.length === 0}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                      consorcioAdminMode === 'existing' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                    }`}
                   >
-                    <option value="">Seleccionar admin consorcio</option>
-                    {consorcioAdmins.map((admin) => (
-                      <option key={admin.profileId} value={admin.profileId}>
-                        {admin.fullName} · {admin.email}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="hidden">
-                    {consorcioAdmins.length === 0
-                      ? 'Primero necesitas crear al menos un usuario con rol admin consorcio.'
-                      : 'Si el admin no tiene otros edificios asignados, este nuevo consorcio quedará como principal.'}
-                  </div>
-                  <div className="md:col-span-2 rounded-lg border border-border/40 bg-background/60 px-3 py-3 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">
-                      {selectedConsorcioAdmin ? selectedConsorcioAdmin.fullName : 'Sin admin seleccionado'}
-                    </p>
-                    <p className="mt-1">{describeAdminAssignment(selectedConsorcioAdmin)}</p>
-                    {selectedConsorcioAdmin && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge color="default">
-                          {selectedConsorcioAdmin.assignedBuildingsCount} edificio
-                          {selectedConsorcioAdmin.assignedBuildingsCount === 1 ? '' : 's'}
-                        </Badge>
-                        {selectedConsorcioAdmin.primaryBuildingName && (
-                          <Badge color="primary">Primario: {selectedConsorcioAdmin.primaryBuildingName}</Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                    Elegir existente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConsorcioAdminMode('new')}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      consorcioAdminMode === 'new' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    Crear nuevo admin
+                  </button>
                 </div>
+
+                {consorcioAdminMode === 'existing' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                    <select
+                      className="rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
+                      value={consorcioDraft.adminProfileId}
+                      onChange={(e) => setConsorcioDraft({ ...consorcioDraft, adminProfileId: e.target.value })}
+                    >
+                      <option value="">Seleccionar admin consorcio</option>
+                      {consorcioAdmins.map((admin) => (
+                        <option key={admin.profileId} value={admin.profileId}>
+                          {admin.fullName} · {admin.email}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="md:col-span-2 rounded-lg border border-border/40 bg-background/60 px-3 py-3 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">
+                        {selectedConsorcioAdmin ? selectedConsorcioAdmin.fullName : 'Sin admin seleccionado'}
+                      </p>
+                      <p className="mt-1">{describeAdminAssignment(selectedConsorcioAdmin)}</p>
+                      {selectedConsorcioAdmin && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Badge color="default">
+                            {selectedConsorcioAdmin.assignedBuildingsCount} edificio
+                            {selectedConsorcioAdmin.assignedBuildingsCount === 1 ? '' : 's'}
+                          </Badge>
+                          {selectedConsorcioAdmin.primaryBuildingName && (
+                            <Badge color="primary">Primario: {selectedConsorcioAdmin.primaryBuildingName}</Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Se creará la cuenta con rol admin consorcio y quedará asignada como administrador de este consorcio.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Input
+                        placeholder="Nombre completo del admin"
+                        value={consorcioDraft.newAdminFullName}
+                        onChange={(e) => setConsorcioDraft({ ...consorcioDraft, newAdminFullName: e.target.value })}
+                      />
+                      <Input
+                        type="email"
+                        placeholder="Email del admin"
+                        value={consorcioDraft.newAdminEmail}
+                        onChange={(e) => setConsorcioDraft({ ...consorcioDraft, newAdminEmail: e.target.value })}
+                      />
+                      <Input
+                        placeholder="Teléfono (opcional)"
+                        value={consorcioDraft.newAdminPhone}
+                        onChange={(e) => setConsorcioDraft({ ...consorcioDraft, newAdminPhone: e.target.value })}
+                      />
+                      <Input
+                        type="text"
+                        placeholder="Password inicial"
+                        value={consorcioDraft.newAdminPassword}
+                        onChange={(e) => setConsorcioDraft({ ...consorcioDraft, newAdminPassword: e.target.value })}
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      El admin podrá cambiar la contraseña después de su primer ingreso.
+                    </p>
+                  </div>
+                )}
               </div>
               )}
 
@@ -2383,16 +2638,35 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                       </p>
                     </div>
                     <div className="rounded-xl border border-border/40 bg-background/60 p-4">
-                      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                        Administrador inicial
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          Administrador inicial
+                        </div>
+                        {consorcioAdminMode === 'new' && <Badge color="primary">Nuevo</Badge>}
                       </div>
-                      <div className="mt-2 text-sm font-semibold text-foreground">
-                        {selectedConsorcioAdmin?.fullName || 'Sin admin seleccionado'}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {selectedConsorcioAdmin?.email || 'Debes seleccionar un admin consorcio'}
-                      </p>
-                      <p className="mt-2 text-xs text-muted-foreground">{describeAdminAssignment(selectedConsorcioAdmin)}</p>
+                      {consorcioAdminMode === 'new' ? (
+                        <>
+                          <div className="mt-2 text-sm font-semibold text-foreground">
+                            {consorcioDraft.newAdminFullName.trim() || 'Sin nombre'}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {consorcioDraft.newAdminEmail.trim() || 'Sin email'}
+                          </p>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Se creará la cuenta y quedará como admin de este consorcio.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="mt-2 text-sm font-semibold text-foreground">
+                            {selectedConsorcioAdmin?.fullName || 'Sin admin seleccionado'}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {selectedConsorcioAdmin?.email || 'Debes seleccionar un admin consorcio'}
+                          </p>
+                          <p className="mt-2 text-xs text-muted-foreground">{describeAdminAssignment(selectedConsorcioAdmin)}</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2431,7 +2705,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                 ) : (
                   <button
                     type="submit"
-                    disabled={pending || consorcioAdmins.length === 0}
+                    disabled={pending}
                     className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium disabled:opacity-60"
                   >
                     {pending ? 'Creando...' : 'Crear consorcio'}
@@ -2445,7 +2719,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         </div>
       )}
       {activeTab === 'buildings' && selectedBuilding && (
-        <BuildingDetail building={selectedBuilding} onBack={() => navigate('buildings')} />
+        <BuildingDetail building={selectedBuilding} consorcioAdmins={consorcioAdmins} onBack={() => navigate('buildings')} />
       )}
 
       {/* USUARIOS */}
