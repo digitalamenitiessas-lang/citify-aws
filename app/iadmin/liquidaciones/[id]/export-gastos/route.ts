@@ -22,7 +22,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const run = await getLiquidationRunWithAdminFromPostgres(runId)
   if (!run) {
-    return NextResponse.json({ error: 'run not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Corrida de liquidación no encontrada.' }, { status: 404 })
   }
 
   await requireIAdmin({

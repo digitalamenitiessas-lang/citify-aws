@@ -27,7 +27,7 @@ export async function GET(
   const { token } = await params
   const view = await getPublicLiquidationByToken(token)
   if (!view) {
-    return NextResponse.json({ error: 'not found' }, { status: 404 })
+    return NextResponse.json({ error: 'No encontrado.' }, { status: 404 })
   }
 
   const buffer = await renderToBuffer(<PublicLiquidationPdf view={view} />)
