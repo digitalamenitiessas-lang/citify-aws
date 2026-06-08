@@ -1418,6 +1418,10 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
   // Sección opcional (administración + config CITIFY) plegada dentro del paso Edificio.
   const [consorcioAdvancedOpen, setConsorcioAdvancedOpen] = useState(false)
   const [consorcioStepIndex, setConsorcioStepIndex] = useState(0)
+  // "Arma" el botón Crear recién unos ms después de llegar al resumen, para
+  // evitar que un doble-click sobre "Continuar" (que cambia de botón bajo el
+  // cursor) dispare la creación sin querer.
+  const [createArmed, setCreateArmed] = useState(false)
   const [administrationNameTouched, setAdministrationNameTouched] = useState(false)
   const [consorcioLocationSearching, setConsorcioLocationSearching] = useState(false)
   // Centro inicial fijo del mapa de "crear consorcio". Solo cambia cuando
@@ -1435,6 +1439,17 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       setConsorcioAdminMode('new')
     }
   }, [consorcioAdmins.length])
+  // Al entrar al paso resumen, desarmamos el botón Crear y lo rearmamos tras un
+  // breve retardo (anti doble-click accidental al avanzar).
+  useEffect(() => {
+    if (CONSORCIO_WIZARD_STEPS[consorcioStepIndex]?.id !== 'summary') {
+      setCreateArmed(false)
+      return
+    }
+    setCreateArmed(false)
+    const timer = setTimeout(() => setCreateArmed(true), 450)
+    return () => clearTimeout(timer)
+  }, [consorcioStepIndex])
   const activeTabParam = searchParams.get('tab')
   // Si la URL no trae ?tab=..., caemos al último tab guardado en localStorage.
   const fallbackTab: TabType = (() => {
@@ -1725,6 +1740,12 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     // paso si la validación del paso actual pasa.
     if (currentConsorcioStep.id !== 'summary') {
       nextConsorcioStep()
+      return
+    }
+
+    // Anti doble-click: si el botón Crear todavía no está "armado" (recién
+    // llegamos al resumen), ignoramos este submit accidental.
+    if (!createArmed) {
       return
     }
 
@@ -2503,7 +2524,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                 ) : (
                   <button
                     type="submit"
-                    disabled={pending}
+                    disabled={pending || !createArmed}
                     className="rounded-lg px-4 py-2 text-sm font-semibold text-white btn-premium disabled:opacity-60"
                   >
                     {pending ? 'Creando...' : 'Crear consorcio'}
