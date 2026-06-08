@@ -1783,6 +1783,11 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
             : { adminProfileId: consorcioDraft.adminProfileId }),
         })
 
+        if ('error' in result) {
+          toast.error(`No se pudo crear (${result.stage}): ${result.error}`)
+          return
+        }
+
         toast.success('Consorcio creado y listo para IAdmin')
         resetConsorcioDraft()
         navigate('buildings', { buildingId: result.buildingId })

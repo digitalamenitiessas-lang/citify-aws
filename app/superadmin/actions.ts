@@ -591,7 +591,7 @@ const createManagedPropertyResultSchema = z.object({
 
 export async function createManagedProperty(
   input: SuperAdminCreateManagedPropertyInput,
-): Promise<SuperAdminCreateManagedPropertyResult> {
+): Promise<SuperAdminCreateManagedPropertyResult | { error: string; stage: string }> {
   // Etapa actual, para que el log del servidor diga exactamente dónde falló
   // (en prod Next oculta el mensaje real al cliente y solo deja un digest).
   let stage = 'parse'
@@ -683,14 +683,16 @@ export async function createManagedProperty(
       managedPropertyId: result.managed_property_id,
     }
   } catch (err) {
+    const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
     // Log buscable en los logs del servidor desplegado (CloudWatch / stdout).
     console.error(
-      `[createManagedProperty] FALLO en stage="${stage}" mode=${input?.newAdmin ? 'newAdmin' : 'existing'} :: ${
-        err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-      }`,
+      `[createManagedProperty] FALLO en stage="${stage}" mode=${input?.newAdmin ? 'newAdmin' : 'existing'} :: ${message}`,
       err,
     )
-    throw err
+    // Devolvemos el error en vez de lanzarlo: Next censura los throw en prod
+    // (mensaje genérico + digest), pero NO censura los valores de retorno, así
+    // el cliente puede mostrar la causa real en el toast.
+    return { error: message, stage }
   }
 }
 
