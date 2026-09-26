@@ -12,7 +12,7 @@ export async function upsertPushSubscriptionInPostgres(input: {
 }): Promise<void> {
   await pgQuery(
     `
-      insert into public.push_subscriptions (profile_id, endpoint, p256dh, auth)
+      insert into citify.push_subscriptions (profile_id, endpoint, p256dh, auth)
       values ($1, $2, $3, $4)
       on conflict (profile_id, endpoint) do update set p256dh = excluded.p256dh, auth = excluded.auth
     `,
@@ -24,7 +24,7 @@ export async function listPushSubscriptionsForProfileFromPostgres(
   profileId: string,
 ): Promise<Array<{ endpoint: string; p256dh: string; auth: string }>> {
   const result = await pgQuery<{ endpoint: string; p256dh: string; auth: string }>(
-    `select endpoint, p256dh, auth from public.push_subscriptions where profile_id = $1`,
+    `select endpoint, p256dh, auth from citify.push_subscriptions where profile_id = $1`,
     [profileId],
   )
   return result.rows
@@ -49,7 +49,7 @@ export async function updateBusinessFieldsInPostgres(
   }
   if (cols.length === 0) return
   values.push(businessId)
-  const sql = `update public.businesses set ${cols.join(', ')} where id = $${values.length}`
+  const sql = `update shared.businesses set ${cols.join(', ')} where id = $${values.length}`
   const result = actingProfileId
     ? await pgQueryAsProfile(actingProfileId, sql, values)
     : await pgQuery(sql, values)
@@ -73,7 +73,7 @@ export async function upsertPromotionInPostgres(input: {
   if (input.mode === 'update') {
     await pgQuery(
       `
-        update public.promotions
+        update shared.promotions
         set title = $1,
             description = $2,
             discount = $3,
@@ -100,7 +100,7 @@ export async function upsertPromotionInPostgres(input: {
   }
   await pgQuery(
     `
-      insert into public.promotions (
+      insert into shared.promotions (
         id, business_id, title, description, discount, category,
         expiration_date, building_id, image_path, is_active
       )
@@ -127,7 +127,7 @@ export async function deletePromotionInPostgres(input: {
   businessId: string
 }): Promise<void> {
   await pgQuery(
-    `update public.promotions set is_active = false where id = $1 and business_id = $2`,
+    `update shared.promotions set is_active = false where id = $1 and business_id = $2`,
     [input.promotionId, input.businessId],
   )
 }
@@ -141,7 +141,7 @@ export async function isSavedPromotionInPostgres(input: {
   promotionId: string
 }): Promise<boolean> {
   const result = await pgQuery(
-    `select 1 from public.saved_promotions where profile_id = $1 and promotion_id = $2 limit 1`,
+    `select 1 from citify.saved_promotions where profile_id = $1 and promotion_id = $2 limit 1`,
     [input.profileId, input.promotionId],
   )
   return result.rows.length > 0
@@ -154,13 +154,13 @@ export async function toggleSavedPromotionInPostgres(input: {
   const exists = await isSavedPromotionInPostgres(input)
   if (exists) {
     await pgQuery(
-      `delete from public.saved_promotions where profile_id = $1 and promotion_id = $2`,
+      `delete from citify.saved_promotions where profile_id = $1 and promotion_id = $2`,
       [input.profileId, input.promotionId],
     )
     return { saved: false }
   }
   await pgQuery(
-    `insert into public.saved_promotions (profile_id, promotion_id) values ($1, $2) on conflict do nothing`,
+    `insert into citify.saved_promotions (profile_id, promotion_id) values ($1, $2) on conflict do nothing`,
     [input.profileId, input.promotionId],
   )
   return { saved: true }
@@ -179,7 +179,7 @@ export async function insertMarketplaceItemInPostgres(input: {
 }): Promise<void> {
   await pgQuery(
     `
-      insert into public.marketplace_items (
+      insert into citify.marketplace_items (
         id, seller_profile_id, building_id, title, price, description, condition,
         image_path, extra_image_paths, is_active
       )
@@ -211,7 +211,7 @@ export async function updateMarketplaceItemInPostgres(input: {
 }): Promise<void> {
   const result = await pgQuery(
     `
-      update public.marketplace_items
+      update citify.marketplace_items
       set title = $1, price = $2, description = $3, condition = $4,
           image_path = $5, extra_image_paths = $6
       where id = $7 and seller_profile_id = $8 and is_active = true
@@ -238,7 +238,7 @@ export async function deactivateMarketplaceItemInPostgres(input: {
   sellerProfileId: string
 }): Promise<void> {
   const result = await pgQuery(
-    `update public.marketplace_items set is_active = false where id = $1 and seller_profile_id = $2`,
+    `update citify.marketplace_items set is_active = false where id = $1 and seller_profile_id = $2`,
     [input.itemId, input.sellerProfileId],
   )
   if (result.rowCount === 0) {
@@ -267,7 +267,7 @@ export async function getPromotionForRedemptionFromPostgres(promotionId: string)
     expiration_date: string | null
     building_id: string | null
   }>(
-    `select id, business_id, title, is_active, expiration_date::text as expiration_date, building_id from public.promotions where id = $1 limit 1`,
+    `select id, business_id, title, is_active, expiration_date::text as expiration_date, building_id from shared.promotions where id = $1 limit 1`,
     [promotionId],
   )
   return result.rows[0] ?? null
@@ -275,7 +275,7 @@ export async function getPromotionForRedemptionFromPostgres(promotionId: string)
 
 export async function getBusinessNameFromPostgres(businessId: string): Promise<string | null> {
   const result = await pgQuery<{ name: string }>(
-    `select name from public.businesses where id = $1 limit 1`,
+    `select name from shared.businesses where id = $1 limit 1`,
     [businessId],
   )
   return result.rows[0]?.name ?? null
@@ -286,7 +286,7 @@ export async function existsRedemptionForProfilePromotionFromPostgres(input: {
   promotionId: string
 }): Promise<boolean> {
   const result = await pgQuery(
-    `select 1 from public.promotion_redemptions where profile_id = $1 and promotion_id = $2 limit 1`,
+    `select 1 from citify.promotion_redemptions where profile_id = $1 and promotion_id = $2 limit 1`,
     [input.profileId, input.promotionId],
   )
   return result.rows.length > 0
@@ -299,21 +299,21 @@ export async function getOrCreateRedemptionTokenInPostgres(input: {
 }): Promise<{ id: string; token: string; expires_at: string }> {
   // Expirar pendings vencidos
   await pgQuery(
-    `update public.promotion_redemption_tokens set status = 'expired' where profile_id = $1 and promotion_id = $2 and status = 'pending' and expires_at <= now()`,
+    `update citify.promotion_redemption_tokens set status = 'expired' where profile_id = $1 and promotion_id = $2 and status = 'pending' and expires_at <= now()`,
     [input.profileId, input.promotionId],
   )
 
   // Buscar pending vivo
   const existing = await pgQuery<{ id: string; token: string; expires_at: string }>(
-    `select id, token, expires_at::text as expires_at from public.promotion_redemption_tokens where profile_id = $1 and promotion_id = $2 and status = 'pending' and expires_at > now() order by created_at desc limit 1`,
+    `select id, token, expires_at::text as expires_at from citify.promotion_redemption_tokens where profile_id = $1 and promotion_id = $2 and status = 'pending' and expires_at > now() order by created_at desc limit 1`,
     [input.profileId, input.promotionId],
   )
   if (existing.rows[0]) return existing.rows[0]
 
   const created = await pgQuery<{ id: string; token: string; expires_at: string }>(
     `
-      insert into public.promotion_redemption_tokens (promotion_id, profile_id, token, expires_at)
-      values ($1, $2, public.generate_promotion_redemption_token(), $3::timestamptz)
+      insert into citify.promotion_redemption_tokens (promotion_id, profile_id, token, expires_at)
+      values ($1, $2, citify.generate_promotion_redemption_token(), $3::timestamptz)
       returning id, token, expires_at::text as expires_at
     `,
     [input.promotionId, input.profileId, input.expiresAt],
@@ -328,7 +328,7 @@ export async function getLatestRedemptionForProfilePromotionFromPostgres(input: 
   const result = await pgQuery<{ id: string; redeemed_at: string | null; created_at: string | null }>(
     `
       select id, redeemed_at::text as redeemed_at, created_at::text as created_at
-      from public.promotion_redemptions
+      from citify.promotion_redemptions
       where profile_id = $1 and promotion_id = $2 and status = 'redeemed'
       order by redeemed_at desc nulls last, created_at desc nulls last
       limit 1
@@ -354,7 +354,7 @@ export async function findRedemptionTokenByCodeFromPostgres(token: string): Prom
     expires_at: string
     redeemed_at: string | null
   }>(
-    `select id, promotion_id, profile_id, status, expires_at::text as expires_at, redeemed_at::text as redeemed_at from public.promotion_redemption_tokens where token = $1 limit 1`,
+    `select id, promotion_id, profile_id, status, expires_at::text as expires_at, redeemed_at::text as redeemed_at from citify.promotion_redemption_tokens where token = $1 limit 1`,
     [token],
   )
   return result.rows[0] ?? null
@@ -362,7 +362,7 @@ export async function findRedemptionTokenByCodeFromPostgres(token: string): Prom
 
 export async function getProfileFullNameFromPostgres(profileId: string): Promise<string | null> {
   const result = await pgQuery<{ full_name: string | null }>(
-    `select full_name from public.profiles where id = $1 limit 1`,
+    `select full_name from citify.profiles where id = $1 limit 1`,
     [profileId],
   )
   return result.rows[0]?.full_name ?? null
@@ -374,7 +374,7 @@ export async function markTokenRedeemedInPostgres(input: {
 }): Promise<void> {
   await pgQuery(
     `
-      update public.promotion_redemption_tokens
+      update citify.promotion_redemption_tokens
       set status = 'redeemed',
           redeemed_at = coalesce(redeemed_at, now()),
           redeemed_by_business_id = coalesce(redeemed_by_business_id, $1)
@@ -390,7 +390,7 @@ export async function insertPromotionRedemptionInPostgres(input: {
 }): Promise<{ id: string | null }> {
   const result = await pgQuery<{ id: string }>(
     `
-      insert into public.promotion_redemptions (profile_id, promotion_id, status, redeemed_at)
+      insert into citify.promotion_redemptions (profile_id, promotion_id, status, redeemed_at)
       values ($1, $2, 'redeemed', now())
       on conflict (profile_id, promotion_id) do nothing
       returning id

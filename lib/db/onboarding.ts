@@ -41,11 +41,11 @@ export async function insertOnboardingRequestInPostgres(input: {
 }): Promise<{ id: string }> {
   const result = await pgQuery<{ id: string }>(
     `
-      insert into public.onboarding_requests
+      insert into citify.onboarding_requests
         (kind, name, email, phone, organization, message,
          source_ip, user_agent, honeypot_value)
       values
-        ($1::public.onboarding_request_kind, $2, lower($3), $4, $5, $6,
+        ($1::citify.onboarding_request_kind, $2, lower($3), $4, $5, $6,
          $7::inet, $8, $9)
       returning id
     `,
@@ -90,8 +90,8 @@ export async function listOnboardingRequestsFromPostgres(input: {
         r.converted_at::text as converted_at,
         r.created_at::text as created_at,
         r.updated_at::text as updated_at
-      from public.onboarding_requests r
-      left join public.profiles p on p.id = r.contacted_by_profile_id
+      from citify.onboarding_requests r
+      left join citify.profiles p on p.id = r.contacted_by_profile_id
       where ($1::text = 'all' or r.status::text = $1)
         and ($2::text is null or r.kind::text = $2)
       order by r.created_at desc
@@ -104,7 +104,7 @@ export async function listOnboardingRequestsFromPostgres(input: {
 
 export async function countPendingOnboardingRequestsFromPostgres(): Promise<number> {
   const result = await pgQuery<{ c: number }>(
-    `select count(*)::int as c from public.onboarding_requests where status = 'pending'`,
+    `select count(*)::int as c from citify.onboarding_requests where status = 'pending'`,
   )
   return result.rows[0]?.c ?? 0
 }
@@ -118,8 +118,8 @@ export async function updateOnboardingRequestStatusInPostgres(input: {
   // Set contacted_at / converted_at automaticamente segun la transicion.
   await pgQuery(
     `
-      update public.onboarding_requests
-        set status = $2::public.onboarding_request_status,
+      update citify.onboarding_requests
+        set status = $2::citify.onboarding_request_status,
             internal_notes = coalesce($3, internal_notes),
             contacted_by_profile_id = case
               when $2::text in ('contacted', 'qualified', 'converted')

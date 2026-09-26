@@ -39,11 +39,11 @@ export async function listFullMembershipsForProfileFromPostgres(
         p.role::text as profile_role, p.floor as profile_floor, p.unit as profile_unit,
         u.code as unit_code, u.floor as unit_floor,
         b.name as building_name
-      from public.unit_profile_memberships m
-      left join public.profiles p on p.id = m.profile_id
-      left join public.iadmin_units u on u.id = m.unit_id
-      left join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
-      left join public.buildings b on b.id = mp.building_id
+      from citify.unit_profile_memberships m
+      left join citify.profiles p on p.id = m.profile_id
+      left join citify.iadmin_units u on u.id = m.unit_id
+      left join citify.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      left join citify.buildings b on b.id = mp.building_id
       where m.profile_id = $1 and m.active = true
       order by m.created_at asc
     `,
@@ -66,11 +66,11 @@ export async function listHouseholdMembershipsForUnitFromPostgres(
         p.role::text as profile_role, p.floor as profile_floor, p.unit as profile_unit,
         u.code as unit_code, u.floor as unit_floor,
         b.name as building_name
-      from public.unit_profile_memberships m
-      left join public.profiles p on p.id = m.profile_id
-      left join public.iadmin_units u on u.id = m.unit_id
-      left join public.iadmin_managed_properties mp on mp.id = u.managed_property_id
-      left join public.buildings b on b.id = mp.building_id
+      from citify.unit_profile_memberships m
+      left join citify.profiles p on p.id = m.profile_id
+      left join citify.iadmin_units u on u.id = m.unit_id
+      left join citify.iadmin_managed_properties mp on mp.id = u.managed_property_id
+      left join citify.buildings b on b.id = mp.building_id
       where m.unit_id = $1 and m.active = true
       order by m.relationship_type asc, m.created_at asc
     `,
@@ -101,7 +101,7 @@ export async function getBuildingFullByIdFromPostgres(
       select id, name, address, total_units,
              latitude::text as latitude, longitude::text as longitude,
              created_at::text as created_at
-      from public.buildings
+      from citify.buildings
       where id = $1
       limit 1
     `,
@@ -143,8 +143,8 @@ export async function listMarketplaceItemsForBuildingFromPostgres(
              p.full_name as seller_full_name,
              p.avatar_text as seller_avatar_text,
              p.phone as seller_phone
-      from public.marketplace_items m
-      left join public.profiles p on p.id = m.seller_profile_id
+      from citify.marketplace_items m
+      left join citify.profiles p on p.id = m.seller_profile_id
       where m.building_id = $1 and m.is_active = true
       order by m.created_at desc
     `,
@@ -161,7 +161,7 @@ export async function listSavedPromotionIdsForProfileFromPostgres(
   profileId: string,
 ): Promise<string[]> {
   const result = await pgQuery<{ promotion_id: string }>(
-    `select promotion_id from public.saved_promotions where profile_id = $1`,
+    `select promotion_id from citify.saved_promotions where profile_id = $1`,
     [profileId],
   )
   return result.rows.map((r: { promotion_id: string }) => r.promotion_id)
@@ -171,7 +171,7 @@ export async function listUsedPromotionIdsForProfileFromPostgres(
   profileId: string,
 ): Promise<string[]> {
   const result = await pgQuery<{ promotion_id: string }>(
-    `select promotion_id from public.promotion_redemptions where profile_id = $1`,
+    `select promotion_id from citify.promotion_redemptions where profile_id = $1`,
     [profileId],
   )
   return result.rows.map((r: { promotion_id: string }) => r.promotion_id)
@@ -190,7 +190,7 @@ export type ComplaintReasonRow = {
 
 export async function listComplaintReasonsFromPostgres(): Promise<ComplaintReasonRow[]> {
   const result = await pgQuery<ComplaintReasonRow>(
-    `select id, slug, label, is_other from public.complaint_reason_catalog order by label asc`,
+    `select id, slug, label, is_other from citify.complaint_reason_catalog order by label asc`,
   )
   return result.rows
 }
@@ -214,12 +214,12 @@ export async function listMentionablesForBuildingFromPostgres(
   const result = await pgQuery<MentionableUserRow>(
     `
       (select p.id, p.full_name, p.role::text as role, p.floor, p.unit, $1::uuid as building_id
-       from public.profiles p
+       from citify.profiles p
        where p.role = 'vecino' and p.building_id = $1)
       union
       (select p.id, p.full_name, p.role::text as role, p.floor, p.unit, a.building_id
-       from public.building_admin_assignments a
-       inner join public.profiles p on p.id = a.profile_id
+       from citify.building_admin_assignments a
+       inner join citify.profiles p on p.id = a.profile_id
        where a.building_id = $1)
       order by full_name asc nulls last
     `,
@@ -239,7 +239,7 @@ export async function listNeighborComplaintCasesFromPostgres(input: {
 }): Promise<any[]> {
   const result = await pgQueryAsProfile<any>(
     input.profileId,
-    `select * from public.get_neighbor_complaint_cases($1::uuid)`,
+    `select * from citify.get_neighbor_complaint_cases($1::uuid)`,
     [input.buildingId],
   )
   return result.rows
@@ -274,7 +274,7 @@ export async function listBuildingInformationForBuildingFromPostgres(input: {
              visible_to::text as visible_to, sort_order, is_active,
              created_at::text as created_at, updated_at::text as updated_at,
              created_by_profile_id, updated_by_profile_id
-      from public.building_information
+      from citify.building_information
       where building_id = $1 and is_active = true and visible_to::text = any($2::text[])
       order by sort_order asc, created_at desc
     `,

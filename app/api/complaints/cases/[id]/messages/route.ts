@@ -35,7 +35,7 @@ export async function POST(
   try {
     const result = await pgQueryAsProfile(
       profile.id,
-      `select * from public.post_complaint_case_message($1, $2, 'comment'::public.complaint_case_message_type, $3::uuid[])`,
+      `select * from citify.post_complaint_case_message($1, $2, 'comment'::citify.complaint_case_message_type, $3::uuid[])`,
       [caseId, messageBody, mentionedProfileIds],
     )
     const row = result.rows[0] as { id?: string } | undefined

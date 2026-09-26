@@ -1,0 +1,5 @@
+# SQL y scripts de shell siempre en LF: bash en el VPS no tolera CRLF, y
+# scripts/db/migrate.mjs hashea el contenido de las migraciones.
+*.sh  text eol=lf
+*.sql text eol=lf
+*.mjs text eol=lf

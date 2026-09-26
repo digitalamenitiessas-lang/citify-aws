@@ -18,7 +18,12 @@ async function uploadMarketplaceImage(itemId: string, file: File): Promise<Uploa
   const response = await fetch('/api/uploads/marketplace-url', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ itemId, fileName: file.name, contentType: file.type || 'application/octet-stream' }),
+    body: JSON.stringify({
+      itemId,
+      fileName: file.name,
+      contentType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+    }),
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok || !payload?.uploadUrl || !payload?.objectKey || !payload?.publicUrl) {

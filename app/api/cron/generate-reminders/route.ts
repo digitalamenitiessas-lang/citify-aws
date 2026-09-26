@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const started = Date.now()
   const adminsRes = await pgQuery<{ id: string }>(
-    `select id from public.iadmin_administrations`,
+    `select id from citify.iadmin_administrations`,
   )
 
   const results: Array<{

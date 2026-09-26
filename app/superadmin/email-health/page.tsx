@@ -46,13 +46,12 @@ export default async function EmailHealthPage({
       <div className="max-w-6xl mx-auto px-4 space-y-6">
         <header className="glass-card rounded-2xl p-6">
           <p className="text-xs uppercase tracking-wider text-primary font-medium">SuperAdmin</p>
-          <h1 className="font-serif text-2xl font-bold mt-1">Salud del canal email (SES)</h1>
+          <h1 className="font-serif text-2xl font-bold mt-1">Salud del canal email</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            SES suspende el sending si el bounce rate supera 5% o el complaint rate supera 0.1% en
-            ventanas largas. Estos números vienen del log local de envíos
-            (<code>public.email_events</code>), alimentado por <code>lib/email/send.ts</code> y el
-            webhook SNS de SES. Para la alarma de AWS, ver{' '}
-            <code>scripts/setup-ses-alarms.mjs</code>.
+            Los proveedores de mail suspenden el envío si el bounce rate supera ~5% o el complaint
+            rate supera ~0.1% en ventanas largas. Estos números vienen del log local de envíos
+            (<code>citify.email_events</code>), alimentado por <code>lib/email/send.ts</code> y el
+            webhook de Resend (<code>app/api/email/resend-webhook</code>).
           </p>
         </header>
 

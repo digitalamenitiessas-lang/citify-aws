@@ -34,6 +34,7 @@ import {
   createBusinessWithAdmin,
   createManagedProperty,
   createPlatformUser,
+  generateTemporaryPasswordAction,
   listUnitsForBuildingAction,
   updateBuilding,
 } from '@/app/superadmin/actions'
@@ -69,6 +70,28 @@ const CONSORCIO_WIZARD_STEPS: Array<{
   { id: 'summary', label: 'Resumen', description: 'Verificación final antes de crear.' },
 ]
 const PIE_COLORS = ['#F04E23', '#C4733D', '#666666', '#F5A55D'] as const
+
+// Completa un campo "Password temporal" con una contraseña generada en el
+// servidor cada vez que queda vacio (al montar el form y despues de cada alta).
+// Antes todos los forms arrancaban con la misma constante hardcodeada en el
+// bundle, asi que todos los usuarios creados desde aca compartian la clave.
+function useServerTempPassword(value: string, apply: (password: string) => void) {
+  useEffect(() => {
+    if (value) return
+    let cancelled = false
+    generateTemporaryPasswordAction()
+      .then(({ password }) => {
+        if (!cancelled) apply(password)
+      })
+      .catch(() => {
+        // Si falla, el campo queda vacio y se puede escribir una a mano.
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+}
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
@@ -326,8 +349,9 @@ function BuildingDetail({
     fullName: '',
     email: '',
     phone: '',
-    password: 'Citify2026!',
+    password: '',
   })
+  useServerTempPassword(adminForm.password, (password) => setAdminForm((current) => ({ ...current, password })))
   // Admins que todavía no están asignados a este edificio.
   const assignedAdminIds = new Set(building.admins.map((admin) => admin.profileId))
   const availableAdmins = consorcioAdmins.filter((admin) => !assignedAdminIds.has(admin.profileId))
@@ -343,7 +367,7 @@ function BuildingDetail({
           await assignConsorcioAdminToBuilding({ buildingId: building.id, profileId: adminForm.profileId })
           toast.success('Admin asignado al consorcio.')
           setAddAdminOpen(false)
-          setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: 'Citify2026!' })
+          setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: '' })
           router.refresh()
         } catch (error) {
           toast.error(error instanceof Error ? error.message : 'No se pudo asignar el admin.')
@@ -368,7 +392,7 @@ function BuildingDetail({
         })
         toast.success('Admin creado y asignado al consorcio.')
         setAddAdminOpen(false)
-        setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        setAdminForm({ profileId: '', fullName: '', email: '', phone: '', password: '' })
         router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'No se pudo crear el admin.')
@@ -432,10 +456,11 @@ function BuildingDetail({
     fullName: '',
     email: '',
     phone: '',
-    password: 'Citify2026!',
+    password: '',
     unitId: '',
     relationshipType: '',
   })
+  useServerTempPassword(neighborForm.password, (password) => setNeighborForm((current) => ({ ...current, password })))
   const [buildingUnits, setBuildingUnits] = useState<Array<{ id: string; code: string; floor: string | null }>>([])
   const [unitsLoading, setUnitsLoading] = useState(false)
 
@@ -490,7 +515,7 @@ function BuildingDetail({
         })
         toast.success(neighborForm.unitId ? 'Vecino agregado y vinculado a la unidad.' : 'Vecino agregado al edificio.')
         setAddNeighborOpen(false)
-        setNeighborForm({ fullName: '', email: '', phone: '', password: 'Citify2026!', unitId: '', relationshipType: '' })
+        setNeighborForm({ fullName: '', email: '', phone: '', password: '', unitId: '', relationshipType: '' })
         router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'No se pudo agregar el vecino.')
@@ -1375,11 +1400,12 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     fullName: '',
     email: '',
     phone: '',
-    password: 'Citify2026!',
+    password: '',
     role: 'vecino',
     buildingId: '',
     businessId: '',
   })
+  useServerTempPassword(userDraft.password, (password) => setUserDraft((current) => ({ ...current, password })))
   const [businessDraft, setBusinessDraft] = useState({
     businessName: '',
     category: '',
@@ -1388,8 +1414,11 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     adminFullName: '',
     adminEmail: '',
     adminPhone: '',
-    adminPassword: 'Citify2026!',
+    adminPassword: '',
   })
+  useServerTempPassword(businessDraft.adminPassword, (adminPassword) =>
+    setBusinessDraft((current) => ({ ...current, adminPassword })),
+  )
   const [consorcioDraft, setConsorcioDraft] = useState({
     buildingName: '',
     buildingAddress: '',
@@ -1411,8 +1440,11 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     newAdminFullName: '',
     newAdminEmail: '',
     newAdminPhone: '',
-    newAdminPassword: 'Citify2026!',
+    newAdminPassword: '',
   })
+  useServerTempPassword(consorcioDraft.newAdminPassword, (newAdminPassword) =>
+    setConsorcioDraft((current) => ({ ...current, newAdminPassword })),
+  )
   // 'existing' = elegir un admin ya creado · 'new' = crearlo en este mismo paso.
   const [consorcioAdminMode, setConsorcioAdminMode] = useState<'existing' | 'new'>('existing')
   // Sección opcional (administración + config CITIFY) plegada dentro del paso Edificio.
@@ -1546,7 +1578,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       newAdminFullName: '',
       newAdminEmail: '',
       newAdminPhone: '',
-      newAdminPassword: 'Citify2026!',
+      newAdminPassword: '',
     })
     setAdministrationNameTouched(false)
     setConsorcioAdminMode(consorcioAdmins.length === 0 ? 'new' : 'existing')
@@ -1691,7 +1723,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
             ? 'Admin consorcio creado. Puedes asignarle edificios desde el alta de consorcio.'
             : 'Usuario creado',
         )
-        setUserDraft({ fullName: '', email: '', phone: '', password: 'Citify2026!', role: 'vecino', buildingId: '', businessId: '' })
+        setUserDraft({ fullName: '', email: '', phone: '', password: '', role: 'vecino', buildingId: '', businessId: '' })
         router.refresh()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')
@@ -1722,7 +1754,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           adminFullName: '',
           adminEmail: '',
           adminPhone: '',
-          adminPassword: 'Citify2026!',
+          adminPassword: '',
         })
         router.refresh()
       } catch (error) {

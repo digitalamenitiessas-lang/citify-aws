@@ -33,13 +33,14 @@ function mapAdministration(row: any): IAdminAdministration {
 
 export async function getCurrentProfile(): Promise<Profile | null> {
   const appSession = await getAppSession()
-  if (appSession?.provider !== 'cognito') return null
+  if (appSession?.provider !== 'local') return null
 
-  const profile = appSession.profileId
-    ? await findProfileById(appSession.profileId)
-    : await findProfileByEmail(appSession.email)
-
-  return profile ?? null
+  // Todos los profiles (vecinos, admins y negocios) viven en la misma tabla
+  // citify.profiles, asi que un solo lookup alcanza.
+  if (appSession.profileId) {
+    return (await findProfileById(appSession.profileId)) ?? null
+  }
+  return (await findProfileByEmail(appSession.email)) ?? null
 }
 
 export async function requireProfile(

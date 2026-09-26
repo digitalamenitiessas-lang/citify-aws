@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
 import { z } from 'zod'
@@ -17,9 +18,14 @@ import type {
   UserRole,
 } from '@/lib/types'
 import { inferInitialOccupancyMapping } from '@/lib/superadmin/initial-occupancy-ai'
-import { adminCreateCognitoUser } from '@/lib/aws/cognito'
+import { generateTempPassword, hashPassword } from '@/lib/auth/password'
 import { sendWelcomeEmail } from '@/lib/email/notifications/welcome'
-import { findProfileByEmail, markPasswordMustChange, upsertProfile } from '@/lib/db/profiles'
+import {
+  findProfileByEmail,
+  markPasswordMustChange,
+  setProfilePasswordHash,
+  upsertProfile,
+} from '@/lib/db/profiles'
 import {
   assignBuildingAdminInPostgres,
   assignIAdminRoleGrantInPostgres,
@@ -355,24 +361,23 @@ async function findOrCreatePlatformProfile(input: {
   role: UserRole
   buildingId: string | null
   businessId?: string | null
+  // false = si el email ya tenia cuenta, no tocarle la contraseña. Lo usa la
+  // importacion de padron: la pwd es aleatoria y no se le comunica a quien ya
+  // tenia cuenta, asi que rotarla lo dejaria afuera.
+  rotatePasswordIfExists?: boolean
 }): Promise<{ profileId: string; created: boolean }> {
   const normalizedEmail = input.email.toLowerCase()
   const existing = await findProfileByEmail(normalizedEmail)
   const created = !existing
 
-  // SIEMPRE llamamos adminCreateCognitoUser. Internamente:
-  //   - si no existe en Cognito: lo crea.
-  //   - si ya existe (UsernameExistsException): lo deja y sigue.
-  //   - luego SIEMPRE corre AdminSetUserPassword con la pwd recibida.
-  // Asi un re-onboarding desde /superadmin efectivamente rota la pwd del
-  // usuario, en vez de tipear un "Password temporal" que no hace nada
-  // (bug previo: si el profile existia en DB, nunca se llegaba a Cognito).
-  const { sub } = await adminCreateCognitoUser({
-    email: normalizedEmail,
-    password: input.password,
-    fullName: input.fullName,
-  })
-  const profileId = existing?.id ?? sub
+  // El id lo generamos nosotros (antes era el 'sub' del pool de Cognito). Tiene
+  // que ser un UUID de 36 chars — lib/db/postgres.ts lo valida por regex.
+  const profileId = existing?.id ?? randomUUID()
+
+  // Por default se guarda la pwd recibida exista o no el profile. Asi un
+  // re-onboarding desde /superadmin efectivamente rota la pwd del usuario, en
+  // vez de tipear un "Password temporal" que no hace nada.
+  const passwordHash = await hashPassword(input.password)
 
   await upsertProfile({
     id: profileId,
@@ -387,16 +392,28 @@ async function findOrCreatePlatformProfile(input: {
     // existian usamos markPasswordMustChange abajo (el ON CONFLICT del
     // upsert no toca esa columna).
     passwordMustChangeOnCreate: true,
+    passwordHashOnCreate: passwordHash,
   })
 
   // El admin acaba de rotar la pwd, asi que en el primer ingreso siguiente
   // el usuario tiene que cambiarla. Si ya existia, el upsert no piso el
   // flag, asi que lo seteamos explicitamente.
-  if (!created) {
+  if (!created && input.rotatePasswordIfExists !== false) {
+    await setProfilePasswordHash(profileId, passwordHash)
     await markPasswordMustChange(profileId)
   }
 
   return { profileId, created }
+}
+
+// Genera una contraseña temporal en el servidor. La usan los formularios de
+// alta del backoffice para prellenar el campo "Password temporal": antes habia
+// una constante fija hardcodeada en el bundle del cliente, igual para todos los
+// usuarios creados. Solo se muestra una vez, al admin que esta creando la
+// cuenta.
+export async function generateTemporaryPasswordAction(): Promise<{ password: string }> {
+  await requireProfile(['super_admin', 'consorcio_admin'])
+  return { password: generateTempPassword() }
 }
 
 export async function createPlatformUser(input: z.input<typeof createPlatformUserSchema>) {
@@ -913,11 +930,16 @@ export async function confirmInitialOccupancyImport(
         }
       }
 
+      // Una contraseña distinta por vecino; le llega en el mail de bienvenida
+      // y la tiene que cambiar en el primer ingreso. Antes todos los
+      // importados quedaban con la misma clave conocida.
+      const tempPassword = generateTempPassword()
       const { profileId, created } = await findOrCreatePlatformProfile({
         fullName: row.fullName,
         email: row.email,
         phone: row.phone || null,
-        password: 'Citify2026!',
+        password: tempPassword,
+        rotatePasswordIfExists: false,
         role: relationshipRole(row.relationshipType),
         buildingId: parsed.buildingId,
       })
@@ -930,7 +952,7 @@ export async function confirmInitialOccupancyImport(
           fullName: row.fullName,
           role: relationshipRole(row.relationshipType),
           buildingId: parsed.buildingId,
-          password: 'Citify2026!',
+          password: tempPassword,
         })
       }
 
@@ -1028,7 +1050,9 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
       const fullName = row.full_name || row.fullName || row.nombre
       const email = row.email
       const phone = row.phone || row.telefono || null
-      const password = row.password || 'Citify2026!'
+      // Si el CSV no trae password, una temporal distinta por fila (nunca una
+      // constante compartida).
+      const password = row.password || generateTempPassword()
       const floor = row.floor || row.piso || null
       const kind = row.unit_kind || row.unitKind || 'departamento'
 
@@ -1073,6 +1097,9 @@ export async function bulkImportInitialOccupancy(input: z.input<typeof bulkImpor
         email,
         phone,
         password,
+        // Solo se rota si la planilla trae una password explicita; una temporal
+        // aleatoria nunca le llegaria a quien ya tenia cuenta.
+        rotatePasswordIfExists: Boolean(row.password),
         role: relationshipRole(relationship),
         buildingId,
       })

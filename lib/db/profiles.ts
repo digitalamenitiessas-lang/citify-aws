@@ -22,7 +22,7 @@ export async function findProfileByEmail(email: string) {
   const result = await pgQuery(
     `
       select *
-      from public.profiles
+      from citify.profiles
       where lower(email) = lower($1)
       limit 1
     `,
@@ -34,6 +34,68 @@ export async function findProfileByEmail(email: string) {
   }
 
   return mapProfileRow(result.rows[0])
+}
+
+// ----------------------------------------------------------------------------
+// Credenciales locales (antes vivian en el user pool de Cognito)
+// ----------------------------------------------------------------------------
+
+export type ProfileCredentials = { profile: Profile; passwordHash: string | null }
+
+// Devuelve el profile junto con su hash. Separado de findProfileByEmail para
+// que el hash no viaje en los objetos Profile que se serializan al cliente.
+export async function findProfileCredentialsByEmail(
+  email: string,
+): Promise<ProfileCredentials | null> {
+  const result = await pgQuery(
+    `
+      select *
+      from citify.profiles
+      where lower(email) = lower($1)
+      limit 1
+    `,
+    [email],
+  )
+
+  const row = result.rows[0]
+  if (!row) {
+    return null
+  }
+
+  return { profile: mapProfileRow(row), passwordHash: row.password_hash ?? null }
+}
+
+export async function findProfileCredentialsById(
+  profileId: string,
+): Promise<ProfileCredentials | null> {
+  const result = await pgQuery(
+    `
+      select *
+      from citify.profiles
+      where id = $1
+      limit 1
+    `,
+    [profileId],
+  )
+
+  const row = result.rows[0]
+  if (!row) {
+    return null
+  }
+
+  return { profile: mapProfileRow(row), passwordHash: row.password_hash ?? null }
+}
+
+// Escribe el hash argon2 de la contraseña. Lo usan el reset por token, el
+// cambio in-session y el alta de usuarios con contraseña temporal.
+export async function setProfilePasswordHash(
+  profileId: string,
+  passwordHash: string,
+): Promise<void> {
+  await pgQuery(
+    `update citify.profiles set password_hash = $2 where id = $1`,
+    [profileId, passwordHash],
+  )
 }
 
 export async function upsertProfile(input: {
@@ -49,11 +111,14 @@ export async function upsertProfile(input: {
   // un row existente). Para forzar el cambio en un user que ya existia,
   // hay que llamar a markPasswordMustChange().
   passwordMustChangeOnCreate?: boolean
+  // Solo se honra en el INSERT: reutilizar un perfil existente nunca le pisa
+  // la contraseña.
+  passwordHashOnCreate?: string | null
 }): Promise<Profile> {
   const result = await pgQuery(
     `
-      insert into public.profiles (id, email, full_name, avatar_text, role, phone, building_id, business_id, password_must_change)
-      values ($1, lower($2), $3, $4, $5, $6, $7, $8, coalesce($9, false))
+      insert into citify.profiles (id, email, full_name, avatar_text, role, phone, building_id, business_id, password_must_change, password_hash)
+      values ($1, lower($2), $3, $4, $5, $6, $7, $8, coalesce($9, false), $10)
       on conflict (id) do update set
         email = excluded.email,
         full_name = excluded.full_name,
@@ -74,6 +139,7 @@ export async function upsertProfile(input: {
       input.buildingId,
       input.businessId,
       input.passwordMustChangeOnCreate ?? null,
+      input.passwordHashOnCreate ?? null,
     ],
   )
 
@@ -82,7 +148,7 @@ export async function upsertProfile(input: {
 
 export async function clearPasswordMustChange(profileId: string): Promise<void> {
   await pgQuery(
-    `update public.profiles set password_must_change = false where id = $1`,
+    `update citify.profiles set password_must_change = false where id = $1`,
     [profileId],
   )
 }
@@ -93,7 +159,7 @@ export async function clearPasswordMustChange(profileId: string): Promise<void> 
 // primer ingreso.
 export async function markPasswordMustChange(profileId: string): Promise<void> {
   await pgQuery(
-    `update public.profiles set password_must_change = true where id = $1`,
+    `update citify.profiles set password_must_change = true where id = $1`,
     [profileId],
   )
 }
@@ -102,7 +168,7 @@ export async function findProfileById(id: string) {
   const result = await pgQuery(
     `
       select *
-      from public.profiles
+      from citify.profiles
       where id = $1
       limit 1
     `,

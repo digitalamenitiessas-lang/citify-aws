@@ -6,9 +6,10 @@ import { findMembership, requireIAdmin } from '@/lib/auth'
 import {
   buildExpenseDocumentObjectKey,
   createPrivateS3DownloadUrl,
-  deleteObjectFromS3,
-  uploadBufferToS3,
-} from '@/lib/aws/s3'
+  deletePrivateObject,
+  uploadPrivateBuffer,
+  validateUpload,
+} from '@/lib/storage/s3'
 import { canTransition } from '@/lib/iadmin/expense-status'
 import { assertSufficientFunds } from '@/lib/iadmin/cash-guards'
 import { insertIAdminAuditLogInPostgres } from '@/lib/db/iadmin-core'
@@ -145,7 +146,7 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   // Gasto particular: validamos que la unidad pertenezca al consorcio.
   if (parsed.unitId) {
     const unitRes = await pgQuery<{ id: string }>(
-      `select id from public.iadmin_units where id = $1 and managed_property_id = $2 limit 1`,
+      `select id from citify.iadmin_units where id = $1 and managed_property_id = $2 limit 1`,
       [parsed.unitId, parsed.managedPropertyId],
     )
     if (!unitRes.rows[0]) {
@@ -212,7 +213,7 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
       managed_property_id: string
     }>(
       `select status::text as status, period_year, period_month, managed_property_id
-         from public.iadmin_accounting_periods
+         from citify.iadmin_accounting_periods
         where id = $1
         limit 1`,
       [accountingPeriodId],
@@ -232,7 +233,7 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
   // pueden cargar más gastos sin reabrirla — sino se rompe el cálculo.
   const liqRes = await pgQuery<{ status: string }>(
     `select status::text as status
-       from public.iadmin_liquidation_runs
+       from citify.iadmin_liquidation_runs
       where managed_property_id = $1
         and accounting_period_id = $2
         and status in ('issued', 'closed')
@@ -324,7 +325,19 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
       const base64 = parsed.draftDocument.fileBase64.replace(/^data:[^;]+;base64,/, '')
       const bin = Buffer.from(base64, 'base64')
 
-      await uploadBufferToS3({
+      // Misma allowlist de extension / content-type / tamano que usan los
+      // presign de /api/uploads: este comprobante no pasa por ahi porque viaja
+      // en base64 dentro de la server action.
+      const invalid = validateUpload('expense-document', {
+        fileName: parsed.draftDocument.fileName,
+        contentType: parsed.draftDocument.mimeType,
+        sizeBytes: bin.length,
+      })
+      if (invalid) {
+        throw new Error(invalid.error)
+      }
+
+      await uploadPrivateBuffer({
         objectKey: storagePath,
         body: bin,
         contentType: parsed.draftDocument.mimeType,
@@ -348,7 +361,7 @@ async function createExpenseImpl(input: CreateExpenseInput): Promise<{ id: strin
           validatedBy: profile.id,
         })
       } catch {
-        await deleteObjectFromS3(storagePath).catch(() => undefined)
+        await deletePrivateObject(storagePath).catch(() => undefined)
       }
     } catch (docErr) {
       await insertIAdminAuditLogInPostgres({
@@ -625,7 +638,7 @@ async function repeatPreviousMonthExpensesImpl(
   if (targetPeriod) {
     const liqRes = await pgQuery<{ status: string }>(
       `select status::text as status
-         from public.iadmin_liquidation_runs
+         from citify.iadmin_liquidation_runs
         where managed_property_id = $1
           and accounting_period_id = $2
           and status in ('issued', 'closed')

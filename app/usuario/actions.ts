@@ -1,9 +1,10 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireProfile } from '@/lib/auth'
-import { adminCreateCognitoUser } from '@/lib/aws/cognito'
+import { generateTempPassword, hashPassword } from '@/lib/auth/password'
 import { findProfileByEmail, upsertProfile } from '@/lib/db/profiles'
 import {
   findActiveMembershipsForProfileFromPostgres,
@@ -88,20 +89,11 @@ export async function createHouseholdNeighbor(input: z.input<typeof householdNei
     }
   }
 
-  let profileId = existingProfile?.id
-  let createdInCognito = false
+  // El id lo generamos nosotros (antes era el 'sub' del pool de Cognito). Tiene
+  // que ser un UUID de 36 chars — lib/db/postgres.ts lo valida por regex.
+  const profileId = existingProfile?.id ?? randomUUID()
 
   try {
-    if (!profileId) {
-      const { sub } = await adminCreateCognitoUser({
-        email: normalizedEmail,
-        password: parsed.password,
-        fullName: parsed.fullName,
-      })
-      profileId = sub
-      createdInCognito = true
-    }
-
     const savedProfile = await upsertProfile({
       id: profileId,
       email: normalizedEmail,
@@ -111,6 +103,9 @@ export async function createHouseholdNeighbor(input: z.input<typeof householdNei
       role: 'vecino',
       buildingId: principal.building_id,
       businessId: null,
+      // Solo se honra en el INSERT: si el familiar ya tenia cuenta, se vincula
+      // sin tocarle la contraseña.
+      passwordHashOnCreate: existingProfile ? null : await hashPassword(parsed.password),
     })
 
     const existingMembership = await findUnitProfileMembershipFromPostgres({
@@ -155,18 +150,20 @@ export async function createHouseholdNeighbor(input: z.input<typeof householdNei
       unitId: parsed.unitId,
       email: normalizedEmail,
       profileId,
-      createdInCognito,
       error,
     })
-    if (createdInCognito) {
-      throw new Error(
-        'Creamos la cuenta de acceso, pero no pudimos vincularla correctamente a la unidad. Avísale al equipo para revisar el alta antes de reintentar.',
-      )
-    }
     throw error instanceof Error
       ? error
       : new Error('No pudimos completar el alta del vecino adicional. Revisa los datos e inténtalo nuevamente.')
   }
+}
+
+// Genera la contraseña temporal del familiar en el servidor. El formulario del
+// dashboard la prellena con esto: antes era una constante fija hardcodeada en
+// el bundle del cliente, igual para todos.
+export async function generateHouseholdTemporaryPassword(): Promise<{ password: string }> {
+  await requireProfile(['vecino'])
+  return { password: generateTempPassword() }
 }
 
 // Marca un comunicado como leído por el vecino logueado. Idempotente: si

@@ -52,6 +52,7 @@ export function ExpenseDocumentUploader({ expenseId, disabled }: Props) {
           expenseId,
           fileName: sanitizeFileName(file.name) || `${randomId()}.bin`,
           contentType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
         }),
       })
 

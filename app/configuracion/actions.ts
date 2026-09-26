@@ -17,7 +17,7 @@ export type EmailPreferences = z.infer<typeof preferencesSchema>
 export async function getEmailPreferencesAction(): Promise<EmailPreferences> {
   const { profile } = await requireProfile()
   const res = await pgQuery<{ email_notifications: Record<string, boolean> }>(
-    `select email_notifications from public.profiles where id = $1 limit 1`,
+    `select email_notifications from citify.profiles where id = $1 limit 1`,
     [profile.id],
   )
   const stored = res.rows[0]?.email_notifications ?? {}
@@ -33,7 +33,7 @@ export async function updateEmailPreferencesAction(input: EmailPreferences) {
   const { profile } = await requireProfile()
   const parsed = preferencesSchema.parse(input)
   await pgQuery(
-    `update public.profiles
+    `update citify.profiles
         set email_notifications = $2::jsonb
       where id = $1`,
     [profile.id, JSON.stringify(parsed)],

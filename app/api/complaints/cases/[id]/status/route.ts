@@ -43,14 +43,14 @@ export async function POST(
     // pasarlo a la notificacion. Si no existe el expediente, dejamos que
     // el RPC tire el error correspondiente.
     const prevRes = await pgQuery<{ status: string }>(
-      `select status::text as status from public.complaint_cases where id = $1 limit 1`,
+      `select status::text as status from citify.complaint_cases where id = $1 limit 1`,
       [caseId],
     )
     const previousStatus = prevRes.rows[0]?.status ?? null
 
     const result = await pgQueryAsProfile(
       profile.id,
-      `select * from public.update_complaint_case_status($1, $2::public.complaint_case_status)`,
+      `select * from citify.update_complaint_case_status($1, $2::citify.complaint_case_status)`,
       [caseId, nextStatus],
     )
 

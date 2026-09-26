@@ -35,7 +35,7 @@ export async function sendWelcomeEmail(input: SendWelcomeInput): Promise<void> {
 
     if (!email || !fullName || !role) {
       const res = await pgQuery<{ email: string; full_name: string; role: string }>(
-        `select email, full_name, role from public.profiles where id = $1 limit 1`,
+        `select email, full_name, role from citify.profiles where id = $1 limit 1`,
         [input.profileId],
       )
       const row = res.rows[0]
@@ -51,7 +51,7 @@ export async function sendWelcomeEmail(input: SendWelcomeInput): Promise<void> {
     let buildingName: string | null = null
     if (input.buildingId) {
       const res = await pgQuery<{ name: string }>(
-        `select name from public.buildings where id = $1 limit 1`,
+        `select name from citify.buildings where id = $1 limit 1`,
         [input.buildingId],
       )
       buildingName = res.rows[0]?.name ?? null
@@ -60,7 +60,7 @@ export async function sendWelcomeEmail(input: SendWelcomeInput): Promise<void> {
     let businessName: string | null = null
     if (input.businessId) {
       const res = await pgQuery<{ name: string }>(
-        `select name from public.businesses where id = $1 limit 1`,
+        `select name from shared.businesses where id = $1 limit 1`,
         [input.businessId],
       )
       businessName = res.rows[0]?.name ?? null

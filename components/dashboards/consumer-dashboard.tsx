@@ -39,7 +39,7 @@ import { ChatWidget } from '@/components/ai/chat-widget'
 import { IMAGE_RULES, CATEGORIES } from '@/lib/constants'
 import type { ConsumerDashboardData, MarketplaceCondition, MarketplaceItem, Promotion, PromotionRedemptionToken } from '@/lib/types'
 import { createClientUuid } from '@/lib/utils'
-import { createHouseholdNeighbor } from '@/app/usuario/actions'
+import { createHouseholdNeighbor, generateHouseholdTemporaryPassword } from '@/app/usuario/actions'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import type { MapMarker } from '@/components/map/map-view'
 
@@ -68,6 +68,7 @@ async function uploadMarketplaceImage(itemId: string, file: File) {
       itemId,
       fileName: file.name,
       contentType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
     }),
   })
 
@@ -772,8 +773,28 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     fullName: '',
     email: '',
     phone: '',
-    password: 'Citify2026!',
+    password: '',
   })
+
+  // La contraseña temporal del familiar la genera el servidor y se muestra una
+  // sola vez, en este formulario. Nunca se genera en el browser ni queda una
+  // constante fija en el bundle.
+  async function refreshHouseholdPassword() {
+    try {
+      const { password } = await generateHouseholdTemporaryPassword()
+      setHouseholdDraft((current) => ({ ...current, password }))
+    } catch {
+      // Si falla, el campo queda vacio y se puede escribir una a mano.
+    }
+  }
+
+  // Se pide recien cuando el vecino abre "Mi unidad", para no gastar un
+  // round-trip al servidor en cada carga del dashboard.
+  useEffect(() => {
+    if (mainView !== 'household' || householdDraft.password) return
+    void refreshHouseholdPassword()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainView, householdDraft.password])
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
@@ -1101,7 +1122,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     }
 
     let active = true
-    let timeoutId: ReturnType<typeof window.setTimeout> | null = null
+    let timeoutId: number | null = null
 
     const checkRedemption = async () => {
       const response = await fetch('/api/consumer/redemptions/status?promotionId=' + encodeURIComponent(qrPromotion.id), {
@@ -1215,7 +1236,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
           }
           return [...prev, nextMember]
         })
-        setHouseholdDraft({ fullName: '', email: '', phone: '', password: 'Citify2026!' })
+        setHouseholdDraft({ fullName: '', email: '', phone: '', password: '' })
         toast.success('Usuario agregado a tu unidad.')
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Error')

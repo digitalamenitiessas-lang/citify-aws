@@ -96,7 +96,7 @@ import type {
   SuperAdminPromotionDetail,
   UnitProfileMembership,
 } from '@/lib/types'
-import { buildPublicS3Url } from '@/lib/aws/s3'
+import { buildPublicS3Url, buildPublicS3UrlOrNull } from '@/lib/storage/s3'
 import {
   countActiveUnitHoldersByPropertyFromPostgres,
   getBuildingInformationByBuildingIdsFromPostgres,
@@ -219,9 +219,11 @@ function publicUrl(client: any, bucket: string, path: string | null | undefined)
     return null
   }
 
-  const s3BaseUrl = process.env.AWS_S3_PUBLIC_BASE_URL?.replace(/\/+$/, '')
-  if (s3BaseUrl && path.startsWith('public/')) {
-    return `${s3BaseUrl}/${path}`
+  if (path.startsWith('public/')) {
+    const url = buildPublicS3UrlOrNull(path)
+    if (url) {
+      return url
+    }
   }
 
   if (!client) {
@@ -265,6 +267,7 @@ function mapProfile(row: any): Profile {
     floor: row.floor ?? null,
     unit: row.unit ?? null,
     phone: row.phone ?? null,
+    passwordMustChange: Boolean(row.password_must_change),
     createdAt: row.created_at,
   }
 }
@@ -338,6 +341,7 @@ function mapPromotion(client: any, row: any): Promotion {
     id: row.id,
     businessId: row.business_id,
     businessName: business?.name ?? 'Comercio',
+    businessLogoUrl: publicUrl(client, 'business-logos', business?.logo_path),
     title: row.title,
     description: row.description,
     discount: row.discount,
@@ -1643,6 +1647,8 @@ function mapExpenseSummary(row: any, propertyName: string): IAdminExpenseSummary
     hasDocuments: documents.length > 0,
     pendingExtraction,
     createdAt: row.created_at,
+    periodYear: row.period_year ?? null,
+    periodMonth: row.period_month ?? null,
   }
 }
 

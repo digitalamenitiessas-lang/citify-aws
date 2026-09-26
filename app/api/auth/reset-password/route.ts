@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import { pgQuery } from '@/lib/db/postgres'
-import { adminSetCognitoPassword, isCognitoConfigured } from '@/lib/aws/cognito'
+import { hashPassword, validatePasswordPolicy } from '@/lib/auth/password'
+import { clearPasswordMustChange, setProfilePasswordHash } from '@/lib/db/profiles'
 import { getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex')
-}
-
-function validatePassword(pwd: string): string | null {
-  if (pwd.length < 8) return 'La contraseña debe tener al menos 8 caracteres.'
-  if (pwd.length > 72) return 'La contraseña es demasiado larga.'
-  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -32,13 +27,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Token y contraseña son requeridos.' }, { status: 400 })
   }
 
-  const validationError = validatePassword(password)
+  const validationError = validatePasswordPolicy(password)
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 })
-  }
-
-  if (!isCognitoConfigured()) {
-    return NextResponse.json({ error: 'Auth no configurado.' }, { status: 500 })
   }
 
   const tokenHash = hashToken(token)
@@ -51,8 +42,8 @@ export async function POST(request: NextRequest) {
     full_name: string
   }>(
     `select t.id, t.profile_id, p.email, p.full_name
-       from public.password_reset_tokens t
-       join public.profiles p on p.id = t.profile_id
+       from citify.password_reset_tokens t
+       join citify.profiles p on p.id = t.profile_id
       where t.token_hash = $1
         and t.used_at is null
         and t.expires_at > now()
@@ -67,19 +58,21 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Pisar la pwd en Cognito y marcar el token como usado en la misma operación.
-  // Si Cognito falla, no marcamos used_at para que el user pueda reintentar.
+  // Guardar el hash nuevo y recien despues marcar el token como usado. Si el
+  // update falla, used_at queda en null y el usuario puede reintentar.
   try {
-    await adminSetCognitoPassword({ email: row.email, newPassword: password })
+    await setProfilePasswordHash(row.profile_id, await hashPassword(password))
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Error de auth'
     return NextResponse.json({ error: `No pudimos actualizar la contraseña: ${msg}` }, { status: 502 })
   }
 
   await pgQuery(
-    `update public.password_reset_tokens set used_at = now() where id = $1`,
+    `update citify.password_reset_tokens set used_at = now() where id = $1`,
     [row.id],
   )
+  // Si venia de una temporal, la que acaba de elegir ya es propia.
+  await clearPasswordMustChange(row.profile_id)
 
   return NextResponse.json({ ok: true })
 }
@@ -94,8 +87,8 @@ export async function GET(request: NextRequest) {
   const tokenHash = hashToken(token)
   const res = await pgQuery<{ email: string; full_name: string }>(
     `select p.email, p.full_name
-       from public.password_reset_tokens t
-       join public.profiles p on p.id = t.profile_id
+       from citify.password_reset_tokens t
+       join citify.profiles p on p.id = t.profile_id
       where t.token_hash = $1
         and t.used_at is null
         and t.expires_at > now()

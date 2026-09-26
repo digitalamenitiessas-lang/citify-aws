@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPrivateS3DownloadUrl } from '@/lib/aws/s3'
+import { createPrivateS3DownloadUrl } from '@/lib/storage/s3'
 import { getCurrentProfile, getIAdminContext } from '@/lib/auth'
 import { pgQuery } from '@/lib/db/postgres'
 
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     reporter_profile_id: string
   }>(
     `select administration_id, document_object_key, reporter_profile_id
-       from public.iadmin_payment_claims
+       from citify.iadmin_payment_claims
       where id = $1
       limit 1`,
     [claimId],

@@ -36,7 +36,7 @@ create table if not exists public.iadmin_reminders (
 
 -- Evitar duplicar el mismo recordatorio el mismo dia para el mismo item
 create unique index if not exists iadmin_reminders_daily_unique
-  on public.iadmin_reminders (liquidation_item_id, reminder_kind, (date(generated_at)));
+  on public.iadmin_reminders (liquidation_item_id, reminder_kind, ((timezone('UTC', generated_at))::date));
 
 create index if not exists iadmin_reminders_admin_status_idx
   on public.iadmin_reminders (administration_id, status);

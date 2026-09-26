@@ -47,9 +47,9 @@ export async function listAllPromotionsForSuperadminFromPostgres(): Promise<
         p.source_promotion_id,
         b.name as business_name,
         b.logo_path as business_logo_path,
-        coalesce((select count(*)::int from public.promotion_redemptions r where r.promotion_id = p.id), 0) as redemption_count
-      from public.promotions p
-      left join public.businesses b on b.id = p.business_id
+        coalesce((select count(*)::int from citify.promotion_redemptions r where r.promotion_id = p.id), 0) as redemption_count
+      from shared.promotions p
+      left join shared.businesses b on b.id = p.business_id
       order by p.created_at desc
     `,
   )
@@ -70,9 +70,9 @@ export async function listAllRedemptionsByBuildingFromPostgres(): Promise<
   }>(
     `
       select r.promotion_id, p.building_id, b.name as building_name
-      from public.promotion_redemptions r
-      left join public.profiles p on p.id = r.profile_id
-      left join public.buildings b on b.id = p.building_id
+      from citify.promotion_redemptions r
+      left join citify.profiles p on p.id = r.profile_id
+      left join citify.buildings b on b.id = p.building_id
     `,
   )
   return result.rows
@@ -80,7 +80,7 @@ export async function listAllRedemptionsByBuildingFromPostgres(): Promise<
 
 export async function countVecinoProfilesFromPostgres(): Promise<number> {
   const result = await pgQuery<{ c: number }>(
-    `select count(*)::int as c from public.profiles where role = 'vecino'`,
+    `select count(*)::int as c from citify.profiles where role = 'vecino'`,
   )
   return result.rows[0]?.c ?? 0
 }
@@ -124,10 +124,10 @@ export async function listRedemptionsForBusinessFromPostgres(businessId: string)
         p.full_name as profile_full_name, p.floor as profile_floor, p.unit as profile_unit,
         b.id as profile_building_id, b.name as profile_building_name,
         pr.title as promotion_title, pr.discount as promotion_discount
-      from public.promotion_redemptions r
-      inner join public.promotions pr on pr.id = r.promotion_id
-      left join public.profiles p on p.id = r.profile_id
-      left join public.buildings b on b.id = p.building_id
+      from citify.promotion_redemptions r
+      inner join shared.promotions pr on pr.id = r.promotion_id
+      left join citify.profiles p on p.id = r.profile_id
+      left join citify.buildings b on b.id = p.building_id
       where pr.business_id = $1
       order by r.redeemed_at desc nulls last, r.created_at desc nulls last
     `,
@@ -137,17 +137,17 @@ export async function listRedemptionsForBusinessFromPostgres(businessId: string)
 }
 
 export async function listAllProfilesFromPostgres(): Promise<any[]> {
-  const result = await pgQuery(`select * from public.profiles order by full_name asc nulls last`)
+  const result = await pgQuery(`select * from citify.profiles order by full_name asc nulls last`)
   return result.rows
 }
 
 export async function listAllBuildingsFromPostgres(): Promise<any[]> {
-  const result = await pgQuery(`select * from public.buildings order by name asc`)
+  const result = await pgQuery(`select * from citify.buildings order by name asc`)
   return result.rows
 }
 
 export async function listAllBusinessesFromPostgres(): Promise<any[]> {
-  const result = await pgQuery(`select * from public.businesses order by name asc`)
+  const result = await pgQuery(`select * from shared.businesses order by name asc`)
   return result.rows
 }
 
@@ -166,8 +166,8 @@ export async function listBuildingAdminAssignmentsFromPostgres(): Promise<any[]>
           'email', p.email,
           'phone', p.phone
         ) as profiles
-      from public.building_admin_assignments baa
-      inner join public.profiles p on p.id = baa.profile_id
+      from citify.building_admin_assignments baa
+      inner join citify.profiles p on p.id = baa.profile_id
     `,
   )
   return result.rows
@@ -195,9 +195,9 @@ export async function listSuperadminManagedPropertiesFromPostgres(): Promise<any
           'legal_info', a.legal_info,
           'created_at', a.created_at
         ) else null end as iadmin_administrations
-      from public.iadmin_managed_properties mp
-      inner join public.buildings b on b.id = mp.building_id
-      left join public.iadmin_administrations a on a.id = mp.administration_id
+      from citify.iadmin_managed_properties mp
+      inner join citify.buildings b on b.id = mp.building_id
+      left join citify.iadmin_administrations a on a.id = mp.administration_id
       order by mp.created_at desc
     `,
   )
@@ -223,21 +223,21 @@ export async function listAdminLoadStatsByBuildingFromPostgres(): Promise<
     `
       with mp as (
         select id, building_id, administration_id, updated_at
-          from public.iadmin_managed_properties
+          from citify.iadmin_managed_properties
       ),
       unit_stats as (
         select mp.building_id,
                count(u.id)::int as units_count,
                max(u.updated_at) as last_unit_at
           from mp
-          left join public.iadmin_units u on u.managed_property_id = mp.id
+          left join citify.iadmin_units u on u.managed_property_id = mp.id
          group by mp.building_id
       ),
       info_stats as (
         select bi.building_id,
                count(*)::int as building_info_count,
                max(bi.updated_at) as last_info_at
-          from public.building_information bi
+          from citify.building_information bi
          group by bi.building_id
       ),
       expense_stats as (
@@ -245,7 +245,7 @@ export async function listAdminLoadStatsByBuildingFromPostgres(): Promise<
                count(e.id)::int as expenses_count,
                max(e.updated_at) as last_expense_at
           from mp
-          left join public.iadmin_expenses e on e.administration_id = mp.administration_id
+          left join citify.iadmin_expenses e on e.administration_id = mp.administration_id
          group by mp.building_id
       )
       select mp.building_id,
@@ -288,7 +288,7 @@ export async function getAdministrationIdByBuildingFromPostgres(
   const result = await pgQuery<{ administration_id: string }>(
     `
       select administration_id
-      from public.iadmin_managed_properties
+      from citify.iadmin_managed_properties
       where building_id = $1
       limit 1
     `,
@@ -302,14 +302,14 @@ export async function assignBuildingAdminInPostgres(
   buildingId: string,
 ): Promise<{ isPrimary: boolean }> {
   const existing = await pgQuery<{ c: number }>(
-    `select count(*)::int as c from public.building_admin_assignments where profile_id = $1`,
+    `select count(*)::int as c from citify.building_admin_assignments where profile_id = $1`,
     [profileId],
   )
   const isPrimary = (existing.rows[0]?.c ?? 0) === 0
 
   await pgQuery(
     `
-      insert into public.building_admin_assignments (profile_id, building_id, is_primary)
+      insert into citify.building_admin_assignments (profile_id, building_id, is_primary)
       values ($1, $2, $3)
       on conflict (profile_id, building_id) do update set is_primary = excluded.is_primary
     `,
@@ -318,7 +318,7 @@ export async function assignBuildingAdminInPostgres(
 
   if (isPrimary) {
     await pgQuery(
-      `update public.profiles set building_id = $1 where id = $2`,
+      `update citify.profiles set building_id = $1 where id = $2`,
       [buildingId, profileId],
     )
   }
@@ -332,14 +332,14 @@ export async function assignIAdminRoleGrantInPostgres(
   operationalRole: string,
 ): Promise<void> {
   const existing = await pgQuery<{ c: number }>(
-    `select count(*)::int as c from public.iadmin_role_grants where profile_id = $1`,
+    `select count(*)::int as c from citify.iadmin_role_grants where profile_id = $1`,
     [profileId],
   )
   const isPrimary = (existing.rows[0]?.c ?? 0) === 0
 
   await pgQuery(
     `
-      insert into public.iadmin_role_grants (administration_id, profile_id, operational_role, is_primary)
+      insert into citify.iadmin_role_grants (administration_id, profile_id, operational_role, is_primary)
       values ($1, $2, $3, $4)
       on conflict (administration_id, profile_id) do update set
         operational_role = excluded.operational_role,
@@ -357,7 +357,7 @@ export async function createBusinessInPostgres(input: {
 }): Promise<{ id: string }> {
   const result = await pgQuery<{ id: string }>(
     `
-      insert into public.businesses (name, category, description, address)
+      insert into shared.businesses (name, category, description, address)
       values ($1, $2, $3, $4)
       returning id
     `,
@@ -388,7 +388,7 @@ export async function callSuperadminCreateConsorcioInPostgres(input: {
 }): Promise<{ building_id: string; administration_id: string; managed_property_id: string }> {
   const result = await pgQuery<{ result: { building_id: string; administration_id: string; managed_property_id: string } }>(
     `
-      select public.superadmin_create_consorcio(
+      select citify.superadmin_create_consorcio(
         building_name := $1,
         building_address := $2,
         building_total_units := $3,
@@ -400,7 +400,7 @@ export async function callSuperadminCreateConsorcioInPostgres(input: {
         administration_contact_email := $9,
         administration_contact_phone := $10,
         property_display_name := $11,
-        property_kind := $12::public.iadmin_property_kind,
+        property_kind := $12::citify.iadmin_property_kind,
         property_tax_id := $13,
         property_managed_since := $14::date,
         property_management_fee_pct := $15,
@@ -438,7 +438,7 @@ export async function getBuildingByIdFromPostgres(
   buildingId: string,
 ): Promise<{ id: string; name: string } | null> {
   const result = await pgQuery<{ id: string; name: string }>(
-    `select id, name from public.buildings where id = $1 limit 1`,
+    `select id, name from citify.buildings where id = $1 limit 1`,
     [buildingId],
   )
   return result.rows[0] ?? null
@@ -454,7 +454,7 @@ export async function updateBuildingInPostgres(input: {
 }): Promise<void> {
   const result = await pgQuery(
     `
-      update public.buildings
+      update citify.buildings
       set name = $1, address = $2, total_units = $3, latitude = $4, longitude = $5
       where id = $6
     `,
@@ -476,7 +476,7 @@ export async function getManagedPropertyIdByBuildingFromPostgres(
   buildingId: string,
 ): Promise<string | null> {
   const result = await pgQuery<{ id: string }>(
-    `select id from public.iadmin_managed_properties where building_id = $1 limit 1`,
+    `select id from citify.iadmin_managed_properties where building_id = $1 limit 1`,
     [buildingId],
   )
   return result.rows[0]?.id ?? null
@@ -486,7 +486,7 @@ export async function listUnitsForOccupancyFromPostgres(
   propertyId: string,
 ): Promise<Array<{ id: string; code: string; floor: string | null; kind: string }>> {
   const result = await pgQuery<{ id: string; code: string; floor: string | null; kind: string }>(
-    `select id, code, floor, kind::text as kind from public.iadmin_units where managed_property_id = $1`,
+    `select id, code, floor, kind::text as kind from citify.iadmin_units where managed_property_id = $1`,
     [propertyId],
   )
   return result.rows
@@ -497,7 +497,7 @@ export async function findUnitByPropertyAndCodeIlikeFromPostgres(input: {
   code: string
 }): Promise<{ id: string } | null> {
   const result = await pgQuery<{ id: string }>(
-    `select id from public.iadmin_units where managed_property_id = $1 and code ilike $2 limit 1`,
+    `select id from citify.iadmin_units where managed_property_id = $1 and code ilike $2 limit 1`,
     [input.managedPropertyId, input.code],
   )
   return result.rows[0] ?? null
@@ -508,7 +508,7 @@ export async function setBusinessOwnerInPostgres(
   ownerProfileId: string,
 ): Promise<void> {
   await pgQuery(
-    `update public.businesses set owner_profile_id = $1 where id = $2`,
+    `update shared.businesses set owner_profile_id = $1 where id = $2`,
     [ownerProfileId, businessId],
   )
 }

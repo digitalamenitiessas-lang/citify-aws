@@ -57,7 +57,7 @@ export default async function OnboardingPage({
         count(*) filter (where status = 'qualified')::int as qualified,
         count(*) filter (where status = 'converted')::int as converted,
         count(*) filter (where status = 'dismissed')::int as dismissed
-      from public.onboarding_requests
+      from citify.onboarding_requests
     `,
   )
   const countsRow = countsResult.rows[0] ?? {
