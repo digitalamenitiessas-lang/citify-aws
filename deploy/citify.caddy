@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# Citify — se agrega al Caddy del VPS (/etc/caddy/citify.caddy).
+#
+# NO toca los bloques existentes (bots, Countrify): Caddy rutea por nombre de
+# dominio, cada sitio es independiente y tiene su propio certificado.
+#
+# Para activarlo, agregar al final de /etc/caddy/Caddyfile:
+#     import /etc/caddy/citify.caddy
+# validar y recargar:
+#     caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+#
+# NO activarlo antes de que los 4 nombres resuelvan a este servidor
+# (dig +short citify.com.ar s3.citify.com.ar ...). Caddy pide los certificados
+# apenas levanta el bloque; si el dominio no resuelve falla y reintenta, y
+# suficientes fallos seguidos hacen que Let's Encrypt bloquee el dominio.
+# ---------------------------------------------------------------------------
+
+citify.com.ar {
+	reverse_proxy 127.0.0.1:3040 {
+		# X-Forwarded-For se SOBRESCRIBE, no se appendea: lib/rate-limit.ts
+		# toma el PRIMER valor para identificar al visitante. Si Caddy
+		# appendeara, cualquiera evadiria el limite de login mandando un header
+		# falso.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up Host {host}
+	}
+
+	# El alta de gasto manda el comprobante en base64 por server action (form
+	# de hasta 10 MB + ~33% de base64).
+	request_body {
+		max_size 16MB
+	}
+
+	encode zstd gzip
+}
+
+www.citify.com.ar {
+	redir https://citify.com.ar{uri} permanent
+}
+
+# API S3 de Garage: el navegador SUBE con URL prefirmada y baja comprobantes
+# privados con enlaces firmados de 5 minutos. El host tiene que ser IDENTICO a
+# S3_ENDPOINT en /etc/citify/app.env: la firma se calcula sobre el host.
+s3.citify.com.ar {
+	reverse_proxy 127.0.0.1:3900 {
+		header_up Host {host}
+	}
+	request_body {
+		max_size 32MB
+	}
+}
+
+# Lectura publica del bucket citify-public (logos, promociones, marketplace),
+# via el endpoint "website" de Garage. Garage elige el bucket por el Host:
+# <bucket>.<root_domain de /etc/garage.toml>, que hoy es
+# .archivos.countrify.com.ar. Es solo una clave interna de ruteo; el navegador
+# nunca ve ese nombre. El bucket privado NO se expone aca.
+archivos.citify.com.ar {
+	reverse_proxy 127.0.0.1:3902 {
+		header_up Host "citify-public.archivos.countrify.com.ar"
+	}
+}

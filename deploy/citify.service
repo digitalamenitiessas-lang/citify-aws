@@ -1,0 +1,39 @@
+# /etc/systemd/system/citify.service
+#
+# Citify (Next.js) en el VPS compartido con Countrify y los bots.
+# Mismo patron que countrify.service: next start detras del Caddy nativo.
+[Unit]
+Description=Citify (Next.js) — administracion de consorcios + beneficios
+Documentation=https://github.com/digitalamenitiessas-lang/citify-aws
+After=network-online.target postgresql.service garage.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=citify
+Group=citify
+WorkingDirectory=/home/citify/citify-aws
+EnvironmentFile=/etc/citify/app.env
+Environment=PATH=/opt/node22/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/node22/bin/node /home/citify/citify-aws/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3040
+Restart=always
+RestartSec=5
+
+# 1 nucleo y ~17 servicios: prioridad BAJA para que un pico de Citify (un PDF,
+# una importacion de padron) no le robe CPU a los bots.
+Nice=10
+CPUWeight=50
+IOWeight=50
+# Techo de memoria: si algo se desboca, muere Citify y no el resto.
+MemoryMax=1G
+MemoryHigh=768M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/citify/citify-aws/.next
+
+[Install]
+WantedBy=multi-user.target

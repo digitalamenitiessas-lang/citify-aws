@@ -1,0 +1,19 @@
+# /etc/cron.d/citify — tareas programadas de Citify.
+#
+# Pegan directo a la app en 127.0.0.1:3040 (no dependen del DNS ni de Caddy).
+# El header X-Cron-Secret sale de /etc/citify/cron.curlrc (0600 root), asi el
+# secreto no aparece en la lista de procesos ni en este archivo.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Sin MTA en el VPS: el mail de cron se perderia. La salida va a un log.
+MAILTO=""
+
+# 06:00 ART (09:00 UTC): intereses por mora.
+0 9 * * * root curl -fsS --max-time 600 -K /etc/citify/cron.curlrc -X POST http://127.0.0.1:3040/api/cron/materialize-late-fees >> /var/log/citify-cron.log 2>&1; echo >> /var/log/citify-cron.log
+
+# 09:00 ART (12:00 UTC): recordatorios de pago.
+0 12 * * * root curl -fsS --max-time 600 -K /etc/citify/cron.curlrc -H 'Content-Type: application/json' -d '{}' -X POST http://127.0.0.1:3040/api/cron/generate-reminders >> /var/log/citify-cron.log 2>&1; echo >> /var/log/citify-cron.log
+
+# 03:30 ART (06:30 UTC): backup de Citify. Despues del de Countrify (06:15),
+# que ya incluye la base entera (los tres schemas).
+30 6 * * * root /home/citify/citify-aws/deploy/backup-vps.sh >> /var/log/citify-backup.log 2>&1
