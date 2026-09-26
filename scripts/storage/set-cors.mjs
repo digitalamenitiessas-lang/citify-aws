@@ -45,21 +45,23 @@ const client = new S3Client({
   },
 })
 
-const rules = [
-  {
-    AllowedOrigins: origins,
-    AllowedMethods: ['GET', 'PUT', 'HEAD'],
-    // content-length tiene que estar permitido: lib/storage/s3.ts lo mete en
-    // la firma del PUT (X-Amz-SignedHeaders=content-length;host).
-    AllowedHeaders: ['*'],
-    ExposeHeaders: ['ETag'],
-    MaxAgeSeconds: 3600,
-  },
-]
+// UNA regla por origen, no una regla con varios. Garage responde con la lista
+// entera de AllowedOrigins de la regla que matchea en Access-Control-Allow-Origin
+// ("https://a, https://b"), y el navegador rechaza ese header si trae mas de un
+// valor: todas las subidas fallarian por CORS.
+const rules = origins.map((origin) => ({
+  AllowedOrigins: [origin],
+  AllowedMethods: ['GET', 'PUT', 'HEAD'],
+  // content-length tiene que estar permitido: lib/storage/s3.ts lo mete en
+  // la firma del PUT (X-Amz-SignedHeaders=content-length;host).
+  AllowedHeaders: ['*'],
+  ExposeHeaders: ['ETag'],
+  MaxAgeSeconds: 3600,
+}))
 
 for (const Bucket of buckets) {
   await client.send(new PutBucketCorsCommand({ Bucket, CORSConfiguration: { CORSRules: rules } }))
   const current = await client.send(new GetBucketCorsCommand({ Bucket }))
-  const r = current.CORSRules?.[0]
-  console.log(`${Bucket}: origenes=${r?.AllowedOrigins?.join(' ')} metodos=${r?.AllowedMethods?.join(',')}`)
+  const summary = (current.CORSRules ?? []).map((r) => r.AllowedOrigins?.join(' ')).join(' | ')
+  console.log(`${Bucket}: ${current.CORSRules?.length ?? 0} reglas -> ${summary}`)
 }
