@@ -1,331 +1,208 @@
-# Deploy a AWS — guía rápida
+# Citify en el VPS
 
-> **🤖 Path principal: GitHub Actions.** Cualquier `git push origin main`
-> dispara automáticamente `.github/workflows/deploy.yml`: build → push a
-> ECR → force-new-deployment → wait services-stable → smoke test. Ver
-> resultados en `Actions` tab del repo.
->
-> Para migraciones SQL: `Actions → migrate-prod → Run workflow` con el
-> path del archivo `.sql`.
->
-> **El procedimiento manual de abajo es el fallback** para cuando Actions
-> esté caído o necesites debuggear con tu Docker Desktop local.
+Citify corre en el VPS de Hostinger `2.25.185.242` (Ubuntu 24.04, 1 núcleo,
+3.8 GB), **compartido** con Countrify y con ~15 bots y servicios que no se
+pueden romper. Todo lo de acá está pensado para convivir con eso.
 
-Infraestructura: **ECR** (imagen Docker) → **ECS Fargate** (servicio `citify-prod-service` en cluster `citify-prod-cluster`) detrás de un **ALB**, con **RDS Postgres** y **Cognito** en la misma cuenta. La región es siempre `us-east-1`.
+AWS ya no se usa (la cuenta se borró: Cognito, RDS, S3, SES, ECS).
 
-Las IDs concretas (security groups, subnets, etc.) están al final del documento.
+## Qué hay y dónde
 
----
+| Pieza | Dónde | Notas |
+|---|---|---|
+| Código | `/home/citify/citify-aws` (usuario `citify`) | `git pull` desde GitHub (`main`) |
+| Servicio | `citify.service` → `next start` en `127.0.0.1:3040` | `Nice=10`, `MemoryMax=1G` (ver `deploy/citify.service`) |
+| Entorno | `/etc/citify/app.env` (root:citify 0640) | plantilla: `.env.example` |
+| Secretos de roles | `/etc/citify/secrets.env` (root 0600) | `CITIFY_ADMIN_PW`, `CITIFY_APP_PW` |
+| Base | Postgres 17 local, base **`countrify`**, schema **`citify`** | compartida con Countrify, ver abajo |
+| Archivos | Garage (S3), buckets `citify-public` / `citify-private`, key `citify-app` | credenciales en `/etc/citify/garage.env` |
+| HTTPS | Caddy nativo, `/etc/caddy/citify.caddy` importado desde `/etc/caddy/Caddyfile` | `deploy/citify.caddy` |
+| Cron | `/etc/cron.d/citify` | intereses por mora, recordatorios, backup |
+| Backups | `/var/backups/citify/<fecha>` (14 días) | `deploy/backup-vps.sh` |
+| Node | `/opt/node22/bin` | el mismo que usa Countrify |
 
-## 1. Prerequisitos (una sola vez por máquina)
+### La base es compartida con Countrify
 
-1. **AWS CLI v2** configurado con un perfil que tenga permisos sobre la cuenta `351885857894`:
-   ```
-   aws configure
-   aws sts get-caller-identity   # debe devolver tu identidad
-   ```
-2. **Docker Desktop** corriendo (necesario para build/push). Verificá con `docker info`.
-3. **Node 22+** y `npm` (lo usa el build de Next.js).
-4. **`.env.production` en la raíz** con al menos las dos variables que necesita el build de Next:
-   ```
-   NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
-   OPENROUTER_MODEL=...
-   ```
-   (El resto de las env vars — DB creds, Cognito IDs, S3 — viven en la task definition de ECS, no en el repo.)
-5. Si querés conectar a RDS desde tu máquina (para correr el script `apply-rds-schema.js` localmente), tu IP pública tiene que estar autorizada en el SG `sg-01eae542b6e8d44c2` puerto 5432:
-   ```
-   aws ec2 authorize-security-group-ingress --group-id sg-01eae542b6e8d44c2 \
-     --protocol tcp --port 5432 --cidr <TU_IP>/32 --region us-east-1
-   ```
-   ⚠️ RDS está marcada como `PubliclyAccessible: false`, así que el endpoint resuelve a una IP privada de la VPC. **Desde fuera de la VPC no llegás aunque abras el SG.** Si necesitás conectividad local, primero hay que poner `PubliclyAccessible: true` (no requiere reboot) o usar un bastión / túnel. Por defecto preferí correr migraciones vía `ecs run-task` (sección 3.A).
+Una base (`countrify`), tres schemas:
 
----
+| Schema | Contenido | Dueño |
+|---|---|---|
+| `shared` | `businesses`, `promotions` (las mismas filas para los dos productos) | `countrify_admin` |
+| `countrify` | tablas de Countrify | `countrify_admin` |
+| `citify` | tablas de Citify | `citify_admin` |
 
-## 2. Deploy de código (sin tocar la DB)
+`citify_app` (runtime, solo DML) tiene acceso a `citify` y `shared`, y nada
+sobre `countrify`. Las migraciones corren como `citify_admin`. El
+`search_path` de la app es `citify, shared, public` (`DB_SCHEMA`).
 
-Tres pasos: **build → push → force-new-deployment**. La task definition apunta al tag `:3730a83` (sí, está hardcodeado y no se mueve — siempre pisamos ese tag).
+Detalle y motivos: `deploy/MULTI-PRODUCTO.md` en el repo `countrify-aws`.
 
-```bash
-# 0. Asegurate de estar en main con los cambios pusheados
-git status
-git push origin main          # si hay commits locales
+### Dominios
 
-# 1. Build local
-npm ci                        # opcional; solo si tocaste package.json
-npm run build                 # tiene que terminar sin errores
-
-# 2. Login a ECR
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin 351885857894.dkr.ecr.us-east-1.amazonaws.com
-
-# 3. Build de la imagen Docker (mismo tag :3730a83 que usa la task def)
-docker build \
-  -t 351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod:3730a83 \
-  --build-arg NEXT_PUBLIC_VAPID_PUBLIC_KEY=$(grep ^NEXT_PUBLIC_VAPID_PUBLIC_KEY .env.production | cut -d= -f2) \
-  --build-arg OPENROUTER_MODEL=$(grep ^OPENROUTER_MODEL .env.production | cut -d= -f2) \
-  .
-
-# 4. Push
-docker push 351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod:3730a83
-
-# 5. Forzar re-deploy del servicio
-aws ecs update-service \
-  --cluster citify-prod-cluster \
-  --service citify-prod-service \
-  --force-new-deployment \
-  --region us-east-1 \
-  --query 'service.deployments[0].id' --output text
-
-# 6. Esperar a que estabilice (~2-3 min)
-aws ecs wait services-stable \
-  --cluster citify-prod-cluster \
-  --services citify-prod-service \
-  --region us-east-1
-echo "DEPLOY OK"
-
-# 7. Verificar que el task corriendo tiene el digest que pusheamos
-aws ecs describe-tasks \
-  --cluster citify-prod-cluster \
-  --tasks $(aws ecs list-tasks --cluster citify-prod-cluster --service-name citify-prod-service --region us-east-1 --query 'taskArns[0]' --output text) \
-  --region us-east-1 \
-  --query 'tasks[0].containers[0].imageDigest' --output text
-```
-
-Comparar el digest con el que devolvió `docker push` (la última línea, `... digest: sha256:XXXX`). Tienen que coincidir.
-
-### Quick check post-deploy
-
-```
-curl -I https://citify.com.ar
-```
-
-Tiene que dar `HTTP/2 200`. Después abrir https://citify.com.ar en una ventana de incógnito y probar login con `vecino1@citify.com.ar` / `Test1234!`.
-
----
-
-## 3. Migraciones de DB
-
-Las migraciones SQL viven en `db/migrations/` (orden alfabético por fecha). Hay dos formas de aplicarlas: vía **ECS run-task** (recomendado — no necesita acceso directo a RDS) o vía **`scripts/apply-rds-schema.js`** (solo si tu IP llega al puerto 5432, ver sección 1.5).
-
-### 3.A — Aplicar una migración nueva vía ECS run-task (recomendado)
-
-Subimos el SQL a S3, lanzamos un task one-off del mismo container que ya tiene `pg` instalado y las credenciales en el env. **No requiere acceso directo a RDS.**
-
-```bash
-# 1. Subir el SQL a S3
-MIGRATION=db/migrations/20260518_marketplace_multi_images.sql   # reemplazá por tu archivo
-aws s3 cp "$MIGRATION" s3://citify-prod-assets/_tmp/migration.sql --region us-east-1
-
-# 2. Crear el override que descarga el SQL y lo corre via pg
-cat > scripts/.run-migration-override.json << 'EOF'
-{
-  "containerOverrides": [
-    {
-      "name": "citify-web",
-      "command": [
-        "node",
-        "-e",
-        "(async()=>{const{S3Client,GetObjectCommand}=require('@aws-sdk/client-s3');const{Pool}=require('pg');const s3=new S3Client({region:'us-east-1'});const r=await s3.send(new GetObjectCommand({Bucket:'citify-prod-assets',Key:'_tmp/migration.sql'}));const chunks=[];for await(const c of r.Body)chunks.push(c);const sql=Buffer.concat(chunks).toString('utf8');const pool=new Pool({host:process.env.DB_HOST,port:5432,database:process.env.DB_NAME,user:process.env.DB_USER,password:process.env.DB_PASSWORD,ssl:{rejectUnauthorized:false}});await pool.query(sql);console.log('migration applied');await pool.end()})().catch(e=>{console.error(e);process.exit(1)})"
-      ]
-    }
-  ]
-}
-EOF
-
-# 3. Disparar el run-task
-TASK_ARN=$(aws ecs run-task \
-  --cluster citify-prod-cluster \
-  --task-definition citify-prod-web:27 \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-08be2fd4a6a2ac3d2,subnet-06b65507a4711bfc5,subnet-0126fd3fb0efdd889],securityGroups=[sg-0387fd2e1b5bfccd7],assignPublicIp=ENABLED}" \
-  --overrides file://scripts/.run-migration-override.json \
-  --region us-east-1 \
-  --query 'tasks[0].taskArn' --output text)
-TASK_ID=$(echo "$TASK_ARN" | awk -F/ '{print $NF}')
-echo "task: $TASK_ID"
-
-# 4. Esperar y chequear exit code
-aws ecs wait tasks-stopped --cluster citify-prod-cluster --tasks $TASK_ID --region us-east-1
-EXIT=$(aws ecs describe-tasks --cluster citify-prod-cluster --tasks $TASK_ID --region us-east-1 --query 'tasks[0].containers[0].exitCode' --output text)
-echo "exit: $EXIT"   # 0 = OK
-
-# 5. Logs (sirve para ver el "migration applied" o el error)
-PYTHONUTF8=1 MSYS_NO_PATHCONV=1 aws logs tail /ecs/citify-prod-web --since 3m --region us-east-1 --format short | tail -20
-```
-
-### 3.B — Aplicar TODAS las migraciones desde tu máquina
-
-Solo si pudiste resolver acceso a RDS (sección 1.5).
-
-```bash
-# Necesitás las credenciales de RDS en variables de entorno o en C:\tmp\citify-rds-credentials.txt
-node scripts/apply-rds-schema.js
-```
-
-El script:
-- Lee todos los archivos `*.sql` de `db/migrations/` en orden alfabético.
-- Los corre **en una sola transacción** (rollback si alguno falla).
-- Genera/actualiza `scripts/generated-rds-schema.sql` (snapshot consolidado del schema).
-
-### 3.C — Verificar que la migración quedó aplicada
-
-Mismo patrón que la migración, pero con un script de read-only:
-
-```bash
-cat > scripts/.check.js << 'EOF'
-/* eslint-disable */
-const { Pool } = require('pg')
-async function main() {
-  const pool = new Pool({
-    host: process.env.DB_HOST, port: 5432,
-    database: process.env.DB_NAME, user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD, ssl: { rejectUnauthorized: false },
-  })
-  // ⚠️ Ajustá esta query al check que necesites:
-  const r = await pool.query(`select column_name from information_schema.columns where table_name='marketplace_items'`)
-  console.log(r.rows)
-  await pool.end()
-}
-module.exports = main
-EOF
-
-# El override scripts/.run-task-override.json ya está commiteado en el repo
-# (descarga _tmp/seed.js de S3 y lo ejecuta).
-aws s3 cp scripts/.check.js s3://citify-prod-assets/_tmp/seed.js --region us-east-1
-
-aws ecs run-task --cluster citify-prod-cluster --task-definition citify-prod-web:27 \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-08be2fd4a6a2ac3d2,subnet-06b65507a4711bfc5,subnet-0126fd3fb0efdd889],securityGroups=[sg-0387fd2e1b5bfccd7],assignPublicIp=ENABLED}" \
-  --overrides file://scripts/.run-task-override.json --region us-east-1
-```
-
----
-
-## 4. Cambiar env vars en producción
-
-Las env vars de runtime (DB creds, S3, Cognito, etc.) viven en la **task definition**. Para cambiar una:
-
-```bash
-# 1. Bajar la task def actual
-aws ecs describe-task-definition --task-definition citify-prod-web:27 --region us-east-1 \
-  --query 'taskDefinition' > /tmp/taskdef.json
-
-# 2. Editar /tmp/taskdef.json (modificar containerDefinitions[0].environment)
-#    y eliminar campos read-only:
-#    .taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy
-
-# 3. Registrar nueva revisión
-NEW_REV=$(aws ecs register-task-definition --cli-input-json file:///tmp/taskdef.json \
-  --region us-east-1 --query 'taskDefinition.revision' --output text)
-echo "nueva revisión: $NEW_REV"
-
-# 4. Apuntar el servicio a la nueva revisión
-aws ecs update-service --cluster citify-prod-cluster --service citify-prod-service \
-  --task-definition "citify-prod-web:$NEW_REV" --region us-east-1
-aws ecs wait services-stable --cluster citify-prod-cluster --services citify-prod-service --region us-east-1
-```
-
----
-
-## 5. Logs y debugging
-
-```bash
-# Últimos 10 min de logs
-PYTHONUTF8=1 MSYS_NO_PATHCONV=1 aws logs tail /ecs/citify-prod-web --since 10m --region us-east-1 --format short
-
-# Filtrar por palabra
-PYTHONUTF8=1 MSYS_NO_PATHCONV=1 aws logs filter-log-events \
-  --log-group-name /ecs/citify-prod-web \
-  --start-time $(( ($(date +%s) - 600) * 1000 )) \
-  --filter-pattern "error" \
-  --region us-east-1 --output text | head -30
-
-# Estado del servicio + tasks corriendo
-aws ecs describe-services --cluster citify-prod-cluster --services citify-prod-service \
-  --region us-east-1 --query 'services[0].{desired:desiredCount,running:runningCount,deployments:deployments[].{status:status,rolloutState:rolloutState,running:runningCount}}'
-```
-
-> **Nota Git Bash en Windows:** sin `MSYS_NO_PATHCONV=1` Git Bash convierte `/ecs/citify-prod-web` a una ruta de Windows y `aws logs` falla. Sin `PYTHONUTF8=1` la salida revienta cuando hay un caracter raro (`⨯`, tildes).
-
----
-
-## 6. Rollback rápido
-
-Si un deploy rompió algo y querés volver a la versión anterior:
-
-```bash
-# Listar las imágenes en ECR ordenadas por fecha
-aws ecr describe-images --repository-name citify/citify-web-prod --region us-east-1 \
-  --query 'sort_by(imageDetails,&imagePushedAt)[*].{tag:imageTags|[0],pushedAt:imagePushedAt,digest:imageDigest}' \
-  --output table
-
-# Cada push deja un imageDigest. Para rollback, retageá un digest anterior como :3730a83 y forzá deploy:
-PREV_DIGEST=sha256:XXXXXX   # copiar del listado de arriba
-docker pull 351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod@${PREV_DIGEST}
-docker tag  351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod@${PREV_DIGEST} \
-            351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod:3730a83
-docker push 351885857894.dkr.ecr.us-east-1.amazonaws.com/citify/citify-web-prod:3730a83
-
-aws ecs update-service --cluster citify-prod-cluster --service citify-prod-service \
-  --force-new-deployment --region us-east-1
-```
-
-Las migraciones de DB **no se revierten automáticamente** — escribilas siempre con `ADD COLUMN IF NOT EXISTS` / `CREATE ... IF NOT EXISTS` para que sean idempotentes.
-
----
-
-## 7. Recursos AWS — referencia rápida
-
-| Cosa | ID |
+| Nombre | Para qué |
 |---|---|
-| Cuenta AWS | `351885857894` |
-| Región | `us-east-1` |
-| ECR repo | `citify/citify-web-prod` |
-| ECS cluster | `citify-prod-cluster` |
-| ECS service | `citify-prod-service` |
-| Task definition family | `citify-prod-web` (revisión actual: 27) |
-| RDS instance | `citify-prod-db` (endpoint `citify-prod-db.cyhi4wiiax9v.us-east-1.rds.amazonaws.com`) |
-| RDS DB | `citify` (user `citify_admin`) |
-| RDS security group | `sg-01eae542b6e8d44c2` (solo deja entrar a `sg-0387fd2e1b5bfccd7`) |
-| Cognito User Pool | `us-east-1_qcmuRiMh1` |
-| Cognito Client | `2pqp4rei9p3971diarhiht9lnu` |
-| S3 bucket | `citify-prod-assets` (público en `public/*`, privado en `private/*` y `_tmp/*`) |
-| ALB DNS | `citify-prod-alb-522648696.us-east-1.elb.amazonaws.com` |
-| Dominios | `citify.com.ar`, `www.citify.com.ar` (cert ACM con SAN) |
-| ECS subnets | `subnet-08be2fd4a6a2ac3d2`, `subnet-06b65507a4711bfc5`, `subnet-0126fd3fb0efdd889` |
-| ECS security group | `sg-0387fd2e1b5bfccd7` |
-| Log group | `/ecs/citify-prod-web` |
+| `citify.com.ar` | la app |
+| `www.citify.com.ar` | redirige a `citify.com.ar` |
+| `s3.citify.com.ar` | API S3 de Garage: subidas con URL prefirmada. **Tiene que coincidir con `S3_ENDPOINT`** o las subidas fallan con `SignatureDoesNotMatch` |
+| `archivos.citify.com.ar` | lectura pública de `citify-public` (logos, promos, marketplace) |
+
+Los cuatro son registros A a `2.25.185.242` en Cloudflare, en **DNS only**
+(nube gris). En modo proxied, Caddy ve la IP de Cloudflare y el rate limit de
+login deja de identificar al visitante.
 
 ---
 
-## 8. Gotchas conocidos
+## Desplegar una versión nueva
 
-- **El tag de la task definition es `:3730a83`, no `:latest`.** Si pusheás `:latest` y forzás deploy, no pasa nada (ECS sigue tirando del tag pinneado). Siempre pisar `:3730a83`.
-- **CORS del bucket** está hardcodeado para `https://citify.com.ar`, `https://www.citify.com.ar`, ALB y `localhost:3000`. Si vas a deployar a otro dominio (VPS, staging) hay que agregarlo:
-  ```
-  aws s3api put-bucket-cors --bucket citify-prod-assets --cors-configuration file://scripts/.cors.json --region us-east-1
-  ```
-- **`pnpm-lock.yaml` no existe** — el proyecto usa `npm`. Si alguien lo recrea, borrarlo.
-- **Multi-arch images**: el `docker push` muestra un digest (manifest list), pero `aws ecs describe-tasks` reporta el digest del manifest específico de plataforma (linux/amd64). Son distintos pero la imagen es la misma.
-- **RDS no es publicly accessible.** Para conectar con `psql` o un cliente local necesitás abrirla o usar un bastión. Por defecto preferí `ecs run-task` para todo lo que sea DB.
-- **`auth.uid()` en SQL** está redefinido para leer la GUC `app.current_profile_id`. Si una query necesita respetar RLS por usuario, usar `pgQueryAsProfile(profileId, ...)` (de `lib/db/postgres.ts`) en vez de `pgQuery`. El owner de las tablas (`citify_admin`) bypasea RLS, así que la mayoría de queries de servidor andan sin GUC, pero algunas (típicamente los UPDATEs que toca el dueño de una entidad) necesitan el contexto.
-- **Service worker (`public/sw.js`)**: el registro usa `updateViaCache: 'none'` y los headers de `/sw.js` son `no-cache` (ver `next.config.mjs`), así que cualquier byte-diff en el archivo dispara el flujo `skipWaiting → activate → controllerchange → window.reload()` en las tabs abiertas. Para forzar update aunque la lógica no cambie, bumpear el `SW_VERSION` en `public/sw.js`.
-
----
-
-## 9. Checklist típico para un deploy con migración
-
+```bash
+ssh root@2.25.185.242 '/home/citify/citify-aws/deploy/redeploy.sh'
 ```
-[ ] git pull en main
-[ ] Migración SQL en db/migrations/YYYYMMDD_descripcion.sql (idempotente)
-[ ] npm run build pasa localmente
-[ ] git push origin main
-[ ] Aplicar migración (sección 3.A) — verificar exit code 0
-[ ] Verificar el cambio en DB (sección 3.C)
-[ ] Build + push + deploy (sección 2)
-[ ] aws ecs wait services-stable
-[ ] Verificar digest del task corriendo
-[ ] curl -I https://citify.com.ar  → 200
-[ ] Login + smoke test manual de la feature nueva
-[ ] Si algo falla → rollback (sección 6) + revisar logs (sección 5)
+
+Hace pull de `main` → `npm ci` si cambió el lock → build con prioridad mínima
+→ migraciones pendientes → restart → verifica `/login`. Si el build falla, no
+reinicia y la versión anterior sigue sirviendo.
+
+## Migraciones
+
+Se escriben en `db/migrations/` (schema `citify.` o `public.`, el generador lo
+reescribe) y se regeneran con:
+
+```bash
+node scripts/db/build-schema.mjs     # db/migrations -> db/bootstrap/migrations
 ```
+
+Se commitean las dos cosas. `redeploy.sh` aplica las pendientes con
+`scripts/db/migrate.mjs` (tabla de control `citify.schema_migrations`). Una
+migración aplicada no se edita: se escribe otra.
+
+## Crear o re-credencializar un super_admin
+
+La contraseña se tipea en el servidor (no queda en el historial ni en la lista
+de procesos). Mínimo 8 caracteres.
+
+```bash
+ssh root@2.25.185.242
+cd /home/citify/citify-aws
+set -a; . /etc/citify/app.env; set +a
+read -rs -p "Password: " SEED_SUPERADMIN_PASSWORD; echo; export SEED_SUPERADMIN_PASSWORD
+SEED_SUPERADMIN_EMAIL=superadmin@citify.com /opt/node22/bin/node scripts/db/seed-superadmin.mjs
+unset SEED_SUPERADMIN_PASSWORD
+```
+
+Es idempotente: si el email existe, le reescribe la contraseña y lo deja como
+`super_admin`.
+
+## Operación diaria
+
+```bash
+systemctl status citify
+journalctl -u citify -f                      # logs de la app
+journalctl -u caddy -f | grep citify.com.ar  # accesos
+tail -f /var/log/citify-cron.log /var/log/citify-backup.log
+```
+
+## Backup
+
+Dos capas:
+
+1. **Countrify** (`/etc/cron.d/countrify`, 06:15 UTC) hace `pg_dump` de la
+   base entera, o sea que incluye el schema `citify`.
+2. **Citify** (`/etc/cron.d/citify`, 06:30 UTC): `db-citify.dump` (schemas
+   `citify` + `shared`), los objetos de los dos buckets y `config.tar.gz`
+   (`/etc/citify`, unit, sitio de Caddy, cron).
+
+Contiene secretos: `/var/backups/citify` es 0700 root.
+
+## Restore
+
+**Probar siempre primero sobre una base descartable.** `pg_restore` como
+postgres no puede leer archivos de root: pasarle el dump por stdin.
+
+### Recuperar datos puntuales (se borró algo)
+
+```bash
+cd /tmp
+sudo -u postgres createdb revision
+cat /var/backups/citify/<fecha>/db-citify.dump | sudo -u postgres pg_restore -d revision --no-owner --no-privileges
+# consultar revision.citify.* y copiar lo que haga falta a la base real
+sudo -u postgres dropdb revision
+```
+
+### Restaurar el schema citify entero (sin tocar Countrify)
+
+```bash
+systemctl stop citify
+cd /tmp
+sudo -u postgres psql -d countrify -c 'drop schema citify cascade'
+# pg_restore -n no recrea el schema: hay que crearlo antes.
+sudo -u postgres psql -d countrify -c 'create schema citify authorization citify_admin'
+cat /var/backups/citify/<fecha>/db-citify.dump \
+  | sudo -u postgres pg_restore -d countrify --no-owner --no-privileges -n citify
+# devolverle la propiedad a citify_admin y los permisos a citify_app
+sudo -u postgres psql -d countrify <<'SQL'
+alter schema citify owner to citify_admin;
+do $$ declare r record; begin
+  for r in select tablename from pg_tables where schemaname = 'citify' loop
+    execute format('alter table citify.%I owner to citify_admin', r.tablename); end loop;
+  for r in select sequencename from pg_sequences where schemaname = 'citify' loop
+    execute format('alter sequence citify.%I owner to citify_admin', r.sequencename); end loop;
+  for r in select p.oid::regprocedure as f from pg_proc p where p.pronamespace = 'citify'::regnamespace loop
+    execute format('alter routine %s owner to citify_admin', r.f); end loop;
+  for r in select t.typname from pg_type t where t.typnamespace = 'citify'::regnamespace and t.typtype = 'e' loop
+    execute format('alter type citify.%I owner to citify_admin', r.typname); end loop;
+end $$;
+SQL
+sudo -u postgres psql -d countrify -c 'set role citify_admin' -f /home/citify/citify-aws/db/bootstrap/03_grants.sql
+systemctl start citify
+```
+
+Con `-n citify`, `pg_restore` corta la lectura apenas termina lo suyo y `cat`
+puede quejarse de *broken pipe*: es inofensivo.
+
+`shared` NO se restaura por este camino: es de los dos productos. Si hace
+falta, se recupera fila por fila desde la base `revision`.
+
+### Archivos
+
+```bash
+set -a; . /etc/citify/backup.env; set +a
+rclone copy /var/backups/citify/<fecha>/objetos/citify-private garagecitify:citify-private
+rclone copy /var/backups/citify/<fecha>/objetos/citify-public  garagecitify:citify-public
+```
+
+## Montar desde cero (lo que se hizo el 2026-09-26)
+
+1. `useradd --create-home citify`, clonar el repo en `/home/citify/citify-aws`, `npm ci`.
+2. `/etc/citify/secrets.env` con `CITIFY_ADMIN_PW` / `CITIFY_APP_PW` (`openssl rand -hex 24`).
+3. Schema sobre la base compartida (requiere que exista `shared`, de Countrify):
+   ```bash
+   . /etc/citify/secrets.env
+   sudo -u postgres env CITIFY_ADMIN_PW=$CITIFY_ADMIN_PW CITIFY_APP_PW=$CITIFY_APP_PW \
+     bash /home/citify/citify-aws/scripts/db/setup.sh countrify
+   DB_HOST=127.0.0.1 DB_NAME=countrify DB_SSL=disable DB_USER=citify_admin DB_PASSWORD=$CITIFY_ADMIN_PW \
+     node scripts/db/migrate.mjs --baseline
+   ```
+4. Garage: `garage key create citify-app`, `garage bucket create citify-public|citify-private`,
+   `garage bucket allow --read --write --owner <bucket> --key citify-app`,
+   `garage bucket website --allow citify-public`, y el CORS con
+   `scripts/storage/set-cors.mjs` contra `http://127.0.0.1:3900`.
+5. `/etc/citify/app.env` (plantilla `.env.example`), `backup.env`, `cron.curlrc`.
+6. Build (`deploy/redeploy.sh` lo hace), `deploy/citify.service` →
+   `/etc/systemd/system/`, `systemctl enable --now citify`.
+7. `deploy/cron.citify` → `/etc/cron.d/citify`.
+8. DNS en Cloudflare (4 registros, DNS only) y, **recién cuando resuelvan**,
+   `deploy/citify.caddy` → `/etc/caddy/`, `import /etc/caddy/citify.caddy`
+   al final del `Caddyfile`, `caddy validate` y `systemctl reload caddy`.
+
+## Troubleshooting
+
+- **Subir un archivo da 403 / `SignatureDoesNotMatch`:** `S3_ENDPOINT` no es
+  exactamente `https://s3.citify.com.ar`, o falta el CORS del bucket.
+- **Cambié una `NEXT_PUBLIC_*` y no se nota:** se congelan en el build; correr
+  `redeploy.sh`.
+- **`migrate.mjs` aborta por hash distinto:** alguien editó una migración ya
+  aplicada. Escribir una nueva.
+- **Los mails no salen:** `RESEND_API_KEY` vacía o el dominio no verificado en
+  Resend (`journalctl -u citify | grep email/send`).
+- **El VPS se queda sin memoria:** `MemoryMax=1G` mata a Citify antes que a los
+  bots; revisar `journalctl -u citify` y bajar `DB_POOL_MAX`.

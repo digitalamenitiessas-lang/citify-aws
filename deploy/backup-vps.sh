@@ -76,13 +76,15 @@ DUMP="$DEST/db-citify.dump"
 log "base de datos (schemas citify + shared)..."
 # cd /tmp: postgres no puede entrar al cwd de root y pg_dump avisa por eso.
 (cd /tmp && sudo -u postgres pg_dump -Fc -d "$PG_DB" -n citify -n shared) > "$DUMP" || die "pg_dump fallo"
-TABLAS=$(pg_restore -l "$DUMP" 2>/dev/null | grep -c " TABLE " || true)
+TABLAS=$(pg_restore -l "$DUMP" 2>/dev/null | grep -c "TABLE DATA" || true)
 (( TABLAS > 0 )) || die "el dump no tiene tablas: esta corrupto"
 log "  ok — $(numfmt --to=iec "$(stat -c%s "$DUMP")"), $TABLAS tablas"
 
 # --- objetos ---
 for B in $BUCKETS; do
   log "objetos de $B..."
+  # Con el bucket vacio rclone no crea el directorio destino.
+  mkdir -p "$DEST/objetos/$B"
   rclone sync "garagecitify:$B" "$DEST/objetos/$B" --create-empty-src-dirs \
     || die "rclone fallo copiando $B"
   N=$(find "$DEST/objetos/$B" -type f | wc -l)
