@@ -103,7 +103,7 @@ log "  ok — $(numfmt --to=iec "$(stat -c%s "$DEST/config.tar.gz")")"
   echo "fecha: $(date -Iseconds)"
   echo "base: $PG_DB (schemas citify, shared), $TABLAS tablas"
   for B in $BUCKETS; do echo "bucket $B: $(cat "$DEST/objetos/$B.count") objetos"; done
-  echo "commit: $(git -C /home/citify/citify-aws rev-parse --short HEAD 2>/dev/null || echo '?')"
+  echo "commit: $(sudo -u citify git -C /home/citify/citify-aws rev-parse --short HEAD 2>/dev/null || echo '?')"
 } > "$DEST/MANIFIESTO.txt"
 
 # --- rotacion ---

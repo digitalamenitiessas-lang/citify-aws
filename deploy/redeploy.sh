@@ -22,6 +22,8 @@ PORT=3040
 die() { echo "ERROR: $1" >&2; exit 1; }
 paso() { echo; echo "→ $1"; }
 como_citify() { sudo -u citify -H env PATH="$NODE_BIN:$PATH" "$@"; }
+# El repo es de citify: git corrido como root lo rechaza ("dubious ownership").
+g() { como_citify git "$@"; }
 
 [ "$(id -u)" = 0 ] || die "hay que correrlo como root (usa systemctl)"
 [ -f "$ENV_FILE" ] || die "falta $ENV_FILE"
@@ -32,20 +34,20 @@ export PATH="$NODE_BIN:$PATH"
 
 paso "actualizando el codigo ($BRANCH)"
 # next-env.d.ts lo regenera Next en cada build y ensucia el arbol.
-como_citify git checkout -- next-env.d.ts 2>/dev/null || true
-ANTES=$(git rev-parse HEAD)
-como_citify git fetch -q origin "$BRANCH"
-como_citify git checkout -q "$BRANCH"
-como_citify git merge -q --ff-only "origin/$BRANCH"
-DESPUES=$(git rev-parse HEAD)
+g checkout -- next-env.d.ts 2>/dev/null || true
+ANTES=$(g rev-parse HEAD)
+g fetch -q origin "$BRANCH"
+g checkout -q "$BRANCH"
+g merge -q --ff-only "origin/$BRANCH"
+DESPUES=$(g rev-parse HEAD)
 if [ "$ANTES" = "$DESPUES" ]; then
-  echo "  ya estaba al dia ($(git log --oneline -1))"
+  echo "  ya estaba al dia ($(g log --oneline -1))"
 else
-  echo "  $(git log --oneline "$ANTES..$DESPUES" | wc -l) commits nuevos -> $(git log --oneline -1)"
+  echo "  $(g log --oneline "$ANTES..$DESPUES" | wc -l) commits nuevos -> $(g log --oneline -1)"
 fi
 
 paso "dependencias"
-if [ ! -d node_modules ] || ! git diff --quiet "$ANTES" "$DESPUES" -- package-lock.json; then
+if [ ! -d node_modules ] || ! g diff --quiet "$ANTES" "$DESPUES" -- package-lock.json; then
   echo "  reinstalando"
   como_citify nice -n 19 ionice -c3 npm ci --no-audit --no-fund 2>&1 | tail -2
 else
@@ -84,4 +86,4 @@ done
 echo "  /login -> HTTP 200"
 echo "  memoria: $(systemctl show citify -p MemoryCurrent --value | awk '{printf "%.0f MB",$1/1024/1024}')"
 echo
-echo "listo: $(git log --oneline -1)"
+echo "listo: $(g log --oneline -1)"
