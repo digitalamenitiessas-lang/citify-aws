@@ -1,6 +1,7 @@
 import { ConsorcioCasesPanel } from '@/components/complaints/consorcio-cases-panel'
 import { requireIAdmin } from '@/lib/auth'
 import { getConsorcioDashboardData, getConsorcioDashboardDataByAdministration } from '@/lib/data'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,8 +18,8 @@ export default async function ExpedientesPage() {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="font-serif text-2xl font-semibold text-foreground">Reclamos</h1>
+      <header className={`${BRAND_HERO} p-6`}>
+        <h1 className="font-serif text-2xl font-bold text-foreground">Reclamos</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Reclamos y consultas de los vecinos de tus edificios.
         </p>

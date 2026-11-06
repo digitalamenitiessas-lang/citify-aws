@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminCashAccounts, getIAdminExpensesInbox, getIAdminPortfolio, getIAdminProviders, getIAdminUnitsWithHolders } from '@/lib/data'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function GastosPage() {
   const { context } = await requireIAdmin({ capability: 'expenses.view' })
@@ -62,7 +63,7 @@ export default async function GastosPage() {
 
   return (
     <div className="space-y-6">
-      <header className="glass-card rounded-2xl p-6 flex items-start justify-between gap-4 flex-wrap">
+      <header className={`${BRAND_HERO} p-6 flex items-start justify-between gap-4 flex-wrap`}>
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-primary font-medium">Bandeja de gastos</p>
           <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Gastos a procesar</h1>

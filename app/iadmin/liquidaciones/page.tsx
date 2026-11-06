@@ -3,6 +3,7 @@ import { PropertyFilterBanner } from '@/components/admin-backoffice/shell/proper
 import { requireIAdmin } from '@/lib/auth'
 import { getIAdminLiquidationRuns, getIAdminPortfolio } from '@/lib/data'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function LiquidacionesPage() {
   const { context } = await requireIAdmin({ capability: 'liquidations.view' })
@@ -32,7 +33,7 @@ export default async function LiquidacionesPage() {
 
   return (
     <div className="space-y-6">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Liquidaciones</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Corridas mensuales</h1>
         <p className="text-sm text-muted-foreground mt-1">

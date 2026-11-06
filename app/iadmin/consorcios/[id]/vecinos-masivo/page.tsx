@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { BulkUnitUsersWizard } from '@/components/admin-backoffice/consorcio/bulk-unit-users-wizard'
 import { requireIAdmin } from '@/lib/auth'
 import { getIAdminConsorcioDetail } from '@/lib/data'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function VecinosMasivoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -12,7 +13,7 @@ export default async function VecinosMasivoPage({ params }: { params: Promise<{ 
 
   return (
     <div className="space-y-6">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Carga masiva</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">
           Cargar vecinos pegando una tabla

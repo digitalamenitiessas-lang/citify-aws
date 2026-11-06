@@ -5,6 +5,7 @@ import { computeCollectionsKpisFromPostgres, listMorososByAdminFromPostgres } fr
 import { materializeLateFeesForAdministrationInPostgres } from '@/lib/db/iadmin-writes'
 import { MorososTable } from '@/components/admin-backoffice/cobranzas/morosos-table'
 import { Money } from '@/components/admin-backoffice/shared/money'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function CobranzasReportesPage() {
   const { context } = await requireIAdmin({ capability: 'reports.view' })
@@ -13,7 +14,7 @@ export default async function CobranzasReportesPage() {
   if (!administrationId) {
     return (
       <div className="space-y-4">
-        <header className="glass-card rounded-2xl p-6">
+        <header className={`${BRAND_HERO} p-6`}>
           <p className="text-xs uppercase tracking-wider text-primary font-medium">Reportes</p>
           <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Reportes de cobranzas</h1>
         </header>
@@ -48,7 +49,7 @@ export default async function CobranzasReportesPage() {
 
   return (
     <div className="space-y-4">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-xs uppercase tracking-wider text-primary font-medium">Reportes</p>

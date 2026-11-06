@@ -17,6 +17,15 @@ import {
 } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
 import type { SwitcherProperty } from './consorcio-switcher'
+import {
+  NAV_ACTIVE,
+  NAV_CARD,
+  NAV_EYEBROW,
+  NAV_GROUP,
+  NAV_GROUP_DOT,
+  NAV_GROUP_LABEL,
+  NAV_IDLE,
+} from '../shared/brand'
 
 type NavItem = {
   href: string
@@ -127,14 +136,13 @@ export function IAdminSidebar({
   const visibleGlobalItems = GLOBAL_ITEMS.filter((item) => allowed.has(item.need))
   const showConsorcioBlock = activeProperty && allowed.has('consorcio.view')
 
+  // Negro de la marca con el activo en naranja (ver NAV_* en shared/brand.ts).
   return (
-    <div className="flex flex-col gap-1">
+    <div className={NAV_CARD}>
       {/* Brand mínima (sin switcher; el switcher vive en el header) */}
-      <div className="px-3 pb-2">
-        <div className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">
-          Backoffice
-        </div>
-        <div className="text-sm font-semibold text-foreground truncate mt-0.5">
+      <div className="px-3 pb-2 pt-1">
+        <div className={NAV_EYEBROW}>Backoffice</div>
+        <div className="text-sm font-semibold text-white truncate mt-0.5">
           {administrationName}
         </div>
       </div>
@@ -150,9 +158,7 @@ export function IAdminSidebar({
               href={item.href}
               className={[
                 'flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-colors',
-                isActive
-                  ? 'bg-primary/10 text-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                isActive ? NAV_ACTIVE : NAV_IDLE,
               ].join(' ')}
             >
               <Icon className="w-4 h-4 shrink-0" />
@@ -165,9 +171,9 @@ export function IAdminSidebar({
       {/* Edificio activo — compacto, sin re-mostrar nombre (ya está en header) */}
       {showConsorcioBlock && activeProperty ? (
         <>
-          <div className="mt-4 px-3 flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-semibold truncate">
+          <div className={NAV_GROUP}>
+            <div className={NAV_GROUP_DOT} />
+            <div className={NAV_GROUP_LABEL}>
               {activeProperty.displayName ?? activeProperty.buildingName}
             </div>
           </div>
@@ -183,9 +189,7 @@ export function IAdminSidebar({
                   href={href}
                   className={[
                     'flex items-center gap-2.5 rounded-md pl-6 pr-3 py-1 text-[12.5px] transition-colors',
-                    isActive
-                      ? 'bg-primary/10 text-foreground font-medium'
-                      : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    isActive ? NAV_ACTIVE : NAV_IDLE,
                   ].join(' ')}
                 >
                   <Icon className="w-3.5 h-3.5 shrink-0" />

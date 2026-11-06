@@ -46,7 +46,7 @@ export async function IAdminShell({
 
   return (
     <>
-      <div className="min-h-screen bg-background pt-16">
+      <div className="brand-panel min-h-screen bg-background pt-16">
         <div className="mx-auto flex max-w-[1400px] gap-6 px-4 py-4 md:px-6 md:py-6">
           <aside className="hidden lg:block w-60 shrink-0">
             <div className="sticky top-20">

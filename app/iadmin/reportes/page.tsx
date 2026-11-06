@@ -1,12 +1,13 @@
 import { requireIAdmin, can } from '@/lib/auth'
 import { CapabilityGate } from '@/components/admin-backoffice/shared/capability-gate'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function ReportesPage() {
   const { context } = await requireIAdmin({ capability: 'reports.view' })
 
   return (
     <div className="space-y-4">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Reportes</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Indicadores operativos</h1>
         <p className="text-sm text-muted-foreground mt-1">

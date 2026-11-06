@@ -5,6 +5,7 @@ import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminCashAccounts, getIAdminPortfolio } from '@/lib/data'
 import { pgQuery } from '@/lib/db/postgres'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,7 +99,7 @@ export default async function ValidarClaimsPage() {
   if (!currentPropertyId) {
     return (
       <div className="space-y-4">
-        <header className="glass-card rounded-2xl p-6">
+        <header className={`${BRAND_HERO} p-6`}>
           <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>
           <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Validar comprobantes</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -118,7 +119,7 @@ export default async function ValidarClaimsPage() {
 
   return (
     <div className="space-y-4">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <Link
           href="/iadmin/cobranzas"
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"

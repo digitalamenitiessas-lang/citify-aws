@@ -8,6 +8,7 @@ import type {
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { ExpenseStatusActions } from '@/components/admin-backoffice/gastos/expense-status-actions'
 import { ExpenseEditForm } from '@/components/admin-backoffice/gastos/expense-edit-form'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 const STATUS_LABELS: Record<IAdminExpenseStatus, string> = {
   draft: 'Borrador',
@@ -48,7 +49,7 @@ export function ExpenseDetail({
 
   return (
     <div className="space-y-6">
-      <section className="glass-card rounded-2xl p-6">
+      <section className={`${BRAND_HERO} p-6`}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wider text-primary font-medium">Gasto</p>

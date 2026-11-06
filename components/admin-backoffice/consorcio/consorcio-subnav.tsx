@@ -1,5 +1,6 @@
 import { MapPin } from 'lucide-react'
 import type { IAdminCapability } from '@/lib/types'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 /**
  * Banner del consorcio (sin tabs).
@@ -16,7 +17,7 @@ export function ConsorcioSubNav({
   allowedCapabilities: IAdminCapability[]
 }) {
   return (
-    <div className="glass-card rounded-2xl p-5">
+    <div className={`${BRAND_HERO} p-5`}>
       <p className="text-xs uppercase tracking-wider text-primary font-medium">Consorcio</p>
       <h1 className="font-serif text-xl font-bold text-foreground mt-0.5 truncate">
         {propertyName}

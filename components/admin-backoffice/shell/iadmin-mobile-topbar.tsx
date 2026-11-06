@@ -76,14 +76,14 @@ export function IAdminMobileTopBar({
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative z-10 w-80 max-w-[90vw] bg-background shadow-2xl overflow-y-auto"
+            className="relative z-10 w-80 max-w-[90vw] bg-[var(--citify-ink)] shadow-2xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-end px-4 py-3 border-b border-border/40">
+            <div className="flex items-center justify-end px-4 py-3 border-b border-white/10">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted/60"
+                className="rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white"
                 aria-label="Cerrar menú"
               >
                 <X className="h-4 w-4" />

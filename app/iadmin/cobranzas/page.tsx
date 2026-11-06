@@ -10,6 +10,7 @@ import {
 import { listAllAccountingPeriodsFromPostgres } from '@/lib/db/iadmin-reads'
 import { pgQuery } from '@/lib/db/postgres'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 function parsePeriodParam(raw: string | undefined | null): { year: number; month: number } | null {
   if (!raw) return null
@@ -35,7 +36,7 @@ export default async function CobranzasPage({
   if (!administrationId) {
     return (
       <div className="space-y-4">
-        <header className="glass-card rounded-2xl p-6">
+        <header className={`${BRAND_HERO} p-6`}>
           <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>
           <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Control de pagos</h1>
         </header>
@@ -55,7 +56,7 @@ export default async function CobranzasPage({
   if (!currentPropertyId) {
     return (
       <div className="space-y-4">
-        <header className="glass-card rounded-2xl p-6">
+        <header className={`${BRAND_HERO} p-6`}>
           <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>
           <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Control de pagos</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -143,7 +144,7 @@ export default async function CobranzasPage({
 
   return (
     <div className="space-y-4">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-xs uppercase tracking-wider text-primary font-medium">Cobranzas</p>

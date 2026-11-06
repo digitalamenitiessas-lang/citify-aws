@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import type { IAdminPortfolio, IAdminPortfolioOverview, IAdminPortfolioPropertyRow } from '@/lib/types'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 type Props = {
   portfolio: IAdminPortfolio
@@ -42,7 +43,7 @@ export function PortfolioOverview({ portfolio, overview }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="glass-card rounded-2xl p-6">
+      <section className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Cartera</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">
           {portfolio.administration.name}

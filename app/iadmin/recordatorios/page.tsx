@@ -3,6 +3,7 @@ import { PropertyFilterBanner } from '@/components/admin-backoffice/shell/proper
 import { requireIAdmin } from '@/lib/auth'
 import { getIAdminPortfolio, getIAdminReminders } from '@/lib/data'
 import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function RecordatoriosPage() {
   const { context } = await requireIAdmin({ capability: 'reminders.generate' })
@@ -32,7 +33,7 @@ export default async function RecordatoriosPage() {
 
   return (
     <div className="space-y-6">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Recordatorios</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Bandeja de avisos</h1>
         <p className="text-sm text-muted-foreground mt-1">

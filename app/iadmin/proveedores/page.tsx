@@ -1,6 +1,7 @@
 import { ProvidersManager } from '@/components/admin-backoffice/providers/providers-manager'
 import { can, requireIAdmin } from '@/lib/auth'
 import { getIAdminProviders } from '@/lib/data'
+import { BRAND_HERO } from '@/components/admin-backoffice/shared/brand'
 
 export default async function ProveedoresPage() {
   const { context } = await requireIAdmin({ capability: 'expenses.view' })
@@ -19,7 +20,7 @@ export default async function ProveedoresPage() {
 
   return (
     <div className="space-y-6">
-      <header className="glass-card rounded-2xl p-6">
+      <header className={`${BRAND_HERO} p-6`}>
         <p className="text-xs uppercase tracking-wider text-primary font-medium">Catalogo</p>
         <h1 className="font-serif text-2xl font-bold text-foreground mt-1">Proveedores</h1>
         <p className="text-sm text-muted-foreground mt-1">
