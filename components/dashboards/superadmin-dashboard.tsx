@@ -1628,6 +1628,26 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     }
   }
 
+  // Geocoding inverso (port de countrify-aws 71ba9c8): cuando se mueve el pin,
+  // completar de vuelta la direccion a partir de las coordenadas elegidas. Si
+  // no hay calle en ese punto, se deja lo escrito.
+  async function reverseGeocodeToAddress(lat: number, lng: number) {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      )
+      const data = await response.json()
+      const address = data?.address
+      if (!address) return
+      const street = [address.road, address.house_number].filter(Boolean).join(' ')
+      if (!street) return
+      setConsorcioDraft((current) => ({ ...current, buildingAddress: street }))
+      toast.success('Dirección actualizada desde el punto del mapa.', { id: 'consorcio-reverse-geocode' })
+    } catch {
+      // Silencioso: si el reverse falla, quedan las coordenadas igual.
+    }
+  }
+
   function getConsorcioStepError(stepIndex = consorcioStepIndex) {
     const step = CONSORCIO_WIZARD_STEPS[stepIndex]
 
@@ -2187,13 +2207,14 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                             recenterKey={consorcioRecenterToken}
                             interactive
                             selectedLocation={consorcioMapLocation}
-                            onLocationSelect={(lat, lng) =>
+                            onLocationSelect={(lat, lng) => {
                               setConsorcioDraft((current) => ({
                                 ...current,
                                 latitude: String(lat),
                                 longitude: String(lng),
                               }))
-                            }
+                              void reverseGeocodeToAddress(lat, lng)
+                            }}
                           />
                         </div>
                       </div>
