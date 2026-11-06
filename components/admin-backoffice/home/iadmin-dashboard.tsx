@@ -19,6 +19,7 @@ import { DashboardPeriodPicker } from '@/components/admin-backoffice/home/dashbo
 import type { IAdminPortfolioOverview } from '@/lib/types'
 import { KpiCard } from '../shared/kpi-card'
 import { BRAND_CHIP, BRAND_HERO } from '../shared/brand'
+import { PushToggle } from '@/components/pwa/push-toggle'
 
 const MONTH_NAMES = [
   'Enero',
@@ -112,6 +113,9 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Aviso para activar notificaciones: solo si todavia no las activo. */}
+      <PushToggle variant="banner" audience="admin" />
+
       {/* Saludo + selector de período. Fondo naranja suave: el toque de color de
           la marca en el inicio, sin otro bloque oscuro que compita con el sidebar.
           (No usa glass-card: su fondo es CSS global y pisa a las utilidades.) */}

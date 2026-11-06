@@ -63,8 +63,10 @@ export default async function ConfiguracionPage() {
           <ChangePasswordForm requireCurrent={true} />
         </div>
 
-        {/* Push: hoy solo avisan a vecinos (comunicado nuevo, expensas emitidas). */}
-        {profile.role === 'vecino' ? <PushToggle variant="settings" /> : null}
+        {/* Push: a vecinos (comunicado nuevo, expensas) y a admins de consorcio
+            (pagos informados, reclamos). Eventos en lib/push/events.ts. */}
+        {profile.role === 'vecino' ? <PushToggle variant="settings" audience="vecino" /> : null}
+        {profile.role === 'consorcio_admin' ? <PushToggle variant="settings" audience="admin" /> : null}
 
         {visibleNotificationKeys.length > 0 ? (
           <div className="glass-card rounded-2xl p-6">

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { requireProfile } from '@/lib/auth'
 import { pgQuery } from '@/lib/db/postgres'
+import { pushPaymentClaimSubmitted } from '@/lib/push/events'
 
 const submitSchema = z.object({
   unitId: z.string().uuid(),
@@ -59,6 +60,10 @@ export async function submitPaymentClaim(input: z.input<typeof submitSchema>): P
       parsed.documentObjectKey ?? null,
     ],
   )
+
+  // Aviso a los admins del consorcio: hay un comprobante para validar. No
+  // bloquea la accion (pushPaymentClaimSubmitted nunca tira).
+  void pushPaymentClaimSubmitted(result.rows[0].id)
 
   revalidatePath('/vecino')
   return { id: result.rows[0].id }

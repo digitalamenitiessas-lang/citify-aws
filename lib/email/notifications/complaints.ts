@@ -3,6 +3,7 @@ import { sendNotificationEmail } from '@/lib/email/send'
 import { renderComplaintCreatedEmail } from '@/lib/email/templates/complaint-created'
 import { renderComplaintMessageEmail } from '@/lib/email/templates/complaint-message'
 import { renderComplaintStatusChangedEmail } from '@/lib/email/templates/complaint-status-changed'
+import { pushComplaintCreated, pushComplaintMessage } from '@/lib/push/events'
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://citify.com.ar'
 
@@ -82,6 +83,17 @@ export async function notifyComplaintCreated(caseId: string): Promise<void> {
   try {
     const ctx = await getCaseContext(caseId)
     if (!ctx) return
+
+    // Push a los admins, antes que los mails e independiente de ellos.
+    await pushComplaintCreated({
+      caseId: ctx.id,
+      buildingId: ctx.building_id,
+      buildingName: ctx.building_name,
+      caseCode: ctx.case_code,
+      title: ctx.title,
+      authorName: ctx.author_full_name,
+    })
+
     const admins = await getBuildingAdmins(ctx.building_id)
     if (admins.length === 0) return
 
@@ -213,6 +225,20 @@ export async function notifyComplaintMessage(messageId: string): Promise<void> {
     }
 
     if (candidates.length === 0) return
+
+    // Push solo a los admins destinatarios (los avisos push de reclamos son,
+    // por ahora, para el administrador). Antes que los mails e independiente.
+    for (const c of candidates) {
+      if (c.role !== 'consorcio_admin') continue
+      await pushComplaintMessage({
+        profileId: c.profileId,
+        caseId: ctx.id,
+        caseCode: ctx.case_code,
+        buildingName: ctx.building_name,
+        authorName: msg.author_full_name,
+        message: msg.message,
+      })
+    }
 
     // Preview del mensaje truncado a ~280 chars para no inflar el mail.
     const preview = msg.message.length > 280 ? `${msg.message.slice(0, 280)}…` : msg.message

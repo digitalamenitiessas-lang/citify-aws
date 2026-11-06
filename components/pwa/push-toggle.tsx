@@ -5,7 +5,6 @@ import { Bell, BellOff, Share, X } from 'lucide-react'
 import { BRAND_CHIP } from '@/components/admin-backoffice/shared/brand'
 import { enablePush, getPushState, type PushState } from './push-client'
 
-const DISMISS_KEY = 'citify-push-banner-cerrado'
 
 /**
  * Activar notificaciones push en este dispositivo.
@@ -17,7 +16,27 @@ const DISMISS_KEY = 'citify-push-banner-cerrado'
  * El permiso se pide solo al tocar el boton: un pedido automatico al entrar
  * lo rechaza casi todo el mundo, y el navegador despues no deja volver a pedirlo.
  */
-export function PushToggle({ variant }: { variant: 'banner' | 'settings' }) {
+// Que se avisa a cada uno: el texto del boton y de la confirmacion depende de
+// quien lo ve. Los eventos estan en lib/push/events.ts.
+const AUDIENCE = {
+  vecino: {
+    what: 'cuándo hay un comunicado nuevo o salen tus expensas',
+    granted: 'de comunicados nuevos y cuando salen tus expensas',
+  },
+  admin: {
+    what: 'cuándo un vecino informa un pago para validar o hay movimiento en un reclamo',
+    granted: 'de pagos informados para validar y de reclamos nuevos o respondidos',
+  },
+} as const
+
+export function PushToggle({
+  variant,
+  audience = 'vecino',
+}: {
+  variant: 'banner' | 'settings'
+  audience?: keyof typeof AUDIENCE
+}) {
+  const who = AUDIENCE[audience]
   const [state, setState] = useState<PushState | null>(null)
   const [busy, setBusy] = useState(false)
   const [dismissed, setDismissed] = useState(true)
@@ -25,11 +44,11 @@ export function PushToggle({ variant }: { variant: 'banner' | 'settings' }) {
   useEffect(() => {
     setState(getPushState())
     try {
-      setDismissed(localStorage.getItem(DISMISS_KEY) === '1')
+      setDismissed(localStorage.getItem(`citify-push-banner-cerrado:${audience}`) === '1')
     } catch {
       setDismissed(false)
     }
-  }, [])
+  }, [audience])
 
   if (state === null) return null
 
@@ -39,14 +58,14 @@ export function PushToggle({ variant }: { variant: 'banner' | 'settings' }) {
 
   async function activate() {
     setBusy(true)
-    setState(await enablePush())
+    setState(await enablePush(`Te vamos a avisar ${who.granted}.`))
     setBusy(false)
   }
 
   function dismiss() {
     setDismissed(true)
     try {
-      localStorage.setItem(DISMISS_KEY, '1')
+      localStorage.setItem(`citify-push-banner-cerrado:${audience}`, '1')
     } catch {
       // sin almacenamiento: se vuelve a mostrar la proxima vez, no pasa nada
     }
@@ -55,11 +74,11 @@ export function PushToggle({ variant }: { variant: 'banner' | 'settings' }) {
   const copy: Record<PushState, { title: string; body: string }> = {
     default: {
       title: 'Enterate al instante',
-      body: 'Activá las notificaciones para saber cuándo hay un comunicado nuevo o salen tus expensas.',
+      body: `Activá las notificaciones para saber ${who.what}.`,
     },
     granted: {
       title: 'Notificaciones activadas',
-      body: 'Te avisamos en este dispositivo de comunicados nuevos y cuando salen tus expensas.',
+      body: `Te avisamos en este dispositivo ${who.granted}.`,
     },
     denied: {
       title: 'Notificaciones bloqueadas',

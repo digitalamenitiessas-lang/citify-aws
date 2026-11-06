@@ -66,7 +66,7 @@ export async function subscribeThisDevice(): Promise<boolean> {
 }
 
 /** Pide permiso (solo tras un click: los navegadores castigan pedirlo solo) y suscribe. */
-export async function enablePush(): Promise<PushState> {
+export async function enablePush(confirmBody: string): Promise<PushState> {
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') return permission as PushState
   const ok = await subscribeThisDevice()
@@ -75,7 +75,7 @@ export async function enablePush(): Promise<PushState> {
     // como se ve un aviso sin esperar a que pase algo en el consorcio.
     const reg = await navigator.serviceWorker.ready
     await reg.showNotification('Notificaciones activadas', {
-      body: 'Te vamos a avisar de comunicados nuevos y cuando salgan tus expensas.',
+      body: confirmBody,
       icon: '/apple-icon.png',
       tag: 'citify-push-activadas',
     })
