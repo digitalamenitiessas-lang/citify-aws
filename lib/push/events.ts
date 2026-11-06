@@ -184,3 +184,113 @@ export async function pushComplaintMessage(input: {
     tag: `complaint:${input.caseId}`,
   })
 }
+
+// ─── Pizarra de quejas ───────────────────────────────────────────────────────
+
+/**
+ * Admins del edificio con notificaciones activas. Los busca por las dos vias
+ * que existen: la administracion que maneja el edificio (de donde sale el
+ * acceso al panel) y la asignacion directa al edificio.
+ */
+async function boardAdminsWithPush(buildingId: string): Promise<string[]> {
+  const res = await pgQuery<{ profile_id: string }>(
+    `select distinct p.id as profile_id
+       from citify.profiles p
+      where p.role = 'consorcio_admin'
+        and exists (select 1 from citify.push_subscriptions s where s.profile_id = p.id)
+        and (
+          exists (select 1
+                    from citify.iadmin_managed_properties mp
+                    join citify.iadmin_role_grants g on g.administration_id = mp.administration_id
+                   where mp.building_id = $1 and mp.is_active and g.profile_id = p.id)
+          or exists (select 1
+                       from citify.building_admin_assignments baa
+                      where baa.building_id = $1 and baa.profile_id = p.id)
+        )`,
+    [buildingId],
+  )
+  return res.rows.map((r) => r.profile_id)
+}
+
+/**
+ * Queja nueva en la pizarra: a los admins del edificio. Si es anonima, el
+ * aviso tampoco dice quien fue.
+ */
+export async function pushBoardPostCreated(input: {
+  postId: string
+  buildingId: string
+  buildingName: string
+  body: string
+  authorLabel: string
+}): Promise<number> {
+  try {
+    let sent = 0
+    for (const profileId of await boardAdminsWithPush(input.buildingId)) {
+      sent += await sendPushToProfile(profileId, {
+        title: `Queja nueva · ${input.buildingName}`,
+        body: `${input.authorLabel}: ${truncate(input.body, 120)}`,
+        url: `${SITE_URL}/iadmin/pizarra?id=${encodeURIComponent(input.postId)}`,
+        tag: `board:${input.postId}`,
+      })
+    }
+    return sent
+  } catch (err) {
+    console.error('[push] queja nueva: fallo (no bloquea)', err)
+    return 0
+  }
+}
+
+/** La administracion respondio una queja: al autor (aunque sea anonima, el servidor sabe quien es). */
+export async function pushBoardPostReplied(input: {
+  postId: string
+  authorProfileId: string
+  buildingName: string
+  reply: string
+}): Promise<number> {
+  return sendPushToProfile(input.authorProfileId, {
+    title: 'La administración respondió tu queja',
+    body: `${input.buildingName}: ${truncate(input.reply, 120)}`,
+    url: `${SITE_URL}/usuario?view=board&id=${encodeURIComponent(input.postId)}`,
+    tag: `board:${input.postId}`,
+  })
+}
+
+/**
+ * Cambio de estado: al autor. Cuando se resuelve, tambien a los vecinos que se
+ * sumaron ("me pasa lo mismo"), que tambien estaban esperando.
+ */
+export async function pushBoardPostStatusChanged(input: {
+  postId: string
+  authorProfileId: string
+  supporterIds: string[]
+  buildingName: string
+  body: string
+  status: 'recibida' | 'en_curso' | 'resuelta'
+}): Promise<number> {
+  if (input.status === 'recibida') return 0
+  try {
+    const url = `${SITE_URL}/usuario?view=board&id=${encodeURIComponent(input.postId)}`
+    const snippet = truncate(input.body, 100)
+    let sent = await sendPushToProfile(input.authorProfileId, {
+      title: input.status === 'resuelta' ? 'Tu queja se resolvió' : 'Tu queja está en curso',
+      body: `${input.buildingName}: ${snippet}`,
+      url,
+      tag: `board:${input.postId}`,
+    })
+    if (input.status === 'resuelta') {
+      for (const profileId of input.supporterIds) {
+        if (profileId === input.authorProfileId) continue
+        sent += await sendPushToProfile(profileId, {
+          title: 'Se resolvió una queja a la que te sumaste',
+          body: `${input.buildingName}: ${snippet}`,
+          url,
+          tag: `board:${input.postId}`,
+        })
+      }
+    }
+    return sent
+  } catch (err) {
+    console.error('[push] estado de queja: fallo (no bloquea)', err)
+    return 0
+  }
+}

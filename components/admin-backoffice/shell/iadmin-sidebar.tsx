@@ -12,9 +12,12 @@ import {
   Megaphone,
   MessageSquareText,
   Receipt,
+  StickyNote,
   Table,
+  Users,
   Wallet,
 } from 'lucide-react'
+import { isIAdminSectionOn, type IAdminSection } from '@/lib/features'
 import type { IAdminCapability } from '@/lib/types'
 import type { SwitcherProperty } from './consorcio-switcher'
 import {
@@ -32,7 +35,11 @@ type NavItem = {
   label: string
   icon: typeof Building2
   need: IAdminCapability
+  /** Seccion del interruptor (lib/features.ts). Sin seccion = siempre visible. */
+  section?: IAdminSection
   matchPrefix?: string
+  /** Otras paginas en las que el item queda marcado como activo. */
+  alsoActive?: RegExp
   exact?: boolean
 }
 
@@ -46,16 +53,20 @@ type Props = {
 // Nav global simplificado: solo lo que tiene sentido cross-cartera.
 // Cartera se sacó porque Inicio ya muestra el resumen consolidado.
 // Liquidaciones y Recordatorios viven dentro de Mesa del mes de cada edificio.
+// Cada item con `section` aparece solo si esa seccion esta prendida.
 const GLOBAL_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/iadmin', label: 'Inicio', icon: Home, need: 'portfolio.view', exact: true },
-  { href: '/iadmin/gastos', label: 'Gastos', icon: Receipt, need: 'expenses.view', matchPrefix: '/iadmin/gastos' },
-  { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', matchPrefix: '/iadmin/cobranzas' },
-  { href: '/iadmin/comunicaciones', label: 'Comunicados', icon: Megaphone, need: 'communications.send', matchPrefix: '/iadmin/comunicaciones' },
-  { href: '/iadmin/expedientes', label: 'Reclamos', icon: MessageSquareText, need: 'consorcio.view', matchPrefix: '/iadmin/expedientes' },
+  { href: '/iadmin/pizarra', label: 'Pizarra de quejas', icon: StickyNote, need: 'consorcio.view', section: 'pizarra', matchPrefix: '/iadmin/pizarra' },
+  { href: '/iadmin/comunicaciones', label: 'Comunicados', icon: Megaphone, need: 'communications.send', section: 'comunicados', matchPrefix: '/iadmin/comunicaciones' },
+  { href: '/iadmin/vecinos', label: 'Vecinos', icon: Users, need: 'consorcio.view', section: 'vecinos', matchPrefix: '/iadmin/vecinos', alsoActive: /^\/iadmin\/consorcios\/[^/]+\/vecinos-masivo/ },
+  { href: '/iadmin/gastos', label: 'Gastos', icon: Receipt, need: 'expenses.view', section: 'gastos', matchPrefix: '/iadmin/gastos' },
+  { href: '/iadmin/cobranzas', label: 'Cobranzas', icon: Wallet, need: 'collections.view', section: 'cobranzas', matchPrefix: '/iadmin/cobranzas' },
+  { href: '/iadmin/expedientes', label: 'Reclamos', icon: MessageSquareText, need: 'consorcio.view', section: 'reclamos', matchPrefix: '/iadmin/expedientes' },
 ]
 
 type ConsorcioItem = {
   key: string
+  section: IAdminSection
   label: string
   icon: typeof Table
   hrefFor: (id: string) => string
@@ -66,6 +77,7 @@ type ConsorcioItem = {
 const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
   {
     key: 'mesa',
+    section: 'mesaDelMes',
     label: 'Mesa del mes',
     icon: Table,
     hrefFor: (id) => `/iadmin/consorcios/${id}`,
@@ -74,6 +86,7 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
   },
   {
     key: 'gestion',
+    section: 'datosYUnidades',
     label: 'Datos y unidades',
     icon: Building2,
     hrefFor: (id) => `/iadmin/consorcios/${id}/gestion`,
@@ -81,6 +94,7 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
   },
   {
     key: 'cuentas',
+    section: 'cuentas',
     label: 'Cuentas / CBU',
     icon: Banknote,
     hrefFor: (id) => `/iadmin/consorcios/${id}/cuentas`,
@@ -88,6 +102,7 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
   },
   {
     key: 'importar',
+    section: 'importar',
     label: 'Importar',
     icon: FileSpreadsheet,
     hrefFor: (id) => `/iadmin/consorcios/${id}/importar`,
@@ -95,6 +110,7 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
   },
   {
     key: 'dashboard',
+    section: 'reportes',
     label: 'Reportes',
     icon: BarChart3,
     hrefFor: (id) => `/iadmin/consorcios/${id}/dashboard`,
@@ -103,6 +119,7 @@ const CONSORCIO_ITEMS: ReadonlyArray<ConsorcioItem> = [
 ]
 
 function isItemActive(item: NavItem, pathname: string): boolean {
+  if (item.alsoActive?.test(pathname)) return true
   if (item.exact) return pathname === item.href
   if (item.matchPrefix) return pathname.startsWith(item.matchPrefix)
   return pathname === item.href
@@ -133,8 +150,12 @@ export function IAdminSidebar({
   const singleProperty = properties.length === 1 ? properties[0] : null
   const activeProperty = activeFromUrl ?? activeFromCookie ?? singleProperty ?? null
 
-  const visibleGlobalItems = GLOBAL_ITEMS.filter((item) => allowed.has(item.need))
-  const showConsorcioBlock = activeProperty && allowed.has('consorcio.view')
+  const visibleGlobalItems = GLOBAL_ITEMS.filter(
+    (item) => allowed.has(item.need) && (!item.section || isIAdminSectionOn(item.section)),
+  )
+  const visibleConsorcioItems = CONSORCIO_ITEMS.filter((item) => isIAdminSectionOn(item.section))
+  const showConsorcioBlock =
+    activeProperty && allowed.has('consorcio.view') && visibleConsorcioItems.length > 0
 
   // Negro de la marca con el activo en naranja (ver NAV_* en shared/brand.ts).
   return (
@@ -178,7 +199,7 @@ export function IAdminSidebar({
             </div>
           </div>
           <nav className="flex flex-col gap-px mt-0.5">
-            {CONSORCIO_ITEMS.map((item) => {
+            {visibleConsorcioItems.map((item) => {
               const href = item.hrefFor(activeProperty.id)
               const matchPath = item.matchFor(activeProperty.id)
               const isActive = item.exact ? pathname === matchPath : pathname.startsWith(matchPath)

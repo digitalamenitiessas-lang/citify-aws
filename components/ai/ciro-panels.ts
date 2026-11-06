@@ -14,27 +14,29 @@
 // Lo que Ciro NO sabe todavia (2026-10): expensas, pagos y unidades del vecino,
 // y gastos, liquidaciones y cobranzas del administrador. Por eso los paneles
 // `unidades` y `administracion` no sugieren nada de eso.
+//
+// 2026-11: los reclamos pasaron a la Pizarra de quejas (board_posts), que Ciro
+// todavia no lee: el contexto sigue trayendo los expedientes viejos, que
+// quedaron apagados y vacios. Por eso ya no se sugiere nada de reclamos.
 
 export type CiroPanel = 'beneficios' | 'unidades' | 'negocio' | 'administracion' | 'superadmin'
 
 export const CIRO_PANELS: Record<CiroPanel, { welcome: string; suggestions: string[] }> = {
   // /usuario — vecino. Contexto: promociones, cupones guardados, mercado vecinal, reclamos.
   beneficios: {
-    welcome: 'Te ayudo con tus beneficios, el mercado vecinal y tus reclamos.',
+    welcome: 'Te ayudo con tus beneficios y el mercado vecinal.',
     suggestions: [
       '¿Qué cupones tengo sin usar?',
       '¿Qué promociones nuevas hay?',
       '¿Qué hay en el mercado vecinal?',
-      '¿Cómo van mis reclamos?',
     ],
   },
 
   // /vecino — vecino principal. Mismo contexto que `beneficios`: todavia no
   // incluye expensas ni pagos, que es lo central de este panel.
   unidades: {
-    welcome: 'Te ayudo con tus reclamos, los beneficios del edificio y el mercado vecinal.',
+    welcome: 'Te ayudo con los beneficios del edificio y el mercado vecinal.',
     suggestions: [
-      '¿Cómo van mis reclamos?',
       '¿Qué beneficios tengo disponibles?',
       '¿Qué promociones nuevas hay?',
       '¿Qué hay en el mercado vecinal?',
@@ -56,9 +58,8 @@ export const CIRO_PANELS: Record<CiroPanel, { welcome: string; suggestions: stri
   // /iadmin — administrador de consorcio. Contexto: sus consorcios con unidades,
   // vecinos registrados, ocupacion y expedientes.
   administracion: {
-    welcome: 'Te ayudo con los vecinos, la ocupación y los expedientes de tus consorcios.',
+    welcome: 'Te ayudo con los vecinos y la ocupación de tus consorcios.',
     suggestions: [
-      '¿Qué expedientes siguen abiertos?',
       '¿Cuál es la ocupación de cada consorcio?',
       '¿Cuántos vecinos registrados hay?',
       '¿Qué consorcios tengo a cargo?',

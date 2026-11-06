@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Bell, BellOff, Share, X } from 'lucide-react'
 import { BRAND_CHIP } from '@/components/admin-backoffice/shared/brand'
+import { IADMIN_FINANZAS, VECINO_EXPENSAS } from '@/lib/features'
 import { enablePush, getPushState, type PushState } from './push-client'
 
 
@@ -19,14 +20,26 @@ import { enablePush, getPushState, type PushState } from './push-client'
 // Que se avisa a cada uno: el texto del boton y de la confirmacion depende de
 // quien lo ve. Los eventos estan en lib/push/events.ts.
 const AUDIENCE = {
-  vecino: {
-    what: 'cuándo hay un comunicado nuevo o salen tus expensas',
-    granted: 'de comunicados nuevos y cuando salen tus expensas',
-  },
-  admin: {
-    what: 'cuándo un vecino informa un pago para validar o hay movimiento en un reclamo',
-    granted: 'de pagos informados para validar y de reclamos nuevos o respondidos',
-  },
+  vecino: VECINO_EXPENSAS
+    ? {
+        what: 'cuándo hay un comunicado nuevo, salen tus expensas o te responden una queja',
+        granted: 'de comunicados nuevos, de tus expensas y de las respuestas a tus quejas',
+      }
+    : {
+        what: 'cuándo hay un comunicado nuevo o te responden una queja',
+        granted: 'de comunicados nuevos y de las respuestas a tus quejas',
+      },
+  // Con las finanzas apagadas (lib/features.ts) no hay pagos para validar:
+  // el aviso que importa es la queja nueva en la pizarra.
+  admin: IADMIN_FINANZAS
+    ? {
+        what: 'cuándo un vecino informa un pago para validar o publica una queja',
+        granted: 'de pagos informados para validar y de quejas nuevas en la pizarra',
+      }
+    : {
+        what: 'cuándo un vecino publica una queja en la pizarra',
+        granted: 'de las quejas nuevas en la pizarra',
+      },
 } as const
 
 export function PushToggle({

@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   Sparkles,
   Star,
+  StickyNote,
   Tag,
   Ticket,
   Info,
@@ -33,6 +34,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NeighborCasesPanel } from '@/components/complaints/neighbor-cases-panel'
 import { NeighborAnnouncementsPanel } from '@/components/announcements/neighbor-announcements-panel'
+import { NeighborBoardPanel } from '@/components/board/neighbor-board-panel'
+import type { BoardPost } from '@/lib/board'
+import { VECINO_RECLAMOS } from '@/lib/features'
 import { MarketplaceDetailModal } from '@/components/marketplace-detail-modal'
 import { ImageUploadField } from '@/components/image-upload-field'
 import { ChatWidget } from '@/components/ai/chat-widget'
@@ -621,10 +625,12 @@ function FullPromotionsView({ promotions, savedCoupons, usedCoupons, onSaveToggl
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 
-type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household' | 'announcements'
+type MainView = 'home' | 'all-promos' | 'building-promos' | 'marketplace' | 'my-coupons' | 'stores' | 'complaints' | 'household' | 'announcements' | 'board'
 
-const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household', 'announcements']
-const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v1'
+const MAIN_VIEW_OPTIONS: MainView[] = ['home', 'all-promos', 'building-promos', 'marketplace', 'my-coupons', 'stores', 'complaints', 'household', 'announcements', 'board']
+// v2: se sumaron la Pizarra y Comunicados a la barra (2026-11). Cambiar la
+// clave vuelve a mostrar el recorrido a quien ya lo habia visto.
+const NEIGHBOR_TOUR_STORAGE_KEY = 'citify-neighbor-tour-v2'
 const NEIGHBOR_VIEW_STORAGE_KEY = 'citify-neighbor-view-v1'
 const NEIGHBOR_COUPON_FILTER_STORAGE_KEY = 'citify-neighbor-coupon-filter-v1'
 const NEIGHBOR_COUPONS_SEEN_STORAGE_KEY = 'citify-neighbor-coupons-seen-v1'
@@ -648,6 +654,16 @@ const NEIGHBOR_TOUR_STEPS_DESKTOP: Array<{
     selector: '[data-tour="neighbor-nav-my-coupons"]',
     title: 'Mis Cupones',
     description: 'Gestiona tu billetera de cupones guardados, disponibles y ya usados.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-board"]',
+    title: 'Pizarra',
+    description: 'Conta lo que te molesta del edificio, con tu nombre o anonimo. La administracion te responde ahi.',
+  },
+  {
+    selector: '[data-tour="neighbor-nav-announcements"]',
+    title: 'Comunicados',
+    description: 'Los avisos de la administracion para todos los vecinos.',
   },
   {
     selector: '[data-tour="neighbor-nav-marketplace"]',
@@ -692,14 +708,14 @@ const NEIGHBOR_TOUR_STEPS_MOBILE: Array<{
     description: 'Gestiona tu billetera de cupones guardados, disponibles y ya usados.',
   },
   {
-    selector: '[data-tour="neighbor-nav-marketplace"]',
-    title: 'Mercado',
-    description: 'Publica o encuentra articulos dentro de tu comunidad de vecinos.',
+    selector: '[data-tour="neighbor-nav-board"]',
+    title: 'Pizarra',
+    description: 'Conta lo que te molesta del edificio, con tu nombre o anonimo. La administracion te responde ahi.',
   },
   {
-    selector: '[data-tour="neighbor-nav-stores"]',
-    title: 'Ubicaciones',
-    description: 'Mira el mapa de locales y ubica los comercios cercanos a tu edificio.',
+    selector: '[data-tour="neighbor-nav-announcements"]',
+    title: 'Comunicados',
+    description: 'Los avisos de la administracion para todos los vecinos.',
   },
   {
     selector: '[data-tour="neighbor-mobile-menu-toggle"]',
@@ -718,12 +734,54 @@ const NEIGHBOR_TOUR_STEPS_MOBILE: Array<{
   },
 ]
 
+// Los reclamos viejos (Expedientes) se apagan con lib/features.ts: la Pizarra
+// los reemplaza. Sin esto el recorrido señalaria un boton que no esta.
+function tourStepsFor(steps: typeof NEIGHBOR_TOUR_STEPS_DESKTOP) {
+  return VECINO_RECLAMOS ? steps : steps.filter((step) => !step.selector.includes('complaints'))
+}
+
 function isMainView(value: string | null): value is MainView {
+  if (value === 'complaints' && !VECINO_RECLAMOS) return false
   return Boolean(value && MAIN_VIEW_OPTIONS.includes(value as MainView))
 }
 
-export function ConsumerDashboard({ initialData, profileId, profileName, avatarText }: {
+function HomeShortcut({
+  icon: Icon,
+  title,
+  hint,
+  onClick,
+  highlight = false,
+  className = '',
+}: {
+  icon: typeof Home
+  title: string
+  hint: string
+  onClick: () => void
+  highlight?: boolean
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`glass-card flex items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-muted/40 ${className}`}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--citify-blush)] text-[var(--citify-terracotta-dark)]">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-foreground">{title}</span>
+        <span className={`block text-xs leading-snug ${highlight ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>
+          {hint}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+export function ConsumerDashboard({ initialData, boardPosts, profileId, profileName, avatarText }: {
   initialData: ConsumerDashboardData
+  boardPosts: BoardPost[]
   profileId: string
   profileName: string
   avatarText: string
@@ -799,8 +857,10 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
   const firstName = profileName.split(' ')[0]
   const buildingName = initialData.building?.name ?? 'tu consorcio'
+  const openBoardCount = boardPosts.filter((p) => p.status !== 'resuelta' && !p.hidden).length
+  const unreadAnnouncements = initialData.announcements.filter((a) => !a.isRead).length
   const tourSteps = useMemo(
-    () => (isMobileViewport ? NEIGHBOR_TOUR_STEPS_MOBILE : NEIGHBOR_TOUR_STEPS_DESKTOP),
+    () => tourStepsFor(isMobileViewport ? NEIGHBOR_TOUR_STEPS_MOBILE : NEIGHBOR_TOUR_STEPS_DESKTOP),
     [isMobileViewport],
   )
 
@@ -1245,18 +1305,22 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
     })
   }
 
+  // En el celular entran cinco: la Pizarra y Comunicados son lo que usa hoy la
+  // administracion, asi que van en la barra; Mercado y Ubicaciones quedan como
+  // accesos en Inicio (y en la barra en pantallas grandes).
   const primaryNav = [
     { key: 'home', label: 'Inicio', icon: Home },
     { key: 'all-promos', label: 'Beneficios', icon: Tag },
     { key: 'my-coupons', label: 'Mis Cupones', icon: Ticket },
-    { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
-    { key: 'stores', label: 'Ubicaciones', icon: MapPin },
+    { key: 'board', label: 'Pizarra', icon: StickyNote },
+    { key: 'announcements', label: 'Comunicados', icon: Megaphone },
   ] as const
 
   const desktopExtraNav = [
+    { key: 'marketplace', label: 'Mercado', icon: ShoppingBag },
+    { key: 'stores', label: 'Ubicaciones', icon: MapPin },
     { key: 'household', label: 'Unidad', icon: Users },
-    { key: 'complaints', label: 'Expedientes', icon: CircleAlert },
-    { key: 'announcements', label: 'Comunicados', icon: Megaphone },
+    ...(VECINO_RECLAMOS ? [{ key: 'complaints', label: 'Expedientes', icon: CircleAlert }] as const : []),
   ] as const
 
   return (
@@ -1321,6 +1385,48 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         {/* HOME VIEW */}
         {mainView === 'home' && (
           <div className="space-y-8">
+
+            {/* Tu edificio: la pizarra y los comunicados, lo que mueve hoy la administracion */}
+            <section>
+              <div className="grid grid-cols-2 gap-3">
+                <HomeShortcut
+                  icon={StickyNote}
+                  title="Pizarra"
+                  hint={
+                    openBoardCount === 0
+                      ? 'Contá lo que te molesta'
+                      : `${openBoardCount} ${openBoardCount === 1 ? 'queja sin resolver' : 'quejas sin resolver'}`
+                  }
+                  onClick={() => setMainView('board')}
+                />
+                <HomeShortcut
+                  icon={Megaphone}
+                  title="Comunicados"
+                  hint={
+                    unreadAnnouncements === 0
+                      ? 'Estás al día'
+                      : `${unreadAnnouncements} ${unreadAnnouncements === 1 ? 'nuevo' : 'nuevos'}`
+                  }
+                  highlight={unreadAnnouncements > 0}
+                  onClick={() => setMainView('announcements')}
+                />
+                {/* En el celular, Mercado y Ubicaciones no entran en la barra de abajo */}
+                <HomeShortcut
+                  className="md:hidden"
+                  icon={ShoppingBag}
+                  title="Mercado"
+                  hint="Compra y venta entre vecinos"
+                  onClick={() => setMainView('marketplace')}
+                />
+                <HomeShortcut
+                  className="md:hidden"
+                  icon={MapPin}
+                  title="Ubicaciones"
+                  hint="Locales cerca tuyo"
+                  onClick={() => setMainView('stores')}
+                />
+              </div>
+            </section>
 
             {/* Locales Destacados */}
             <section>
@@ -1678,13 +1784,22 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
         )}
 
         {/* COMPLAINTS */}
-        {mainView === 'complaints' && (
+        {VECINO_RECLAMOS && mainView === 'complaints' && (
           <NeighborCasesPanel
             building={initialData.building}
             initialReasons={initialData.complaintReasons}
             initialMentionableUsers={initialData.complaintMentionableUsers}
             initialCases={initialData.complaintCases}
             initialCaseDetails={initialData.complaintCaseDetails}
+          />
+        )}
+
+        {mainView === 'board' && (
+          <NeighborBoardPanel
+            posts={boardPosts}
+            buildingName={buildingName}
+            onBack={() => setMainView('home')}
+            focusedId={searchParams.get('id')}
           />
         )}
 

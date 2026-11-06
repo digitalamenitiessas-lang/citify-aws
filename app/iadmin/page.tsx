@@ -1,7 +1,13 @@
 import Link from 'next/link'
 import { IAdminDashboard } from '@/components/admin-backoffice/home/iadmin-dashboard'
+import { IAdminSimpleHome } from '@/components/admin-backoffice/home/iadmin-simple-home'
 import { requireIAdmin } from '@/lib/auth'
-import { getIAdminPortfolioOverview } from '@/lib/data'
+import { getIAdminPortfolio, getIAdminPortfolioOverview } from '@/lib/data'
+import { countOpenBoardPosts, listBoardPostsForAdmin } from '@/lib/db/board'
+import { countBuildingNeighbors } from '@/lib/db/iadmin-vecinos'
+import { pgQuery } from '@/lib/db/postgres'
+import { IADMIN_FINANZAS } from '@/lib/features'
+import { getCurrentPropertyId } from '@/lib/iadmin/current-property'
 
 function parsePeriodParam(raw: string | undefined | null): { year: number; month: number } | null {
   if (!raw) return null
@@ -33,6 +39,10 @@ export default async function IAdminHomePage({
     )
   }
 
+  if (!IADMIN_FINANZAS) {
+    return <SimpleHome administrationId={administrationId} administratorName={profile.fullName ?? ''} />
+  }
+
   const selectedPeriod = parsePeriodParam(params.period)
   const overview = await getIAdminPortfolioOverview(administrationId, selectedPeriod)
 
@@ -52,6 +62,49 @@ export default async function IAdminHomePage({
     <IAdminDashboard
       overview={overview}
       administratorName={profile.fullName ?? ''}
+    />
+  )
+}
+
+// Inicio con las finanzas apagadas (lib/features.ts): pizarra, vecinos y
+// comunicados del edificio elegido arriba, o de todos.
+async function SimpleHome({
+  administrationId,
+  administratorName,
+}: {
+  administrationId: string
+  administratorName: string
+}) {
+  const portfolio = await getIAdminPortfolio(administrationId)
+  const properties = portfolio?.properties ?? []
+  const currentPropertyId = await getCurrentPropertyId(properties.map((p) => p.id))
+  const scoped = currentPropertyId ? properties.filter((p) => p.id === currentPropertyId) : properties
+  const buildingIds = scoped.map((p) => p.buildingId)
+
+  const [openPosts, posts, neighborCount, announcements] = await Promise.all([
+    countOpenBoardPosts(buildingIds),
+    listBoardPostsForAdmin(buildingIds),
+    countBuildingNeighbors(buildingIds),
+    buildingIds.length === 0
+      ? Promise.resolve(0)
+      : pgQuery<{ n: number }>(
+          `select count(*)::int as n
+             from citify.building_announcements
+            where building_id = any($1::uuid[])
+              and published_at > now() - interval '30 days'`,
+          [buildingIds],
+        ).then((r) => r.rows[0]?.n ?? 0),
+  ])
+
+  return (
+    <IAdminSimpleHome
+      administrationName={portfolio?.administration.name ?? ''}
+      administratorName={administratorName}
+      openPosts={openPosts}
+      latestPosts={posts.filter((p) => !p.hidden && p.status !== 'resuelta').slice(0, 5)}
+      neighborCount={neighborCount}
+      announcementsLast30={announcements}
+      showBuilding={scoped.length > 1}
     />
   )
 }
