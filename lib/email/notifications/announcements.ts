@@ -4,6 +4,7 @@ import {
 } from '@/lib/db/announcements'
 import { sendNotificationEmail } from '@/lib/email/send'
 import { renderAnnouncementEmail } from '@/lib/email/templates/announcement'
+import { pushAnnouncementPublished } from '@/lib/push/events'
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://citify.com.ar'
 
@@ -23,6 +24,16 @@ export async function notifyAnnouncementPublished(announcementId: string): Promi
     const ann = await getAnnouncementForEmailFromPostgres(announcementId)
     if (!ann) return
     if (!ann.building_name) return
+
+    // Push antes que los mails, e independiente: tiene su propio try/catch y
+    // su propia lista (no depende de las preferencias de mail).
+    await pushAnnouncementPublished({
+      announcementId: ann.id,
+      buildingId: ann.building_id,
+      buildingName: ann.building_name,
+      title: ann.title,
+      body: ann.body,
+    })
 
     const recipients = await listAnnouncementRecipientsFromPostgres({
       buildingId: ann.building_id,

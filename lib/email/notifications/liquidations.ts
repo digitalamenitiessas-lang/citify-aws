@@ -2,6 +2,7 @@ import { pgQuery } from '@/lib/db/postgres'
 import { sendNotificationEmail } from '@/lib/email/send'
 import { renderLiquidationIssuedEmail } from '@/lib/email/templates/liquidation-issued'
 import { renderLiquidationClosedEmail } from '@/lib/email/templates/liquidation-closed'
+import { pushLiquidationIssued } from '@/lib/push/events'
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://citify.com.ar'
 
@@ -134,7 +135,6 @@ export async function notifyLiquidationIssued(runId: string): Promise<void> {
       : null
 
     for (const item of items) {
-      if (!item.token) continue // sin link publico, no mandamos
       const owners = ownersByUnit.get(item.unit_id) ?? []
       if (owners.length === 0) continue
 
@@ -142,6 +142,24 @@ export async function notifyLiquidationIssued(runId: string): Promise<void> {
       const extra = Number(item.extraordinary_amount)
       const prev = Number(item.previous_balance)
       const subtotal = Math.round((ordinary + extra + prev) * 100) / 100
+
+      // Push antes que el mail e independiente de el (pushLiquidationIssued
+      // nunca tira). Sale aunque no haya link publico: lleva al panel del vecino.
+      for (const owner of owners) {
+        await pushLiquidationIssued({
+          profileId: owner.profile_id,
+          runId,
+          unitId: item.unit_id,
+          propertyName,
+          unitCode: item.unit_code,
+          periodYear: ctx.period_year,
+          periodMonth: ctx.period_month,
+          subtotal,
+          url: item.token ? `${SITE_URL}/l/${item.token}` : null,
+        })
+      }
+
+      if (!item.token) continue // sin link publico, no mandamos mail
       const publicLink = `${SITE_URL}/l/${item.token}`
 
       for (const owner of owners) {

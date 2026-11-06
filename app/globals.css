@@ -56,6 +56,11 @@
   --citify-surface: rgba(240, 78, 35, 0.05);
   --citify-glass: rgba(240, 78, 35, 0.03);
   --citify-highlight: rgba(240, 78, 35, 0.1);
+  /* Paneles de gestion (iadmin/superadmin): ink = el negro de la marca, igual
+     en los dos temas (como un logo); blush = tinte suave del naranja para
+     encabezados y chips. Ver components/admin-backoffice/shared/brand.ts. */
+  --citify-ink: #1A1A1A;
+  --citify-blush: #FDE1D6;
 }
 
 .dark {
@@ -106,6 +111,9 @@
   --citify-surface: rgba(240, 78, 35, 0.08);
   --citify-glass: rgba(240, 78, 35, 0.06);
   --citify-highlight: rgba(240, 78, 35, 0.14);
+  /* Paneles de gestion: iguales en los dos temas */
+  --citify-ink: #1A1A1A;
+  --citify-blush: #FDE1D6;
 }
 
 @theme inline {

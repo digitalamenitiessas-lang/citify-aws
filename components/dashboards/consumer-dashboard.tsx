@@ -42,6 +42,7 @@ import { createClientUuid } from '@/lib/utils'
 import { createHouseholdNeighbor, generateHouseholdTemporaryPassword } from '@/app/usuario/actions'
 import DynamicMap from '@/components/map/map-view-dynamic'
 import type { MapMarker } from '@/components/map/map-view'
+import { PushToggle } from '@/components/pwa/push-toggle'
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -1314,6 +1315,8 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
 
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       <div className="px-4 pt-5 max-w-5xl mx-auto">
+        {/* Aviso para activar notificaciones: solo si todavia no las activo. */}
+        {mainView === 'home' ? <PushToggle variant="banner" /> : null}
 
         {/* HOME VIEW */}
         {mainView === 'home' && (

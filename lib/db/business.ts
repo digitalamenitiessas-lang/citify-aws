@@ -30,6 +30,15 @@ export async function listPushSubscriptionsForProfileFromPostgres(
   return result.rows
 }
 
+/**
+ * El servicio de push respondio que la suscripcion ya no existe (404/410: la
+ * persona desinstalo la app, borro datos o revoco el permiso). Se borra para
+ * no seguir intentando en cada aviso.
+ */
+export async function deletePushSubscriptionByEndpointInPostgres(endpoint: string): Promise<void> {
+  await pgQuery(`delete from citify.push_subscriptions where endpoint = $1`, [endpoint])
+}
+
 export async function updateBusinessFieldsInPostgres(
   businessId: string,
   patch: Partial<{
