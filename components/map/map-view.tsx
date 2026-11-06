@@ -1,10 +1,61 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
+import 'maplibre-gl/dist/maplibre-gl.css'
+// Agrega L.maplibreGL: dibuja mapas vectoriales de MapLibre como una capa mas
+// de Leaflet, asi markers, popups y eventos siguen siendo de react-leaflet.
+import '@maplibre/maplibre-gl-leaflet'
+import { MapPin, Building, Store } from 'lucide-react'
 
+// Mapa base: OpenFreeMap. Sin API key, sin registro y sin limite de uso.
+//
+// Antes eran los mosaicos de CARTO (light_all / dark_all), que en 2026 pasaron
+// a exigir API key: sin ella cada mosaico se reemplaza por una imagen que dice
+// "API KEY REQUIRED" y el mapa queda inservible (el punto se ubicaba igual,
+// pero sobre un mapa tapado por el cartel).
+//
+// Positron y Dark son los mismos diseños que usaba CARTO, asi que el mapa se
+// ve igual que antes. OpenFreeMap entrega vectores, no imagenes: por eso
+// MapLibre en vez de un TileLayer.
+const BASEMAP_STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/positron'
+const BASEMAP_STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark'
+
+// Sin WebGL MapLibre no puede dibujar. Respaldo: mosaicos de OpenStreetMap,
+// tambien sin key (su politica pide uso moderado, que con este respaldo raro
+// sobra).
+const FALLBACK_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const FALLBACK_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
+
+function BaseLayer({ dark }: { dark: boolean }) {
+  const map = useMap()
+
+  useEffect(() => {
+    const layer = supportsWebGL()
+      ? L.maplibreGL({ style: dark ? BASEMAP_STYLE_DARK : BASEMAP_STYLE_LIGHT })
+      : L.tileLayer(FALLBACK_TILE_URL, { attribution: FALLBACK_ATTRIBUTION, maxZoom: 19 })
+
+    layer.addTo(map)
+    return () => {
+      layer.remove()
+    }
+  }, [map, dark])
+
+  return null
+}
+
+// Fix default icons if ever needed (React-Leaflet standard fix)
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -12,7 +63,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
+// Custom beautiful icons
 const createCustomIcon = (type: 'default' | 'business' | 'building' | 'selected') => {
+  const isDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   let iconHtml = ''
 
   if (type === 'building') {
@@ -53,8 +106,12 @@ export interface MapMarker {
 interface MapViewProps {
   center: [number, number]
   zoom?: number
-  recenterKey?: number
   markers?: MapMarker[]
+  // Cuando este key cambia, el mapa se re-centra explicitamente. Sirve
+  // para que el caller pueda hacer "recenter on demand" (ej. despues de
+  // geocodificar una direccion nueva) sin perder el drag/zoom que el
+  // usuario hizo manualmente.
+  recenterKey?: number
   interactive?: boolean
   onLocationSelect?: (lat: number, lng: number) => void
   selectedLocation?: [number, number] | null
@@ -84,6 +141,7 @@ function ChangeView({
   const lastRecenterKeyRef = useRef(recenterKey)
 
   useEffect(() => {
+    // Primera vez: aplicar el centro/zoom inicial.
     if (!initializedRef.current) {
       map.setView(center, zoom)
       initializedRef.current = true
@@ -91,6 +149,7 @@ function ChangeView({
       return
     }
 
+    // Re-centrar solo cuando el caller bumpea recenterKey.
     if (recenterKey !== lastRecenterKeyRef.current) {
       map.setView(center, zoom)
       lastRecenterKeyRef.current = recenterKey
@@ -103,31 +162,31 @@ function ChangeView({
 export default function MapView({
   center,
   zoom = 15,
-  recenterKey = 0,
   markers = [],
+  recenterKey = 0,
   interactive = true,
   onLocationSelect,
   selectedLocation,
   className = '',
 }: MapViewProps) {
-  const [tileUrl, setTileUrl] = useState('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png')
+  const [dark, setDark] = useState(false)
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const isDark =
-        document.documentElement.classList.contains('dark') ||
-        window.matchMedia('(prefers-color-scheme: dark)').matches
-      if (isDark) {
-        setTileUrl('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png')
-      }
-    }
+    // Sigue el tema de la app: next-themes pone la clase `dark` en <html>
+    // (components/providers.tsx, con enableSystem={false}: la preferencia del
+    // sistema operativo NO cuenta). Antes tambien se miraba prefers-color-scheme
+    // y solo al montar, asi que con la compu en modo oscuro el mapa quedaba
+    // oscuro aunque se eligiera el tema claro, y no cambiaba con el boton.
+    const root = document.documentElement
+    const sync = () => setDark(root.classList.contains('dark'))
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
   }, [])
 
   return (
-    <div
-      className={`rounded-xl overflow-hidden glass border relative ${className}`}
-      style={{ height: '100%', minHeight: '300px', width: '100%', zIndex: 0 }}
-    >
+    <div className={`rounded-xl overflow-hidden glass border relative ${className}`} style={{ height: '100%', minHeight: '300px', width: '100%', zIndex: 0 }}>
       <MapContainer
         center={center}
         zoom={zoom}
@@ -136,19 +195,33 @@ export default function MapView({
         style={{ height: '100%', width: '100%', zIndex: 1 }}
       >
         <ChangeView center={center} zoom={zoom} recenterKey={recenterKey} />
-        <TileLayer attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>' url={tileUrl} />
+        <BaseLayer dark={dark} />
 
-        {onLocationSelect ? <LocationSelector onSelect={onLocationSelect} /> : null}
+        {onLocationSelect && <LocationSelector onSelect={onLocationSelect} />}
 
         {markers.map((marker) => (
-          <Marker key={marker.id} position={[marker.lat, marker.lng]} icon={createCustomIcon(marker.type)}>
-            {marker.popupContent ? <Popup className="glass-popup">{marker.popupContent}</Popup> : null}
+          <Marker
+            key={marker.id}
+            position={[marker.lat, marker.lng]}
+            icon={createCustomIcon(marker.type)}
+          >
+            {marker.popupContent && (
+              <Popup className="glass-popup">
+                {marker.popupContent}
+              </Popup>
+            )}
           </Marker>
         ))}
 
-        {selectedLocation ? <Marker position={selectedLocation} icon={createCustomIcon('selected')} /> : null}
+        {selectedLocation && (
+          <Marker
+            position={selectedLocation}
+            icon={createCustomIcon('selected')}
+          />
+        )}
       </MapContainer>
 
+      {/* Global CSS for the popup glassmorphism */}
       <style jsx global>{`
         .leaflet-popup-content-wrapper {
           background: rgba(var(--background), 0.8) !important;

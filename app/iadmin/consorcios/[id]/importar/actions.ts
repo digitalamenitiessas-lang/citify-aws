@@ -120,6 +120,74 @@ Reglas:
 - Si no matchea con ninguno, devolver "ignore".
 - Devolvé SOLO el JSON, sin texto adicional.`
 
+// Campos que deben mapear a una sola columna (no tiene sentido repetirlos).
+const UNIQUE_TARGET_FIELDS: ImportTargetField[] = [
+  'unit_code', 'unit_kind', 'floor', 'surface_m2', 'prorata_percent',
+  'holder_name', 'holder_kind', 'holder_tax_id', 'holder_email', 'holder_phone',
+  'owner_name', 'owner_tax_id', 'owner_email', 'owner_phone',
+  'tenant_name', 'tenant_tax_id', 'tenant_email', 'tenant_phone',
+]
+
+function normalizeHeader(header: string): string {
+  return String(header ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '') // saca acentos
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+// Mapeo determinístico por nombre de columna (y, como respaldo, por contenido).
+// Reconoce el patrón de columnas separadas propietario/inquilino. Devuelve null
+// si no hay match claro (ahí entra la IA).
+function heuristicTargetForHeader(header: string, samples: unknown[]): ImportTargetField | null {
+  const h = normalizeHeader(header)
+  if (!h) return null
+  const has = (...kw: string[]) => kw.some((k) => h.includes(k))
+
+  const isEmail = has('email', 'e mail', 'mail', 'correo')
+  const isPhone = has('telefono', 'celular', 'whatsapp', 'movil') || h === 'tel' || h === 'cel'
+  const isTax = has('cuit', 'cuil', 'dni', 'documento')
+  const isOwnerQualified = has('propietario', 'dueno', 'titular dominial', 'owner')
+  const isTenantQualified = has('inquilino', 'locatario', 'arrendatario', 'tenant')
+
+  // tipo titular / relación va a holder_kind (antes de cualquier otra cosa con "tipo"/"titular")
+  if (has('tipo titular', 'tipo de titular', 'relacion', 'condicion', 'caracter')) return 'holder_kind'
+
+  // Columnas calificadas como propietario
+  if (isOwnerQualified) {
+    if (isEmail) return 'owner_email'
+    if (isPhone) return 'owner_phone'
+    if (isTax) return 'owner_tax_id'
+    return 'owner_name'
+  }
+  // Columnas calificadas como inquilino
+  if (isTenantQualified) {
+    if (isEmail) return 'tenant_email'
+    if (isPhone) return 'tenant_phone'
+    if (isTax) return 'tenant_tax_id'
+    return 'tenant_name'
+  }
+
+  // Campos genéricos (sin calificador de rol)
+  if (isTax) return 'holder_tax_id'
+  if (isEmail) return 'holder_email'
+  if (isPhone) return 'holder_phone'
+  if (has('alicuota', 'coeficiente', 'coef', 'prorrateo', 'prorrata', 'porcentaje', 'porcentual') || h.includes('%') || h === 'porc') return 'prorata_percent'
+  if (has('superficie', 'metros', 'm2', 'mts') || h === 'sup') return 'surface_m2'
+  if (has('piso', 'planta', 'nivel')) return 'floor'
+  if (has('tipo unidad', 'tipo de unidad', 'clase')) return 'unit_kind'
+  if (has('titular', 'responsable', 'apellido', 'nombre', 'vecino', 'ocupante')) return 'holder_name'
+  if (has('unidad', 'lote', 'codigo', 'departamento', 'depto', 'manzana', 'parcela') || h === 'cod' || h === 'uf' || h === 'nro' || h === 'numero' || h === 'casa') return 'unit_code'
+  if (h === 'tipo') return 'unit_kind'
+
+  // Respaldo por contenido cuando el header no dice nada.
+  const sampleStr = samples.map((s) => String(s ?? '')).join(' ')
+  if (/@/.test(sampleStr)) return 'holder_email'
+
+  return null
+}
+
 export async function analyzeImportColumns(
   input: z.input<typeof analyzeSchema>,
 ): Promise<AnalyzeColumnsResult> {
@@ -129,37 +197,45 @@ export async function analyzeImportColumns(
     administrationId: parsed.administrationId,
   })
 
-  const userPrompt = `Headers:\n${JSON.stringify(parsed.headers)}\n\nMuestras de filas:\n${JSON.stringify(parsed.sampleRows, null, 2)}\n\nDevolvé el JSON de mapeo.`
-
-  const raw = await runAIChat({
-    systemPrompt: SYSTEM_PROMPT,
-    userPrompt,
-    jsonMode: true,
-    temperature: 0,
-    maxTokens: 800,
-  })
-
-  const cleaned = stripJsonFences(raw)
-  let parsedJson: unknown
-  try {
-    parsedJson = JSON.parse(cleaned)
-  } catch {
-    throw new Error('La IA devolvio un formato invalido')
-  }
-
   const mapping: Record<string, ImportTargetField> = {}
-  if (typeof parsedJson === 'object' && parsedJson !== null) {
-    for (const [k, v] of Object.entries(parsedJson as Record<string, unknown>)) {
-      if (typeof v === 'string' && (targetFields as readonly string[]).includes(v)) {
-        mapping[k] = v as ImportTargetField
-      } else {
-        mapping[k] = 'ignore'
-      }
+  const used = new Set<ImportTargetField>()
+
+  // 1) Heurística determinística por nombre de columna (no depende de la IA).
+  for (const header of parsed.headers) {
+    const samples = parsed.sampleRows.map((row) => row[header])
+    const target = heuristicTargetForHeader(header, samples)
+    if (target && !(UNIQUE_TARGET_FIELDS.includes(target) && used.has(target))) {
+      mapping[header] = target
+      used.add(target)
     }
   }
 
-  for (const h of parsed.headers) {
-    if (!(h in mapping)) mapping[h] = 'ignore'
+  // 2) IA solo para las columnas que la heurística no resolvió. Si falla, no rompe.
+  const unresolved = parsed.headers.filter((header) => !mapping[header])
+  if (unresolved.length > 0) {
+    try {
+      const userPrompt = `Headers:\n${JSON.stringify(unresolved)}\n\nMuestras de filas:\n${JSON.stringify(parsed.sampleRows, null, 2)}\n\nDevolvé el JSON de mapeo.`
+      const raw = await runAIChat({ systemPrompt: SYSTEM_PROMPT, userPrompt, jsonMode: true, temperature: 0, maxTokens: 800 })
+      const parsedJson = JSON.parse(stripJsonFences(raw)) as unknown
+      if (typeof parsedJson === 'object' && parsedJson !== null) {
+        for (const [k, v] of Object.entries(parsedJson as Record<string, unknown>)) {
+          if (!unresolved.includes(k)) continue
+          if (typeof v === 'string' && v !== 'ignore' && (targetFields as readonly string[]).includes(v)) {
+            const target = v as ImportTargetField
+            if (UNIQUE_TARGET_FIELDS.includes(target) && used.has(target)) continue
+            mapping[k] = target
+            used.add(target)
+          }
+        }
+      }
+    } catch {
+      // IA opcional: si falla o no está configurada, seguimos con la heurística.
+    }
+  }
+
+  // 3) Todo lo no resuelto queda en "ignore" (editable a mano en el wizard).
+  for (const header of parsed.headers) {
+    if (!mapping[header]) mapping[header] = 'ignore'
   }
 
   return { mapping, labels: TARGET_LABELS }
@@ -224,10 +300,22 @@ function cleanCell(raw: unknown): string {
 
 function normalizeProrata(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === '') return null
-  const s = String(raw).replace('%', '').replace(',', '.').trim()
+  const original = String(raw).trim()
+  if (!original) return null
+  const hadPercent = original.includes('%')
+  // Coma decimal (es-AR): "1,375" -> "1.375". Si hay coma Y punto (formato
+  // "1.234,56") el punto es separador de miles, lo quitamos.
+  let s = original.replace('%', '').replace(/\s/g, '')
+  if (s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.')
+  }
   const n = Number(s)
-  if (!Number.isFinite(n)) return null
-  if (n < 0) return null
+  if (!Number.isFinite(n) || n < 0) return null
+  // Si venía con signo %, es porcentaje sí o sí -> coeficiente = n / 100.
+  // (Antes "1,375%" caía en n<=1.5 y se guardaba como 1.375 = 137.5%.)
+  if (hadPercent) return n / 100
+  // Sin signo %: heurística. >1.5 se asume porcentaje (12.5 -> 0.125);
+  // <=1.5 se asume coeficiente decimal ya normalizado (0.125).
   if (n > 1.5) return n / 100
   return n
 }

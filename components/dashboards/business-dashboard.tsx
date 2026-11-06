@@ -1819,7 +1819,7 @@ export function BusinessDashboard({
         </div>
       ) : null}
 
-      <ChatWidget />
+      <ChatWidget panel="negocio" />
     </div>
   )
 }

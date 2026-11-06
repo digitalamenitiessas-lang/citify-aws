@@ -56,6 +56,11 @@
   --citify-surface: rgba(240, 78, 35, 0.05);
   --citify-glass: rgba(240, 78, 35, 0.03);
   --citify-highlight: rgba(240, 78, 35, 0.1);
+  /* Paneles de gestion (iadmin/superadmin): ink = el negro de la marca, igual
+     en los dos temas (como un logo); blush = tinte suave del naranja para
+     encabezados y chips. Ver components/admin-backoffice/shared/brand.ts. */
+  --citify-ink: #1A1A1A;
+  --citify-blush: #FDE1D6;
 }
 
 .dark {
@@ -106,6 +111,9 @@
   --citify-surface: rgba(240, 78, 35, 0.08);
   --citify-glass: rgba(240, 78, 35, 0.06);
   --citify-highlight: rgba(240, 78, 35, 0.14);
+  /* Paneles de gestion: iguales en los dos temas */
+  --citify-ink: #1A1A1A;
+  --citify-blush: #FDE1D6;
 }
 
 @theme inline {
@@ -263,14 +271,13 @@
 }
 
 /* Disco con degradado para los iconos de KPI — reemplaza bg-muted flat */
+/* Disco de icono del panel del administrador (metricas de la Mesa, pagos,
+   distribucion, estados vacios...). Tinte naranja con el icono naranja, como el avatar de
+   Ciro y los chips del inicio (components/admin-backoffice/shared/brand.ts).
+   Mismo diseño que Countrify, con la paleta de Citify. */
 .kpi-icon-disc {
-  background:
-    radial-gradient(120% 120% at 30% 20%, rgba(245, 165, 93, 0.95), rgba(245, 165, 93, 0.55) 45%, rgba(240, 78, 35, 0.25) 90%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.06);
-  color: #FFFFFF;
+  background: var(--citify-blush);
+  color: var(--citify-terracotta-dark);
 }
 
 /* Punto "vivo" — pulsa para estados en curso */
@@ -305,6 +312,22 @@
 }
 .brand-marquee-track:hover {
   animation-play-state: paused;
+}
+
+/* Ciro (components/ai/ciro-avatar.tsx): mientras piensa o escribe, las barras del
+   isotipo laten una despues de la otra, como una señal que sale de la C. */
+.ciro-wave {
+  animation: ciro-wave 1.4s ease-in-out infinite;
+}
+.ciro-wave-late {
+  animation-delay: 0.22s;
+}
+@keyframes ciro-wave {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ciro-wave { animation: none; }
 }
 
 /* Shadow de la columna sticky cuando hay scroll horizontal */

@@ -21,6 +21,25 @@ function statusLabel(s: string) {
   return map[s] ?? s
 }
 
+// Identidad comun a todos los roles: el asistente se llama Ciro (ver
+// components/ai/ciro-avatar.tsx). Lo que cambia por rol es el tono —mas cercano
+// con vecinos, mas profesional con administradores— y los datos a los que accede.
+function coriIdentity(): string {
+  // Sin la fecha, el modelo no sabe que dia es y no puede contestar "¿que vence
+  // esta semana?". Va en los dos formatos: el legible y el de las fechas del
+  // contexto (YYYY-MM-DD), para que pueda compararlas.
+  const now = new Date()
+  const tz = 'America/Argentina/Buenos_Aires'
+  const human = new Intl.DateTimeFormat('es-AR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz,
+  }).format(now)
+  const iso = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now)
+
+  return `Te llamás Ciro y sos el asistente virtual de Citify, la plataforma de beneficios y administración para edificios y consorcios.
+Si te preguntan quién sos o cómo te llamás, decí que sos Ciro, de Citify. Si te preguntan si sos una persona, aclará con honestidad que sos un asistente virtual. No menciones modelos de inteligencia artificial ni proveedores.
+Hoy es ${human} (${iso}).`
+}
+
 // ─── per-role system prompts ──────────────────────────────────────────────────
 
 function vecinoPrompt(ctx: VecinoContext): string {
@@ -46,7 +65,8 @@ function vecinoPrompt(ctx: VecinoContext): string {
         .join('\n')
     : 'No tiene expedientes registrados.'
 
-  return `Sos un asistente virtual amigable y útil para la plataforma Citify.
+  return `${coriIdentity()}
+
 Estás ayudando al vecino "${ctx.profile.fullName}"${ctx.profile.floor ? `, piso ${ctx.profile.floor}` : ''}${ctx.profile.unit ? ` unidad ${ctx.profile.unit}` : ''}.
 Su edificio es: ${ctx.profile.buildingName ?? 'Sin asignar'}${ctx.profile.buildingAddress ? ` (${ctx.profile.buildingAddress})` : ''}.
 
@@ -82,7 +102,8 @@ function consorcioPrompt(ctx: ConsorcioContext): string {
         .join('\n\n')
     : 'No tiene edificios asignados.'
 
-  return `Sos un asistente virtual para la plataforma Citify.
+  return `${coriIdentity()}
+
 Estás ayudando al administrador de consorcio "${ctx.adminName}".
 
 IMPORTANTE: Solo podés acceder a información de los edificios que este administrador gestiona. No tenés acceso a datos de otros consorcios ni información global de la plataforma.
@@ -107,7 +128,8 @@ function negocioPrompt(ctx: NegocioContext): string {
         .join('\n')
     : 'No tiene promociones cargadas.'
 
-  return `Sos un asistente virtual para la plataforma Citify.
+  return `${coriIdentity()}
+
 Estás ayudando al administrador del negocio "${ctx.adminName}".
 
 IMPORTANTE: Solo tenés acceso a los datos del negocio de este usuario. No podés ver información de otros negocios, datos personales de vecinos ni información global.
@@ -138,8 +160,9 @@ function superAdminPrompt(ctx: SuperAdminContext): string {
     .map((p) => `- ${p.businessName}: "${p.title}" ${p.discount} — ${p.isActive ? 'Activa' : 'Inactiva'} (vence ${p.expirationDate})`)
     .join('\n') || 'Sin promociones.'
 
-  return `Sos un asistente virtual para la plataforma Citify con acceso completo a los datos de la plataforma.
-Estás ayudando al Super Administrador.
+  return `${coriIdentity()}
+
+Tenés acceso completo a los datos de la plataforma. Estás ayudando al Super Administrador.
 
 === RESUMEN GLOBAL DE LA PLATAFORMA ===
 - Total usuarios: ${ctx.totalUsers} (${ctx.totalVecinos} vecinos)

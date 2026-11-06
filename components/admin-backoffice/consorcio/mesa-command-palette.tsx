@@ -138,7 +138,7 @@ export function MesaCommandPalette({
       },
       {
         id: 'assistant',
-        label: 'Abrir asistente IA',
+        label: 'Hablar con Ciro',
         icon: Sparkles,
         shortcut: 'A',
         run: () => {

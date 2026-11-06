@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/admin-backoffice/shared/empty-state'
 import { PeriodPicker } from '@/components/admin-backoffice/shared/period-picker'
 import type { IAdminCashAccountWithBalance, IAdminMesaState, IAdminMesaUnitLine } from '@/lib/types'
 import { quickPayFromMesa } from '@/app/iadmin/consorcios/[id]/planilla/actions'
+import { KpiCard } from '../shared/kpi-card'
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -135,6 +136,7 @@ export function CollectionsByUnitView({
       {/* KPIs arriba */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
+          compact
           icon={TrendingUp}
           label="Cobrado del mes"
           value={<Money amount={state.totalCollected} minimumFractionDigits={0} maximumFractionDigits={0} />}
@@ -152,6 +154,7 @@ export function CollectionsByUnitView({
           }
         />
         <KpiCard
+          compact
           icon={HandCoins}
           label="Saldo pendiente"
           value={<Money amount={state.totalPending} minimumFractionDigits={0} maximumFractionDigits={0} />}
@@ -163,12 +166,14 @@ export function CollectionsByUnitView({
           tone={pendingCount > 0 ? 'warning' : 'success'}
         />
         <KpiCard
+          compact
           icon={Wallet}
           label="Total liquidado"
           value={<Money amount={state.totalToDistribute + state.previousBalanceTotal} minimumFractionDigits={0} maximumFractionDigits={0} />}
           hint={state.hasRun ? `Período ${periodLabel}` : 'Aún sin emitir'}
         />
         <KpiCard
+          compact
           icon={CheckCircle2}
           label="Unidades al día"
           value={`${paidCount} / ${state.units.length}`}
@@ -375,37 +380,3 @@ export function CollectionsByUnitView({
   )
 }
 
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: typeof Wallet
-  label: string
-  value: React.ReactNode
-  hint?: string
-  tone?: 'warning' | 'danger' | 'success'
-}) {
-  const toneClass =
-    tone === 'danger'
-      ? 'text-rose-700'
-      : tone === 'warning'
-        ? 'text-amber-700'
-        : tone === 'success'
-          ? 'text-emerald-700'
-          : 'text-foreground'
-  return (
-    <div className="glass-card rounded-2xl p-4">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-        <Icon className="w-3.5 h-3.5" />
-        {label}
-      </div>
-      <div className={`mt-2 font-serif text-xl font-bold tabular-nums leading-none ${toneClass}`}>
-        {value}
-      </div>
-      {hint ? <div className="text-xs text-muted-foreground mt-2">{hint}</div> : null}
-    </div>
-  )
-}

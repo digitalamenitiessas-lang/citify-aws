@@ -17,6 +17,9 @@ import {
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { DashboardPeriodPicker } from '@/components/admin-backoffice/home/dashboard-period-picker'
 import type { IAdminPortfolioOverview } from '@/lib/types'
+import { KpiCard } from '../shared/kpi-card'
+import { BRAND_CHIP, BRAND_HERO } from '../shared/brand'
+import { PushToggle } from '@/components/pwa/push-toggle'
 
 const MONTH_NAMES = [
   'Enero',
@@ -110,11 +113,19 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Saludo + selector de período */}
-      <section className="glass-card rounded-2xl p-6">
+      {/* Aviso para activar notificaciones: solo si todavia no las activo. */}
+      <PushToggle variant="banner" audience="admin" />
+
+      {/* Saludo + selector de período. Fondo naranja suave: el toque de color de
+          la marca en el inicio, sin otro bloque oscuro que compita con el sidebar.
+          (No usa glass-card: su fondo es CSS global y pisa a las utilidades.) */}
+      <section className={`${BRAND_HERO} p-6`}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wider text-primary font-medium">Inicio</p>
+            {/* Rotulo en el naranja de la marca (igual en los dos temas). */}
+            <p className="text-xs uppercase tracking-wider font-medium text-primary">
+              Inicio
+            </p>
             <h1 className="font-serif text-2xl font-bold text-foreground mt-1">
               {administration.name}
             </h1>
@@ -354,48 +365,6 @@ export function IAdminDashboard({ overview, administratorName }: Props) {
   )
 }
 
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-  href,
-}: {
-  icon: typeof Wallet
-  label: string
-  value: React.ReactNode
-  hint?: string
-  tone?: 'warning' | 'danger' | 'success'
-  href?: string
-}) {
-  const toneClass =
-    tone === 'danger'
-      ? 'text-rose-700'
-      : tone === 'warning'
-        ? 'text-amber-700'
-        : tone === 'success'
-          ? 'text-emerald-700'
-          : 'text-foreground'
-  const Wrapper = href ? Link : 'div'
-  const wrapperProps = href ? { href } : {}
-  return (
-    <Wrapper
-      {...(wrapperProps as { href: string })}
-      className={`glass-card rounded-2xl p-4 ${href ? 'hover:ring-1 hover:ring-primary/30 transition-all cursor-pointer' : ''}`}
-    >
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-        <Icon className="w-3.5 h-3.5" />
-        {label}
-      </div>
-      <div className={`mt-2 font-serif text-2xl font-bold tabular-nums leading-none ${toneClass}`}>
-        {value}
-      </div>
-      {hint ? <div className="text-xs text-muted-foreground mt-2">{hint}</div> : null}
-    </Wrapper>
-  )
-}
-
 function QuickAction({
   icon: Icon,
   label,
@@ -410,12 +379,13 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="glass-card rounded-2xl p-4 hover:ring-1 hover:ring-primary/30 transition-all group"
+      className="glass-card rounded-2xl p-4 hover:ring-1 hover:ring-primary/40 transition-all group"
     >
-      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-        <Icon className="w-4 h-4 text-primary" />
+      {/* Icono con el tinte de la marca, como el avatar de Ciro. */}
+      <div className={`w-9 h-9 rounded-lg ${BRAND_CHIP} flex items-center justify-center mb-3`}>
+        <Icon className="w-4 h-4" />
       </div>
-      <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
+      <div className="text-sm font-medium text-foreground transition-colors group-hover:text-primary">
         {label}
       </div>
       <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>

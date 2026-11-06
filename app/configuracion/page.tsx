@@ -6,6 +6,7 @@ import { requireProfile } from '@/lib/auth'
 import { findProfileById } from '@/lib/db/profiles'
 import { getEmailPreferencesAction, type EmailPreferences } from '@/app/configuracion/actions'
 import type { UserRole } from '@/lib/types'
+import { PushToggle } from '@/components/pwa/push-toggle'
 
 // Que categorias de notificaciones aplican a cada rol. Mostramos solo lo
 // que tiene sentido recibir para ese rol; el negocio_admin no tiene nada
@@ -61,6 +62,11 @@ export default async function ConfiguracionPage() {
           </p>
           <ChangePasswordForm requireCurrent={true} />
         </div>
+
+        {/* Push: a vecinos (comunicado nuevo, expensas) y a admins de consorcio
+            (pagos informados, reclamos). Eventos en lib/push/events.ts. */}
+        {profile.role === 'vecino' ? <PushToggle variant="settings" audience="vecino" /> : null}
+        {profile.role === 'consorcio_admin' ? <PushToggle variant="settings" audience="admin" /> : null}
 
         {visibleNotificationKeys.length > 0 ? (
           <div className="glass-card rounded-2xl p-6">

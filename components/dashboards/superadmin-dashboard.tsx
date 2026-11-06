@@ -23,6 +23,19 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { toast } from 'sonner'
 import { ROLE_LABELS } from '@/lib/constants'
+import {
+  NAV_ACTIVE,
+  NAV_CARD,
+  NAV_EYEBROW,
+  NAV_GROUP,
+  NAV_GROUP_DOT,
+  NAV_GROUP_LABEL,
+  NAV_IDLE,
+  BRAND_HERO,
+  type Tone,
+} from '@/components/admin-backoffice/shared/brand'
+import { KpiCard } from '@/components/admin-backoffice/shared/kpi-card'
+import type { LucideIcon } from 'lucide-react'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -98,43 +111,24 @@ function isValidEmail(value: string) {
 }
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
-const STAT_TONES = {
-  primary: { disc: 'linear-gradient(135deg, #F04E23, #C73E15)', tint: 'rgba(240,78,35,0.06)' },
-  accent: { disc: 'linear-gradient(135deg, #F5A55D, #E07B39)', tint: 'rgba(245,165,93,0.08)' },
-  terra: { disc: 'linear-gradient(135deg, #C4733D, #9c4f24)', tint: 'rgba(196,115,61,0.07)' },
-  green: { disc: 'linear-gradient(135deg, #16a34a, #047857)', tint: 'rgba(16,163,74,0.07)' },
-  amber: { disc: 'linear-gradient(135deg, #f59e0b, #b45309)', tint: 'rgba(245,158,11,0.08)' },
-} as const
-
-type StatTone = keyof typeof STAT_TONES
-
+// La misma tarjeta que el panel del administrador (shared/kpi-card.tsx): chip
+// con el tinte de la marca para los conteos, y verde/ambar/rojo solo cuando el
+// numero es un estado. Antes tenia discos con degradados de cinco colores
+// usados como decoracion: el verde de "Canjes" no decia nada.
 function StatCard({
   label,
   value,
   sub,
-  icon: Icon,
+  icon,
   tone,
 }: {
   label: string
   value: number | string
   sub: string
-  icon: typeof Shield
-  tone?: StatTone
+  icon: LucideIcon
+  tone?: Tone
 }) {
-  const t = tone ? STAT_TONES[tone] : null
-  return (
-    <div className="glass-card rounded-xl p-5" style={t ? { background: t.tint } : undefined}>
-      <div
-        className="w-10 h-10 rounded-lg flex items-center justify-center mb-4"
-        style={t ? { background: t.disc } : { background: 'rgba(156,156,156,0.15)', border: '1px solid rgba(0,0,0,0.06)' }}
-      >
-        <Icon className={`w-5 h-5 ${t ? 'text-white' : 'text-primary'}`} />
-      </div>
-      <div className="text-2xl font-bold text-foreground">{value}</div>
-      <div className="text-sm text-foreground mt-0.5">{label}</div>
-      <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>
-    </div>
-  )
+  return <KpiCard icon={icon} label={label} value={value} hint={sub} tone={tone} />
 }
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
@@ -158,7 +152,7 @@ function Badge({ children, color = 'default' }: { children: React.ReactNode; col
 // ─── Section Header with optional back ───────────────────────────────────────
 function SectionHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
   return (
-    <div className="flex items-center gap-3 mb-6">
+    <div className={`${BRAND_HERO} p-5 flex items-center gap-3 mb-6`}>
       {onBack && (
         <button
           onClick={onBack}
@@ -1303,10 +1297,10 @@ function computeDashboardStats(data: SuperAdminDashboardData): DashboardStats {
 function PlatformHealthRow({ stats }: { stats: DashboardStats }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard label="Ocupación promedio" value={stats.avgOccupancy} sub="% promedio plataforma" icon={TrendingUp} tone="accent" />
-      <StatCard label="Promociones activas" value={stats.activePromotions} sub={`${stats.expiredPromotions} vencidas`} icon={Tag} tone="terra" />
-      <StatCard label="Canjes totales" value={stats.totalRedemptions} sub="registros acumulados" icon={CheckCircle} tone="green" />
-      <StatCard label="Sin administrador" value={stats.buildingsWithoutAdmin} sub="consorcios sin encargado" icon={AlertTriangle} tone="amber" />
+      <StatCard label="Ocupación promedio" value={stats.avgOccupancy} sub="% promedio plataforma" icon={TrendingUp} />
+      <StatCard label="Promociones activas" value={stats.activePromotions} sub={`${stats.expiredPromotions} vencidas`} icon={Tag} />
+      <StatCard label="Canjes totales" value={stats.totalRedemptions} sub="registros acumulados" icon={CheckCircle} />
+      <StatCard label="Sin administrador" value={stats.buildingsWithoutAdmin} sub="consorcios sin encargado" icon={AlertTriangle} tone={stats.buildingsWithoutAdmin > 0 ? 'warning' : 'success'} />
     </div>
   )
 }
@@ -1634,6 +1628,26 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
     }
   }
 
+  // Geocoding inverso (port de countrify-aws 71ba9c8): cuando se mueve el pin,
+  // completar de vuelta la direccion a partir de las coordenadas elegidas. Si
+  // no hay calle en ese punto, se deja lo escrito.
+  async function reverseGeocodeToAddress(lat: number, lng: number) {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      )
+      const data = await response.json()
+      const address = data?.address
+      if (!address) return
+      const street = [address.road, address.house_number].filter(Boolean).join(' ')
+      if (!street) return
+      setConsorcioDraft((current) => ({ ...current, buildingAddress: street }))
+      toast.success('Dirección actualizada desde el punto del mapa.', { id: 'consorcio-reverse-geocode' })
+    } catch {
+      // Silencioso: si el reverse falla, quedan las coordenadas igual.
+    }
+  }
+
   function getConsorcioStepError(stepIndex = consorcioStepIndex) {
     const step = CONSORCIO_WIZARD_STEPS[stepIndex]
 
@@ -1856,17 +1870,16 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       <div className="flex gap-6">
         {/* Sidebar (desktop) */}
         <aside className="hidden lg:block w-56 shrink-0">
-          <div className="sticky top-6 flex flex-col gap-1">
-            <div className="px-3 pb-3 mb-1 flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
-              >
+          {/* Mismo sidebar que el del administrador de consorcio: negro de la
+              marca con el activo en naranja (ver NAV_* en admin-backoffice/shared/brand.ts). */}
+          <div className={`sticky top-6 ${NAV_CARD}`}>
+            <div className="px-3 pb-3 pt-1 mb-1 flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-[var(--citify-terracotta)]">
                 <Shield className="w-3.5 h-3.5 text-white" />
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">Super administrador</div>
-                <div className="text-sm font-semibold text-foreground truncate leading-tight">CITIFY</div>
+                <div className={NAV_EYEBROW}>Super administrador</div>
+                <div className="text-sm font-semibold text-white truncate leading-tight">CITIFY</div>
               </div>
             </div>
             <nav className="flex flex-col gap-px">
@@ -1876,8 +1889,8 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                   <button
                     key={tab.key}
                     onClick={() => handleTabChange(tab.key)}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
-                      active ? 'bg-primary/10 text-foreground font-medium' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                    className={`flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
+                      active ? NAV_ACTIVE : NAV_IDLE
                     }`}
                   >
                     <tab.icon className="w-4 h-4 shrink-0" />
@@ -1886,21 +1899,21 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                 )
               })}
             </nav>
-            <div className="mt-4 px-3 flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Comunicaciones</div>
+            <div className={NAV_GROUP}>
+              <div className={NAV_GROUP_DOT} />
+              <div className={NAV_GROUP_LABEL}>Comunicaciones</div>
             </div>
             <nav className="flex flex-col gap-px mt-0.5">
               <Link
                 href="/superadmin/email-health"
-                className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${NAV_IDLE}`}
               >
                 <Activity className="w-4 h-4 shrink-0" />
                 <span className="truncate">Email health</span>
               </Link>
               <Link
                 href="/superadmin/onboarding"
-                className="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${NAV_IDLE}`}
               >
                 <Mail className="w-4 h-4 shrink-0" />
                 <span className="truncate">Onboarding</span>
@@ -1947,7 +1960,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
           </div>
 
           {/* Header */}
-          <div className="glass-card rounded-2xl p-6 mb-8">
+          <div className={`${BRAND_HERO} p-6 mb-8`}>
             <div className="flex items-center gap-2 mb-1">
               <Shield className="w-4 h-4 text-primary" />
               <p className="text-xs text-primary font-medium tracking-wider uppercase">Panel de super administrador</p>
@@ -1960,10 +1973,10 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
       {activeTab === 'overview' && (
         <div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} tone="primary" />
-            <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} tone="accent" />
-            <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} tone="terra" />
-            <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} tone="green" />
+            <StatCard label="Usuarios" value={data.users.length} sub={`${data.users.filter((u) => u.role === 'vecino').length} vecinos`} icon={Users} />
+            <StatCard label="Consorcios" value={data.buildings.length} sub="Edificios adheridos" icon={Home} />
+            <StatCard label="Negocios" value={data.businesses.length} sub={`${data.users.filter((u) => u.role === 'negocio_admin').length} admins`} icon={Building2} />
+            <StatCard label="Canjes registrados" value={totalUsage} sub="Desde promotion_redemptions" icon={TrendingUp} />
           </div>
 
           {/* Usuarios por consorcio */}
@@ -2194,13 +2207,14 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
                             recenterKey={consorcioRecenterToken}
                             interactive
                             selectedLocation={consorcioMapLocation}
-                            onLocationSelect={(lat, lng) =>
+                            onLocationSelect={(lat, lng) => {
                               setConsorcioDraft((current) => ({
                                 ...current,
                                 latitude: String(lat),
                                 longitude: String(lng),
                               }))
-                            }
+                              void reverseGeocodeToAddress(lat, lng)
+                            }}
                           />
                         </div>
                       </div>
@@ -2719,7 +2733,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         </div>
       )}
 
-          <ChatWidget />
+          <ChatWidget panel="superadmin" />
         </main>
       </div>
     </div>

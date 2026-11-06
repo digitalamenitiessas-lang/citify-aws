@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { VECINO_RECLAMOS } from '@/lib/features'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -190,12 +191,14 @@ export function Navbar() {
                       Mi unidad
                     </Button>
                   </Link>
-                  <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-complaints">
-                    <Button variant="outline" className="w-full justify-start gap-2">
-                      <CircleAlert className="h-4 w-4" />
-                      Expedientes
-                    </Button>
-                  </Link>
+                  {VECINO_RECLAMOS ? (
+                    <Link href="/usuario?view=complaints" className="w-full" onClick={closeMobileMenu} data-tour="neighbor-mobile-complaints">
+                      <Button variant="outline" className="w-full justify-start gap-2">
+                        <CircleAlert className="h-4 w-4" />
+                        Expedientes
+                      </Button>
+                    </Link>
+                  ) : null}
                   <Link href="/usuario?view=announcements" className="w-full" onClick={closeMobileMenu}>
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <Megaphone className="h-4 w-4" />

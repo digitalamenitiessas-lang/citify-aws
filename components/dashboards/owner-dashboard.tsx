@@ -5,6 +5,7 @@ import type { OwnerDashboardData } from '@/lib/types'
 import { Money } from '@/components/admin-backoffice/shared/money'
 import { ChatWidget } from '@/components/ai/chat-widget'
 import { ReportPaymentForm } from '@/components/dashboards/report-payment-form'
+import { PushToggle } from '@/components/pwa/push-toggle'
 
 function relationshipLabel(value: string) {
   return value.replace('_', ' ')
@@ -18,6 +19,8 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
   return (
     <>
     <div className="mx-auto max-w-6xl px-6 py-8">
+      {/* Aviso para activar notificaciones: solo si todavia no las activo. */}
+      <PushToggle variant="banner" />
       <section className="glass-card rounded-3xl p-6 mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -155,15 +158,7 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
       </div>
     </div>
 
-      <ChatWidget
-        suggestions={[
-          '¿Cuánto debo de expensasí',
-          '¿Cuál fue mi último pago?',
-          '¿Hay avisos del edificio?',
-          '¿Cuáles son mis unidades?',
-        ]}
-        welcomeText="Puedo responder preguntas sobre tus expensas, pagos y avisos de tu edificio."
-      />
+      <ChatWidget panel="unidades" />
     </>
   )
 }

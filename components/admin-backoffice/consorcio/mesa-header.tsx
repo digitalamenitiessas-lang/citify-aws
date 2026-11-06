@@ -21,6 +21,7 @@ import { AnimatedNumber } from '@/components/admin-backoffice/shared/animated-nu
 import { MesaEvolutionChart } from '@/components/admin-backoffice/consorcio/mesa-evolution-chart'
 import { PeriodPicker } from '@/components/admin-backoffice/shared/period-picker'
 import type { IAdminMesaState, IAdminMonthlyGrid } from '@/lib/types'
+import { TONE } from '../shared/brand'
 
 type Props = {
   grid: IAdminMonthlyGrid
@@ -276,11 +277,12 @@ function KpiCard({
   expandIcon?: typeof Wallet
   expanded?: boolean
 }) {
+  // Con variante clara para tema oscuro (los -700/-800 solos casi no se leian).
   const hintColor =
     hintTone === 'success'
-      ? 'text-emerald-700'
+      ? TONE.success.value
       : hintTone === 'warning'
-        ? 'text-amber-800'
+        ? TONE.warning.value
         : 'text-muted-foreground'
 
   const deltaTone: 'up' | 'down' | 'flat' | null =
