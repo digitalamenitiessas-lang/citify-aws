@@ -31,7 +31,7 @@ const SECTIONS: Section[] = [
       { keys: ['⌘', '⇧', 'Z'], label: 'Rehacer' },
       { keys: ['?'], label: 'Mostrar este panel' },
       { keys: ['/'], label: 'Buscar rubro en la planilla' },
-      { keys: ['A'], label: 'Abrir asistente IA' },
+      { keys: ['A'], label: 'Hablar con Ciro' },
       { keys: ['N'], label: 'Agregar rubro' },
       { keys: ['E'], label: 'Emitir y avisar' },
       { keys: ['Esc'], label: 'Cerrar / cancelar' },

@@ -158,15 +158,7 @@ export function OwnerDashboard({ data }: { data: OwnerDashboardData }) {
       </div>
     </div>
 
-      <ChatWidget
-        suggestions={[
-          '¿Cuánto debo de expensasí',
-          '¿Cuál fue mi último pago?',
-          '¿Hay avisos del edificio?',
-          '¿Cuáles son mis unidades?',
-        ]}
-        welcomeText="Puedo responder preguntas sobre tus expensas, pagos y avisos de tu edificio."
-      />
+      <ChatWidget panel="unidades" />
     </>
   )
 }

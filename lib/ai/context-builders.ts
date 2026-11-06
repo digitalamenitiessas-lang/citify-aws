@@ -202,7 +202,10 @@ export async function buildConsorcioContext(userId: string): Promise<ConsorcioCo
         select title, status::text as status, building_id, created_at::text as created_at
         from citify.complaint_cases
         where building_id = any($1::uuid[])
-        order by created_at desc
+        -- Los abiertos primero: con el limite, ordenar solo por fecha dejaba
+        -- afuera un expediente abierto viejo, y "¿que expedientes siguen
+        -- abiertos?" es lo que mas pregunta un administrador (components/ai/ciro-panels.ts).
+        order by (status in ('resuelto', 'cerrado')), created_at desc
         limit 30
       `,
       [buildingIds],

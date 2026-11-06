@@ -2719,7 +2719,7 @@ export function SuperAdminDashboard({ data }: { data: SuperAdminDashboardData })
         </div>
       )}
 
-          <ChatWidget />
+          <ChatWidget panel="superadmin" />
         </main>
       </div>
     </div>

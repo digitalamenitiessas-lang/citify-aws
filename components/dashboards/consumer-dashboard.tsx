@@ -1879,7 +1879,7 @@ export function ConsumerDashboard({ initialData, profileId, profileName, avatarT
       ) : null}
 
       {/* ── AI ASSISTANT ─────────────────────────────────────────────────── */}
-      <ChatWidget />
+      <ChatWidget panel="beneficios" />
     </div>
   )
 }

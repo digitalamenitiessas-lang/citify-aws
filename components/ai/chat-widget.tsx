@@ -1,7 +1,10 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Bot, ChevronDown, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { ChevronDown, Loader2, RotateCcw, Send, X } from 'lucide-react'
+import { CiroAvatar, CiroMark } from '@/components/ai/ciro-avatar'
+import { CIRO_PANELS, type CiroPanel } from '@/components/ai/ciro-panels'
+import { isCiroErrorCode, type CiroErrorCode } from '@/lib/ai/ciro-errors'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -10,24 +13,94 @@ interface Message {
   content: string
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── errores ─────────────────────────────────────────────────────────────────
 
-function parseSSEChunk(raw: string): string {
-  let text = ''
-  const lines = raw.split('\n')
-  for (const line of lines) {
-    if (!line.startsWith('data: ')) continue
-    const data = line.slice(6).trim()
-    if (data === '[DONE]') continue
-    try {
-      const json = JSON.parse(data)
-      const delta = json?.choices?.[0]?.delta?.content
-      if (typeof delta === 'string') text += delta
-    } catch {
-      // skip malformed chunks
+// Lo que dice Ciro cuando algo falla: que paso y que hacer, en su voz, sin
+// jerga tecnica. `retry`: si reintentar tiene sentido (con la clave mal o sin
+// credito, reintentar no arregla nada). `detail`: solo para el superadmin, para
+// poder diagnosticar sin entrar al servidor.
+const ERROR_COPY: Record<CiroErrorCode, { text: string; retry: boolean; detail?: string }> = {
+  unauthenticated: {
+    text: 'Tu sesión se cerró. Iniciá sesión de nuevo para seguir conversando.',
+    retry: false,
+  },
+  bad_request: {
+    text: 'Algo salió mal con tu mensaje. Probá de nuevo.',
+    retry: true,
+    detail: 'El widget mandó un pedido inválido (es un bug). Detalle en journalctl -u citify.',
+  },
+  context_failed: {
+    text: 'No pude leer tu información en este momento. Probá de nuevo en un rato.',
+    retry: true,
+    detail: 'Falló la lectura de la base para armar el contexto. Detalle en journalctl -u citify.',
+  },
+  not_configured: {
+    text: 'No estoy disponible en este momento. Probá más tarde.',
+    retry: false,
+    detail: 'Falta la clave de OpenRouter o es inválida: OPENROUTER_API_KEY en /etc/citify/app.env.',
+  },
+  credits_exhausted: {
+    text: 'No estoy disponible en este momento. Probá más tarde.',
+    retry: false,
+    detail: 'La clave de OpenRouter llegó a su límite de crédito. Subilo en openrouter.ai.',
+  },
+  refused: {
+    text: 'No puedo ayudarte con ese mensaje. Probá decirlo de otra forma.',
+    retry: false,
+  },
+  busy: {
+    text: 'Estoy con muchas consultas a la vez. Esperá unos segundos y probá de nuevo.',
+    retry: true,
+    detail: 'OpenRouter limitó la cantidad de pedidos (429).',
+  },
+  unavailable: {
+    text: 'No pude conectarme para responderte. Probá de nuevo en un momento.',
+    retry: true,
+    detail: 'OpenRouter no respondió o devolvió un error. Detalle en journalctl -u citify.',
+  },
+  interrupted: { text: 'Se cortó mi respuesta.', retry: true },
+  empty: { text: 'No me salió una respuesta. ¿Probamos de nuevo?', retry: true },
+  offline: { text: 'Parece que no tenés conexión. Revisala y probá de nuevo.', retry: true },
+}
+
+// ─── streaming ───────────────────────────────────────────────────────────────
+
+/**
+ * Lee el streaming SSE de la respuesta.
+ *
+ * Los fragmentos de red no respetan los limites de linea: una linea puede llegar
+ * partida en dos. Antes se parseaba cada fragmento por separado y la linea
+ * partida se descartaba como JSON invalido, asi que podian faltar palabras en la
+ * respuesta. Ahora lo incompleto queda en `pending` hasta que llega el resto.
+ */
+function createSSEParser() {
+  let pending = ''
+  return function feed(chunk: string): { text: string; error: CiroErrorCode | null } {
+    pending += chunk
+    const lines = pending.split('\n')
+    pending = lines.pop() ?? '' // la ultima puede estar incompleta
+    let text = ''
+    let error: CiroErrorCode | null = null
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue // incluye los ": OPENROUTER PROCESSING"
+      const data = line.slice(5).trim()
+      if (!data || data === '[DONE]') continue
+      try {
+        const json = JSON.parse(data)
+        if (json?.error) {
+          // El servidor manda { error: { code } } si el streaming se corta, y
+          // OpenRouter manda { error: { message } } si falla a mitad de camino.
+          error = isCiroErrorCode(json.error.code) ? json.error.code : 'interrupted'
+          continue
+        }
+        const delta = json?.choices?.[0]?.delta?.content
+        if (typeof delta === 'string') text += delta
+      } catch {
+        // Una linea completa que no es JSON: no deberia pasar. Se ignora.
+      }
     }
+    return { text, error }
   }
-  return text
 }
 
 // ─── inline markdown renderer ─────────────────────────────────────────────────
@@ -89,18 +162,12 @@ function renderInline(text: string): React.ReactNode {
 
 // ─── bubble ──────────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({ msg, active = false }: { msg: Message; active?: boolean }) {
   const isUser = msg.role === 'user'
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
-      {!isUser && (
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mr-2 mt-0.5"
-          style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
-        >
-          <Bot className="w-3.5 h-3.5 text-white" />
-        </div>
-      )}
+      {/* Mientras Ciro escribe esta respuesta, sus ondas laten. */}
+      {!isUser && <CiroAvatar size="sm" active={active} className="mr-2 mt-0.5" />}
       <div
         className={`max-w-[88%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed sm:max-w-[80%] ${
           isUser
@@ -116,13 +183,6 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 // ─── quick suggestions ────────────────────────────────────────────────────────
-
-const DEFAULT_SUGGESTIONS = [
-  '¿Qué cupones tengo disponibles?',
-  '¿Hay algo nuevo en el mercado vecinal?',
-  '¿Cuál es el estado de mis reclamos?',
-  '¿Qué promociones vencen pronto?',
-]
 
 function Suggestions({ onSelect, items }: { onSelect: (text: string) => void; items: string[] }) {
   return (
@@ -142,18 +202,17 @@ function Suggestions({ onSelect, items }: { onSelect: (text: string) => void; it
 
 // ─── main widget ──────────────────────────────────────────────────────────────
 
-export function ChatWidget({
-  suggestions = DEFAULT_SUGGESTIONS,
-  welcomeText = 'Puedo responder preguntas sobre tus cupones, el mercado vecinal, tus reclamos y más.',
-}: {
-  suggestions?: string[]
-  welcomeText?: string
-} = {}) {
+/**
+ * Ciro. `panel` define la bienvenida y las sugerencias (components/ai/ciro-panels.ts):
+ * cada panel ofrece solo lo que Ciro puede contestar con los datos de ese rol.
+ */
+export function ChatWidget({ panel }: { panel: CiroPanel }) {
+  const { welcome: welcomeText, suggestions } = CIRO_PANELS[panel]
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<CiroErrorCode | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -169,61 +228,72 @@ export function ChatWidget({
     }
   }, [open])
 
-  async function sendMessage(text?: string) {
-    const content = (text ?? input).trim()
-    if (!content || isStreaming) return
-
-    setInput('')
+  // Pide la respuesta para `history` (que termina en un mensaje de la persona) y
+  // la va escribiendo a medida que llega.
+  async function requestReply(history: Message[]) {
     setError(null)
-
-    const userMsg: Message = { role: 'user', content }
-    const updatedMessages = [...messages, userMsg]
-    setMessages(updatedMessages)
     setIsStreaming(true)
+    setMessages([...history, { role: 'assistant', content: '' }])
 
-    // Placeholder assistant message that we'll stream into
-    const assistantPlaceholder: Message = { role: 'assistant', content: '' }
-    setMessages((prev) => [...prev, assistantPlaceholder])
+    let accumulated = ''
+    let failure: CiroErrorCode | null = null
 
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({ messages: history }),
       })
 
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        throw new Error(json.error ?? 'Error del servidor.')
-      }
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => null)
+        failure = isCiroErrorCode(json?.code) ? json.code : 'unavailable'
+      } else {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        const feed = createSSEParser()
 
-      if (!res.body) throw new Error('Sin respuesta.')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let accumulated = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        const delta = parseSSEChunk(chunk)
-        if (delta) {
-          accumulated += delta
-          setMessages((prev) => {
-            const copy = [...prev]
-            copy[copy.length - 1] = { role: 'assistant', content: accumulated }
-            return copy
-          })
+        for (let done = false; !done; ) {
+          const step = await reader.read()
+          done = step.done
+          // Al terminar se fuerza un salto de linea para procesar la ultima linea.
+          const parsed = feed(done ? decoder.decode() + '\n' : decoder.decode(step.value, { stream: true }))
+          if (parsed.error) failure = parsed.error
+          if (parsed.text) {
+            accumulated += parsed.text
+            const content = accumulated
+            setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content }])
+          }
         }
+
+        if (!failure && accumulated.trim() === '') failure = 'empty'
       }
-    } catch (err: any) {
-      setError(err?.message ?? 'Ocurrió un error. Intentá de nuevo.')
-      // Remove the empty assistant placeholder on error
-      setMessages((prev) => prev.filter((_, i) => i !== prev.length - 1))
+    } catch {
+      // fetch o la lectura tiraron: o no hay conexion, o se corto en el medio.
+      failure = navigator.onLine === false ? 'offline' : 'interrupted'
     } finally {
+      // "Se corto mi respuesta" solo tiene sentido si algo llego.
+      if (failure === 'interrupted' && !accumulated) failure = 'unavailable'
+      // Si no llego nada se saca la respuesta vacia. Si llego algo se deja: media
+      // respuesta sirve mas que ninguna, y el error avisa que se corto.
+      if (!accumulated) setMessages((prev) => prev.slice(0, -1))
+      setError(failure)
       setIsStreaming(false)
     }
+  }
+
+  function sendMessage(text?: string) {
+    const content = (text ?? input).trim()
+    if (!content || isStreaming) return
+    setInput('')
+    requestReply([...messages, { role: 'user', content }])
+  }
+
+  // Reintenta la ultima pregunta. Si habia quedado media respuesta, se descarta.
+  function retry() {
+    const lastUser = messages.map((m) => m.role).lastIndexOf('user')
+    if (lastUser === -1 || isStreaming) return
+    requestReply(messages.slice(0, lastUser + 1))
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -241,18 +311,11 @@ export function ChatWidget({
       <button
         id="ai-chat-toggle"
         onClick={() => setOpen((v) => !v)}
-        aria-label="Abrir asistente IA"
-        className="fixed bottom-24 right-3 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-all hover:scale-110 active:scale-95 sm:right-4"
-        style={{
-          background: 'linear-gradient(135deg, #F04E23, #C73E15)',
-          boxShadow: '0 8px 32px rgba(199, 62, 21,0.45)',
-        }}
+        aria-label={open ? 'Cerrar el chat con Ciro' : 'Hablar con Ciro'}
+        className="fixed bottom-24 right-3 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--citify-terracotta)] text-white transition-all hover:scale-110 active:scale-95 sm:right-4"
+        style={{ boxShadow: '0 0 0 1px rgba(199, 62, 21, 0.18), 0 8px 32px rgba(199, 62, 21, 0.4)' }}
       >
-        {open ? (
-          <ChevronDown className="w-6 h-6 text-white" />
-        ) : (
-          <Sparkles className="w-6 h-6 text-white" />
-        )}
+        {open ? <ChevronDown className="h-6 w-6" /> : <CiroMark className="h-8 w-8" active={isStreaming} />}
       </button>
 
       {/* ── Chat panel ──────────────────────────────────────────────────────── */}
@@ -268,12 +331,10 @@ export function ChatWidget({
           style={{ background: 'linear-gradient(135deg, #F04E23, #C73E15)' }}
         >
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-              <Bot className="w-4 h-4 text-white" />
-            </div>
+            <CiroAvatar size="md" active={isStreaming} />
             <div>
-              <p className="text-white font-semibold text-sm leading-tight">Asistente Citify</p>
-              <p className="text-white/70 text-xs">Powered by IA</p>
+              <p className="font-display text-base font-semibold leading-tight text-white">Ciro</p>
+              <p className="text-xs text-white/70">de Citify</p>
             </div>
           </div>
           <button
@@ -289,14 +350,9 @@ export function ChatWidget({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {isEmpty && (
             <div className="flex h-full flex-col items-center justify-center gap-3 pb-4 text-center">
-              <div
-                className="flex h-14 w-14 items-center justify-center rounded-2xl"
-                style={{ background: 'linear-gradient(135deg, rgba(240, 78, 35,0.15), rgba(199, 62, 21,0.1))' }}
-              >
-                <Sparkles className="w-7 h-7 text-primary" />
-              </div>
+              <CiroAvatar size="lg" />
               <div>
-                <p className="font-semibold text-foreground text-sm">¡Hola! Soy tu asistente</p>
+                <p className="font-display text-base font-semibold text-foreground">¡Hola! Soy Ciro</p>
                 <p className="text-muted-foreground text-xs mt-1 leading-relaxed">
                   {welcomeText}
                 </p>
@@ -304,20 +360,49 @@ export function ChatWidget({
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} msg={msg} />
-          ))}
+          {messages.map((msg, i) => {
+            const isLast = i === messages.length - 1
+            // La respuesta vacia es el lugar donde va a llegar el texto: mientras
+            // no llega nada se muestra "Ciro esta pensando", no una burbuja vacia.
+            if (msg.role === 'assistant' && msg.content === '') return null
+            return <MessageBubble key={i} msg={msg} active={isStreaming && isLast} />
+          })}
 
           {isStreaming && messages[messages.length - 1]?.content === '' && (
-            <div className="flex items-center gap-2 ml-9 mb-3">
-              <Loader2 className="w-4 h-4 text-primary animate-spin" />
-              <span className="text-xs text-muted-foreground">Pensando...</span>
+            <div className="mb-3 flex items-center gap-2">
+              <CiroAvatar size="sm" active />
+              <span className="text-xs text-muted-foreground">Ciro está pensando…</span>
             </div>
           )}
 
+          {/* El error lo dice Ciro, en su burbuja: que paso y que hacer. */}
           {error && (
-            <div className="mx-1 mb-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
+            <div className="mb-3 flex justify-start">
+              <CiroAvatar size="sm" className="mr-2 mt-0.5" />
+              <div className="max-w-[88%] rounded-2xl rounded-tl-sm border border-dashed border-border bg-muted/40 px-3.5 py-2.5 text-sm leading-relaxed text-foreground sm:max-w-[80%]">
+                <p>{ERROR_COPY[error].text}</p>
+                {panel === 'superadmin' && ERROR_COPY[error].detail && (
+                  <p className="mt-1 text-xs text-muted-foreground">{ERROR_COPY[error].detail}</p>
+                )}
+                {error === 'unauthenticated' ? (
+                  <a
+                    href="/login"
+                    className="mt-2 inline-flex text-xs font-semibold text-[var(--citify-terracotta-dark)] hover:underline dark:text-[var(--citify-terracotta)]"
+                  >
+                    Iniciar sesión
+                  </a>
+                ) : (
+                  ERROR_COPY[error].retry && (
+                    <button
+                      onClick={retry}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--citify-terracotta-dark)] hover:underline dark:text-[var(--citify-terracotta)]"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Reintentar
+                    </button>
+                  )
+                )}
+              </div>
             </div>
           )}
 
@@ -337,7 +422,7 @@ export function ChatWidget({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Escribí tu pregunta..."
+            placeholder="Escribile a Ciro…"
             rows={1}
             disabled={isStreaming}
             className="max-h-28 flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"

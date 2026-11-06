@@ -101,15 +101,7 @@ export async function IAdminShell({
         </div>
       </div>
 
-      <ChatWidget
-        suggestions={[
-          '¿Cuántos vecinos registrados hay?',
-          '¿Qué expedientes están activos?',
-          '¿Cuál es la ocupación de los edificios?',
-          '¿Qué edificios tengo a cargo?',
-        ]}
-        welcomeText="Puedo responder preguntas sobre tus edificios, vecinos y expedientes."
-      />
+      <ChatWidget panel="administracion" />
     </>
   )
 }
